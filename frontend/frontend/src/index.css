@@ -1,0 +1,9 @@
+@import 'tailwindcss';
+
+/* Leaflet fills the map panel */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #0f172a;
+  border-radius: inherit;
+}

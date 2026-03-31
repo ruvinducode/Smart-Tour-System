@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 160" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="c-sky" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#312e81"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="c-body" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="40%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#5b21b6"/>
+    </linearGradient>
+    <linearGradient id="c-hood" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#c4b5fd"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <filter id="c-glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="3" stdDeviation="8" flood-color="#7c3aed" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="280" height="160" fill="url(#c-sky)"/>
+  <ellipse cx="140" cy="130" rx="88" ry="11" fill="#020617" opacity="0.4"/>
+  <g filter="url(#c-glow)">
+    <path d="M32 84h216c10 0 18-8 18-18V68c0-14-12-26-26-26H40c-14 0-26 12-26 26v-2c0 10 8 18 18 18z" fill="url(#c-body)"/>
+    <path d="M42 44h100c8 0 16 5 20 13l14 35H38l4-35c2-8 10-13 18-13z" fill="url(#c-hood)" opacity="0.95"/>
+    <path d="M150 48h78c6 0 12 5 14 12l10 32H142l8-32c2-7 8-12 16-12z" fill="#6d28d9" opacity="0.85"/>
+    <path d="M48 48h32l-6-14H50l-2 14z" fill="#ddd6fe" opacity="0.4"/>
+    <circle cx="72" cy="102" r="16" fill="#0f172a" stroke="#64748b" stroke-width="2.5"/>
+    <circle cx="72" cy="102" r="7" fill="#334155"/>
+    <circle cx="72" cy="102" r="3" fill="#94a3b8"/>
+    <circle cx="208" cy="102" r="16" fill="#0f172a" stroke="#64748b" stroke-width="2.5"/>
+    <circle cx="208" cy="102" r="7" fill="#334155"/>
+    <circle cx="208" cy="102" r="3" fill="#94a3b8"/>
+    <path d="M118 58h44v8h-44z" fill="#1e1b4b" opacity="0.35" rx="1"/>
+  </g>
+</svg>

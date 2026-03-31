@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 160" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="mc-sky" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a5f"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="mc-body" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="50%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+    <linearGradient id="mc-glass" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#94a3b8"/>
+      <stop offset="100%" stop-color="#475569"/>
+    </linearGradient>
+    <filter id="mc-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect width="280" height="160" fill="url(#mc-sky)"/>
+  <ellipse cx="140" cy="128" rx="72" ry="10" fill="#020617" opacity="0.35"/>
+  <g filter="url(#mc-shadow)">
+    <path d="M48 88h184c8 0 14-6 14-14V72c0-12-10-22-22-22H56c-12 0-22 10-22 22v2c0 8 6 14 14 14z" fill="url(#mc-body)"/>
+    <path d="M58 52h120c6 0 12 4 14 10l8 22H52l6-22c2-6 8-10 14-10z" fill="url(#mc-glass)" opacity="0.9"/>
+    <path d="M62 56h36l-4-12h-24l-8 12z" fill="#e0f2fe" opacity="0.35"/>
+    <circle cx="78" cy="98" r="14" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+    <circle cx="78" cy="98" r="6" fill="#475569"/>
+    <circle cx="202" cy="98" r="14" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+    <circle cx="202" cy="98" r="6" fill="#475569"/>
+    <path d="M168 70h32l4 10h-40l4-10z" fill="#0c4a6e" opacity="0.5"/>
+  </g>
+  <circle cx="230" cy="38" r="3" fill="#fef3c7" opacity="0.9"/>
+</svg>
