@@ -1,5 +1,5 @@
 from app import create_app, db
-from app.models import Vehicle, User
+from app.models import Vehicle, User, Driver
 from werkzeug.security import generate_password_hash
 
 app = create_app()
@@ -51,7 +51,7 @@ with app.app_context():
         admin = User(
             full_name="Admin",
             email=admin_email,
-            password=generate_password_hash("admin123"),
+            password=generate_password_hash("admin123", method='pbkdf2:sha256'),
             role="admin",   #  IMPORTANT
             is_active=True
         )
@@ -74,7 +74,7 @@ with app.app_context():
         sample_user = User(
             full_name="Sample User",
             email=user_email,
-            password=generate_password_hash("user123"),
+            password=generate_password_hash("user123", method='pbkdf2:sha256'),
             role="user",   # Regular user
             is_active=True,
             phone="+94771234567",
@@ -89,10 +89,40 @@ with app.app_context():
         print(" Sample user already exists, skipping...")
 
     # =========================
+    #  SEED SAMPLE DRIVER
+    # =========================
+    driver_email = "driver@gmail.com"
+
+    existing_driver = Driver.query.filter_by(email=driver_email).first()
+
+    if not existing_driver:
+        sample_driver = Driver(
+            full_name="Sample Driver",
+            email=driver_email,
+            password=generate_password_hash("driver123", method='pbkdf2:sha256'),
+            phone="+94771234568",
+            license_number="DL-12345",
+            vehicle_number="WP-AB-1234",
+            vehicle_type="Car",
+            capacity=4,
+            is_approved=True,
+            is_available=True
+        )
+
+        db.session.add(sample_driver)
+        db.session.commit()
+
+        print(" Sample driver created successfully!")
+    else:
+        print(" Sample driver already exists, skipping...")
+
+    # =========================
     # DEBUG OUTPUT
     # =========================
     vehicles = Vehicle.query.all()
     users = User.query.all()
+    drivers = Driver.query.all()
 
-    print("Vehicles in DB:", vehicles)
-    print("Users in DB:", users)
+    print("Vehicles in DB:", len(vehicles))
+    print("Users in DB:", len(users))
+    print("Drivers in DB:", len(drivers))

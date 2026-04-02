@@ -161,6 +161,7 @@ class Notification(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
     recipient_email = db.Column(db.String(120))
+    tour_id = db.Column(db.Integer, db.ForeignKey("tour_plan.id"), nullable=True)
     subject = db.Column(db.String(200))
     message = db.Column(db.Text)
 

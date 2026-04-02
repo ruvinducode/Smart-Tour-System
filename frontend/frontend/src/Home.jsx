@@ -12,6 +12,7 @@ import {
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
+import appLogo from '../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 
 // Custom CSS animations for video hero section
 const customStyles = `
@@ -152,7 +153,7 @@ function MapClickHandler({ onLocationAdd }) {
   return null
 }
 
-export default function Home({ onLogout, userName, onBackToHome }) {
+export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip }) {
   useLeafletDefaultIcon()
 
   const listId = useId()
@@ -336,9 +337,9 @@ export default function Home({ onLogout, userName, onBackToHome }) {
   }, [calculateEstimatedPrice])
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-linear-to-br from-sky-100 via-orange-50 to-sky-50">
       {/* MODERN VIDEO HERO SECTION */}
-      <section className="relative h-96 overflow-hidden">
+      <section className="relative h-104 overflow-hidden border-b border-white/30">
         {/* Background Video */}
         <video
           className="absolute inset-0 w-full h-full object-cover"
@@ -349,11 +350,11 @@ export default function Home({ onLogout, userName, onBackToHome }) {
         >
           <source src="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4" type="video/mp4" />
           {/* Fallback for browsers that don't support video */}
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-emerald-600"></div>
+          <div className="absolute inset-0 bg-linear-to-r from-sky-500 to-orange-500"></div>
         </video>
         
         {/* Dark Overlay for Readability */}
-        <div className="absolute inset-0 bg-black/50"></div>
+        <div className="absolute inset-0 bg-linear-to-b from-slate-900/50 via-slate-900/35 to-slate-900/55"></div>
         
         {/* Hero Content */}
         <div className="relative z-10 h-full flex items-center justify-center">
@@ -372,9 +373,9 @@ export default function Home({ onLogout, userName, onBackToHome }) {
             <div className="animate-fade-in-up" style={{ animationDelay: '400ms' }}>
               <button
                 onClick={() => window.scrollTo({ top: window.innerHeight * 0.8, behavior: 'smooth' })}
-                className="group relative px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-full 
-                         transform transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-blue-500/25
-                         focus:outline-none focus:ring-4 focus:ring-blue-500/50"
+                className="group relative px-8 py-4 bg-linear-to-r from-orange-500 to-sky-600 text-white font-semibold rounded-full 
+                         transform transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-orange-500/30
+                         focus:outline-none focus:ring-4 focus:ring-orange-400/50"
               >
                 <span className="relative z-10 flex items-center gap-2">
                   <i className="bi bi-compass"></i>
@@ -382,7 +383,7 @@ export default function Home({ onLogout, userName, onBackToHome }) {
                   <i className="bi bi-arrow-right"></i>
                 </span>
                 {/* Button shine effect */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent 
+                <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/20 to-transparent 
                         transform -skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
               </button>
             </div>
@@ -399,22 +400,32 @@ export default function Home({ onLogout, userName, onBackToHome }) {
       </section>
 
       {/* NAVBAR */}
-      <header className="sticky top-0 z-50 bg-white shadow-md">
+      <header className="sticky top-0 z-50 border-b border-sky-100 bg-white/85 shadow-md backdrop-blur-md">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
+              <img src={appLogo} alt="Smart Tour logo" className="h-10 w-10 rounded-xl border border-sky-200 object-cover shadow-sm" />
               {onBackToHome && (
                 <button
                   type="button"
                   onClick={onBackToHome}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-all duration-200 hover:border-gray-400 hover:bg-gray-50 hover:shadow-md"
+                  className="rounded-lg border border-sky-200 bg-white px-4 py-2 text-sm font-medium text-sky-800 transition-all duration-200 hover:border-sky-300 hover:bg-sky-50 hover:shadow-md"
                 >
                   ← Back to Home
                 </button>
               )}
-              <h1 className="text-2xl font-bold text-gray-900">Smart Tour</h1>
+              {onGoToPlanTrip && (
+                <button
+                  type="button"
+                  onClick={onGoToPlanTrip}
+                  className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white transition-all duration-200 hover:bg-orange-600 hover:shadow-md"
+                >
+                  Plan Trip
+                </button>
+              )}
+              <h1 className="text-2xl font-bold text-slate-900">Smart Tour</h1>
               {userName && (
-                <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
+                <span className="rounded-full bg-sky-100 px-3 py-1 text-sm font-medium text-sky-800">
                   {userName}
                 </span>
               )}
@@ -431,21 +442,21 @@ export default function Home({ onLogout, userName, onBackToHome }) {
       </header>
 
       {/* PROGRESS STEPS */}
-      <div className="bg-white border-b">
+      <div className="border-b border-sky-100 bg-white/80 backdrop-blur-sm">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-6">
           <div className="flex items-center justify-between">
             {/* Step 1 */}
             <div className="flex items-center">
               <div className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold ${
                 currentStep >= 1 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-300 text-gray-600'
+                  ? 'bg-orange-500 text-white' 
+                  : 'bg-slate-300 text-slate-600'
               }`}>
                 1
               </div>
               <div className="ml-3">
                 <p className={`text-sm font-medium ${
-                  currentStep >= 1 ? 'text-blue-600' : 'text-gray-500'
+                  currentStep >= 1 ? 'text-orange-600' : 'text-slate-500'
                 }`}>
                   Select Locations
                 </p>
@@ -455,21 +466,21 @@ export default function Home({ onLogout, userName, onBackToHome }) {
 
             {/* Connector */}
             <div className={`flex-1 h-1 mx-4 ${
-              currentStep >= 2 ? 'bg-blue-600' : 'bg-gray-300'
+              currentStep >= 2 ? 'bg-orange-500' : 'bg-slate-300'
             }`} />
 
             {/* Step 2 */}
             <div className="flex items-center">
               <div className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold ${
                 currentStep >= 2 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-300 text-gray-600'
+                  ? 'bg-orange-500 text-white' 
+                  : 'bg-slate-300 text-slate-600'
               }`}>
                 2
               </div>
               <div className="ml-3">
                 <p className={`text-sm font-medium ${
-                  currentStep >= 2 ? 'text-blue-600' : 'text-gray-500'
+                  currentStep >= 2 ? 'text-orange-600' : 'text-slate-500'
                 }`}>
                   Choose Vehicle
                 </p>
@@ -479,21 +490,21 @@ export default function Home({ onLogout, userName, onBackToHome }) {
 
             {/* Connector */}
             <div className={`flex-1 h-1 mx-4 ${
-              currentStep >= 3 ? 'bg-blue-600' : 'bg-gray-300'
+              currentStep >= 3 ? 'bg-orange-500' : 'bg-slate-300'
             }`} />
 
             {/* Step 3 */}
             <div className="flex items-center">
               <div className={`flex items-center justify-center w-10 h-10 rounded-full font-semibold ${
                 currentStep >= 3 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-300 text-gray-600'
+                  ? 'bg-orange-500 text-white' 
+                  : 'bg-slate-300 text-slate-600'
               }`}>
                 3
               </div>
               <div className="ml-3">
                 <p className={`text-sm font-medium ${
-                  currentStep >= 3 ? 'text-blue-600' : 'text-gray-500'
+                  currentStep >= 3 ? 'text-orange-600' : 'text-slate-500'
                 }`}>
                   Create Tour
                 </p>
@@ -554,7 +565,7 @@ export default function Home({ onLogout, userName, onBackToHome }) {
 
             {/* MAP CONTAINER */}
             <div className="bg-white rounded-2xl shadow-lg p-4 mb-8">
-              <div className="h-[60vh] min-h-[500px] max-w-7xl mx-auto overflow-hidden rounded-xl">
+              <div className="h-[60vh] min-h-125 max-w-7xl mx-auto overflow-hidden rounded-xl">
                 <MapContainer
                   center={SRI_LANKA_CENTER}
                   zoom={DEFAULT_ZOOM}
@@ -610,7 +621,7 @@ export default function Home({ onLogout, userName, onBackToHome }) {
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {locations.map((loc, index) => (
-                    <div key={loc.id} className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200 hover:shadow-md transition-shadow">
+                    <div key={loc.id} className="bg-linear-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200 hover:shadow-md transition-shadow">
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
@@ -676,7 +687,7 @@ export default function Home({ onLogout, userName, onBackToHome }) {
                 <button
                   type="button"
                   onClick={() => setCurrentStep(2)}
-                  className="rounded-lg bg-blue-600 px-8 py-3 text-sm font-medium text-white transition-all duration-200 hover:bg-blue-700 hover:shadow-lg"
+                  className="rounded-lg bg-orange-500 px-8 py-3 text-sm font-medium text-white transition-all duration-200 hover:bg-orange-600 hover:shadow-lg"
                 >
                   Next: Choose Vehicle →
                 </button>
@@ -697,13 +708,13 @@ export default function Home({ onLogout, userName, onBackToHome }) {
               
               {/* REAL-TIME PRICE DISPLAY */}
               {selectedVehicle && (
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-6 mb-6 border border-blue-200 max-w-md mx-auto">
+                <div className="bg-linear-to-r from-sky-50 to-orange-50 rounded-2xl p-6 mb-6 border border-sky-200 max-w-md mx-auto">
                   <div className="text-center">
                     <div className="text-sm text-gray-600 mb-2">
                       <i className="bi bi-currency-dollar me-1"></i>
                       Estimated Price
                     </div>
-                    <div className="text-3xl font-bold text-blue-600 mb-2">
+                    <div className="text-3xl font-bold text-orange-600 mb-2">
                       ${estimatedPrice?.usd || 0} USD
                     </div>
                     <div className="text-xl font-semibold text-green-600 mb-2">
@@ -741,8 +752,8 @@ export default function Home({ onLogout, userName, onBackToHome }) {
                     Premium fleet visuals — tap a card to set pricing and driver matching for your route.
                   </p>
                 </div>
-                <div className="bg-blue-100 rounded-lg px-4 py-2">
-                  <p className="text-sm font-medium text-blue-800">
+                <div className="bg-sky-100 rounded-lg px-4 py-2">
+                  <p className="text-sm font-medium text-sky-800">
                     Active: <span className="font-bold">{selectedVehicle || 'None selected'}</span>
                   </p>
                 </div>
@@ -762,12 +773,12 @@ export default function Home({ onLogout, userName, onBackToHome }) {
                         'group relative flex flex-col overflow-hidden rounded-xl text-left transition-all duration-300 p-4 border-2',
                         'focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2',
                         selected
-                          ? 'border-blue-500 bg-blue-50 shadow-xl'
-                          : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-lg',
+                          ? 'border-orange-400 bg-orange-50 shadow-xl'
+                          : 'border-gray-200 bg-white hover:border-sky-300 hover:shadow-lg',
                       ].join(' ')}
                     >
                       {selected && (
-                        <span className="absolute top-2 right-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-blue-500 text-white text-xs font-bold">
+                        <span className="absolute top-2 right-2 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-orange-500 text-white text-xs font-bold">
                           ✓
                         </span>
                       )}
@@ -872,7 +883,7 @@ export default function Home({ onLogout, userName, onBackToHome }) {
                 <button
                   type="button"
                   onClick={() => setCurrentStep(3)}
-                  className="rounded-lg bg-blue-600 px-8 py-3 text-sm font-medium text-white transition-all duration-200 hover:bg-blue-700 hover:shadow-lg"
+                  className="rounded-lg bg-orange-500 px-8 py-3 text-sm font-medium text-white transition-all duration-200 hover:bg-orange-600 hover:shadow-lg"
                 >
                   Next: Review Tour →
                 </button>
@@ -940,14 +951,14 @@ export default function Home({ onLogout, userName, onBackToHome }) {
               </div>
 
               {/* PRICE ESTIMATE */}
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl shadow-lg p-6 border border-blue-200">
+              <div className="bg-linear-to-br from-sky-50 to-orange-50 rounded-2xl shadow-lg p-6 border border-sky-200">
                 <h3 className="text-xl font-bold text-gray-900 mb-4">
                   <i className="bi bi-currency-dollar me-2"></i>
                   Price & Duration Estimate
                 </h3>
                 <div className="space-y-4">
                   <div className="text-center">
-                    <div className="text-3xl font-bold text-blue-600 mb-2">
+                    <div className="text-3xl font-bold text-orange-600 mb-2">
                       ${estimatedPrice?.usd || 0} USD
                     </div>
                     <div className="text-xl font-semibold text-green-600 mb-2">
@@ -997,7 +1008,7 @@ export default function Home({ onLogout, userName, onBackToHome }) {
 
             {/* BOOKING CONFIRMATION */}
             {bookingConfirmed && (
-              <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl p-6 mb-6 border border-green-200">
+              <div className="bg-linear-to-r from-green-50 to-emerald-50 rounded-2xl p-6 mb-6 border border-green-200">
                 <div className="text-center">
                   <div className="text-2xl font-bold text-green-800 mb-2">
                     <i className="bi bi-check-circle me-2"></i>
@@ -1047,7 +1058,7 @@ export default function Home({ onLogout, userName, onBackToHome }) {
                   type="button"
                   onClick={createTour}
                   disabled={loading || locations.length === 0 || !selectedVehicle}
-                  className="rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 px-8 py-4 text-sm font-medium text-white transition-all duration-200 hover:from-green-700 hover:to-emerald-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-40 flex items-center gap-2"
+                  className="rounded-lg bg-linear-to-r from-green-600 to-emerald-600 px-8 py-4 text-sm font-medium text-white transition-all duration-200 hover:from-green-700 hover:to-emerald-700 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-40 flex items-center gap-2"
                 >
                   {loading ? (
                     <>
