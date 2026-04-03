@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 160" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="mb-sky" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#4c1d95"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="mb-body" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#7e22ce"/>
+    </linearGradient>
+    <linearGradient id="mb-win" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#e9d5ff"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+    <filter id="mb-ds" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="280" height="160" fill="url(#mb-sky)"/>
+  <ellipse cx="140" cy="128" rx="100" ry="11" fill="#020617" opacity="0.4"/>
+  <g filter="url(#mb-ds)">
+    <rect x="16" y="44" width="248" height="56" rx="8" fill="url(#mb-body)"/>
+    <rect x="24" y="52" width="36" height="36" rx="4" fill="url(#mb-win)" opacity="0.85"/>
+    <rect x="66" y="52" width="36" height="36" rx="4" fill="url(#mb-win)" opacity="0.75"/>
+    <rect x="108" y="52" width="36" height="36" rx="4" fill="url(#mb-win)" opacity="0.65"/>
+    <rect x="150" y="52" width="36" height="36" rx="4" fill="url(#mb-win)" opacity="0.55"/>
+    <rect x="192" y="52" width="36" height="36" rx="4" fill="url(#mb-win)" opacity="0.45"/>
+    <rect x="234" y="52" width="22" height="36" rx="4" fill="#581c87" opacity="0.9"/>
+    <path d="M16 88h248v8c0 8-6 14-14 14H30c-8 0-14-6-14-14V88z" fill="#6b21a8"/>
+    <circle cx="48" cy="118" r="14" fill="#0f172a" stroke="#64748b" stroke-width="2"/>
+    <circle cx="48" cy="118" r="6" fill="#334155"/>
+    <circle cx="232" cy="118" r="14" fill="#0f172a" stroke="#64748b" stroke-width="2"/>
+    <circle cx="232" cy="118" r="6" fill="#334155"/>
+    <path d="M20 100h240v4H20z" fill="#3b0764" opacity="0.5"/>
+  </g>
+</svg>
