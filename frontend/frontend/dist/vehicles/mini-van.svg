@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 160" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="mv-sky" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#134e4a"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="mv-body" x1="0%" y1="0%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#5eead4"/>
+      <stop offset="50%" stop-color="#14b8a6"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="mv-window" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ccfbf1"/>
+      <stop offset="100%" stop-color="#5eead4"/>
+    </linearGradient>
+    <filter id="mv-sh" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <rect width="280" height="160" fill="url(#mv-sky)"/>
+  <ellipse cx="140" cy="128" rx="82" ry="10" fill="#020617" opacity="0.38"/>
+  <g filter="url(#mv-sh)">
+    <path d="M36 52h208c12 0 22 10 22 22v22c0 8-6 14-14 14H28c-8 0-14-6-14-14V74c0-12 10-22 22-22z" fill="url(#mv-body)"/>
+    <rect x="48" y="36" width="52" height="36" rx="4" fill="url(#mv-window)" opacity="0.85"/>
+    <rect x="108" y="36" width="92" height="36" rx="4" fill="#115e59" opacity="0.6"/>
+    <rect x="116" y="42" width="28" height="24" rx="2" fill="#99f6e4" opacity="0.25"/>
+    <rect x="150" y="42" width="28" height="24" rx="2" fill="#99f6e4" opacity="0.25"/>
+    <path d="M200 40h44l8 32h-52l-8-32c0-4 4-8 8-8z" fill="#0f766e"/>
+    <circle cx="68" cy="108" r="15" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+    <circle cx="68" cy="108" r="6" fill="#334155"/>
+    <circle cx="212" cy="108" r="15" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+    <circle cx="212" cy="108" r="6" fill="#334155"/>
+    <path d="M52 88h176v6H52z" fill="#042f2e" opacity="0.4"/>
+  </g>
+</svg>
