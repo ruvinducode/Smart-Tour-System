@@ -11,6 +11,12 @@ import { calculateTourEstimate, getApiBaseUrl, loginDriver, loginUser } from './
 
 const API_BASE_URL = getApiBaseUrl()
 
+function canUseUrlHistory() {
+  if (typeof window === 'undefined') return false
+  const protocol = window.location?.protocol || ''
+  return protocol === 'http:' || protocol === 'https:'
+}
+
 function getRoleFromToken(token) {
   if (!token) return ''
   try {
@@ -44,7 +50,7 @@ export default function App() {
 
   const setPublicView = useCallback((view, push = true) => {
     setPublicPage(view)
-    if (typeof window === 'undefined') return
+    if (!canUseUrlHistory()) return
 
     const url = new URL(window.location.href)
     if (view === 'landing') url.searchParams.delete('view')
@@ -58,7 +64,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
+    if (!canUseUrlHistory()) return
 
     const normalizePublicView = (view) => {
       if (view === 'login') return 'login'
@@ -67,8 +73,12 @@ export default function App() {
     }
 
     const getViewFromLocation = () => {
-      const url = new URL(window.location.href)
-      return normalizePublicView(url.searchParams.get('view'))
+      try {
+        const url = new URL(window.location.href)
+        return normalizePublicView(url.searchParams.get('view'))
+      } catch {
+        return 'landing'
+      }
     }
 
     const initialView = getViewFromLocation()
