@@ -47,18 +47,37 @@ class Driver(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
 
+    # ── Personal Info ──────────────────────────────
     full_name = db.Column(db.String(150), nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=True)
     password = db.Column(db.String(255), nullable=False)
 
     phone = db.Column(db.String(20), nullable=False)
 
-    license_number = db.Column(db.String(100))
-    vehicle_number = db.Column(db.String(50))
+    nic_number = db.Column(db.String(20), unique=True, nullable=True)
+    date_of_birth = db.Column(db.Date, nullable=True)
+    gender = db.Column(db.String(10), nullable=True)       # Male / Female / Other
+    home_district = db.Column(db.String(100), nullable=True)
+    home_address = db.Column(db.Text, nullable=True)
+    profile_photo = db.Column(db.String(255), nullable=True)
 
-    vehicle_type = db.Column(db.String(50))
-    capacity = db.Column(db.Integer)
+    # ── License Info ───────────────────────────────
+    license_number = db.Column(db.String(100), nullable=True)
+    license_expiry_date = db.Column(db.Date, nullable=True)
+    license_front_image = db.Column(db.String(255), nullable=True)
+    license_back_image = db.Column(db.String(255), nullable=True)
 
+    # ── Vehicle Info ───────────────────────────────
+    vehicle_type = db.Column(db.String(50), nullable=True)
+    vehicle_brand = db.Column(db.String(100), nullable=True)
+    vehicle_number = db.Column(db.String(50), nullable=True)
+    vehicle_color = db.Column(db.String(50), nullable=True)
+    capacity = db.Column(db.Integer, nullable=True)
+    vehicle_reg_book_image = db.Column(db.String(255), nullable=True)
+    revenue_license_image = db.Column(db.String(255), nullable=True)
+    insurance_cert_image = db.Column(db.String(255), nullable=True)
+
+    # ── Location & Status ──────────────────────────
     current_location_lat = db.Column(db.Float)
     current_location_lng = db.Column(db.Float)
 
@@ -111,6 +130,12 @@ class TourPlan(db.Model):
     status = db.Column(db.String(50), default="planned")
 
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    
+    driver_lat = db.Column(db.Float, nullable=True)
+
+    driver_lng = db.Column(db.Float, nullable=True)
+
+    last_location_update = db.Column(db.DateTime, nullable=True)
 
 
 # =========================

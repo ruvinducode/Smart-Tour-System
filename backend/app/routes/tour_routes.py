@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app import db
-from app.models import TourPlan, Vehicle, Location
+from app.models import TourPlan, Vehicle, Location, Booking, User, Notification, Driver
 
 from datetime import datetime
 
@@ -39,7 +39,6 @@ def calculate_tour():
     price_per_day = vehicle.price_per_day or 0
 
     total_price = (
-        base_fare +
         (total_distance * price_per_km) +
         (total_days * price_per_day)
     )
@@ -111,7 +110,6 @@ def create_tour():
 
     # PRICE CALCULATION
     total_price = (
-        base_fare +
         (total_distance_km * price_per_km) +
         (total_days * price_per_day)
     )
@@ -233,3 +231,222 @@ def get_tour_details(tour_id):
     except Exception as e:
         app.logger.error(f"Error fetching tour details: {str(e)}")
         return jsonify({"message": "Error fetching tour details"}), 500
+
+
+# =========================
+# USER: ACCEPT DRIVER PRICE
+# =========================
+@tour_bp.route("/<int:tour_id>/accept-price", methods=["PUT"])
+@jwt_required()
+def accept_driver_price(tour_id):
+    try:
+        raw_id = get_jwt_identity()
+        user_id = int(raw_id) if raw_id is not None else None
+
+        tour = TourPlan.query.get(tour_id)
+        if not tour or tour.user_id != user_id:
+            return jsonify({"message": "Tour not found or unauthorized"}), 404
+
+        if tour.status != "price_sent_by_driver":
+            return jsonify({"message": "Invalid status for accepting price"}), 400
+
+        # Query Booking table to find driver assignment
+        booking = Booking.query.filter_by(tour_id=tour_id).first()
+        if not booking:
+            return jsonify({"message": "No booking found for this tour"}), 404
+
+        # Update both TourPlan.status and Booking.status to 'confirmed'
+        tour.status = "confirmed"
+        booking.status = "confirmed"
+
+        user = User.query.get(user_id) if user_id else None
+        user_name = user.full_name if user else "User"
+
+        drivers = Driver.query.filter_by(is_approved=True).all()
+        for d in drivers:
+            note = Notification(
+                recipient_email=d.email,
+                subject=f"User Accepted Tour #{tour.id}",
+                message=f"{user_name} accepted the price for tour #{tour.id}.",
+                status="sent",
+                tour_id=tour.id
+            )
+            db.session.add(note)
+
+        db.session.commit()
+        return jsonify({"message": "Price accepted and tour confirmed."}), 200
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": f"Error accepting price: {str(e)}"}), 500
+
+
+# =========================
+# USER: REJECT DRIVER PRICE
+# =========================
+@tour_bp.route("/<int:tour_id>/reject-price", methods=["PUT"])
+@jwt_required()
+def reject_driver_price(tour_id):
+    raw_id = get_jwt_identity()
+    user_id = int(raw_id) if raw_id is not None else None
+
+    tour = TourPlan.query.get(tour_id)
+    if not tour or tour.user_id != user_id:
+        return jsonify({"message": "Tour not found or unauthorized"}), 404
+
+    tour.status = "rejected"
+    
+    from app.models import Notification, Driver
+    user = User.query.get(user_id) if user_id else None
+    user_name = user.full_name if user else "User"
+
+    drivers = Driver.query.filter_by(is_approved=True).all()
+    for d in drivers:
+        note = Notification(
+            recipient_email=d.email,
+            subject=f"User Rejected Tour #{tour.id}",
+            message=f"{user_name} rejected the price for tour #{tour.id}.",
+            status="sent",
+            tour_id=tour.id
+        )
+        db.session.add(note)
+
+    db.session.commit()
+    return jsonify({"message": "Price rejected."}), 200
+
+
+# =========================
+# USER: REPLY TO DRIVER
+# =========================
+@tour_bp.route("/<int:tour_id>/reply", methods=["POST"])
+@jwt_required()
+def reply_to_driver(tour_id):
+    raw_id = get_jwt_identity()
+    user_id = int(raw_id) if raw_id is not None else None
+    data = request.get_json() or {}
+    message = data.get("message")
+
+    if not message:
+        return jsonify({"message": "Message is required"}), 400
+
+    tour = TourPlan.query.get(tour_id)
+    if not tour or tour.user_id != user_id:
+        return jsonify({"message": "Tour not found or unauthorized"}), 404
+
+    from app.models import Notification, Driver
+    user = User.query.get(user_id) if user_id else None
+    user_name = user.full_name if user else "User"
+
+    drivers = Driver.query.filter_by(is_approved=True).all()
+    for d in drivers:
+        note = Notification(
+            recipient_email=d.email,
+            subject=f"New message from user on Tour #{tour.id}",
+            message=f"{user_name} replied: {message}",
+            status="sent",
+            tour_id=tour.id
+        )
+        db.session.add(note)
+
+    db.session.commit()
+    return jsonify({"message": "Reply sent to driver."}), 200
+
+
+# =========================
+# GET USER TOURS (PROTECTED)
+# =========================
+@tour_bp.route('/user/tours', methods=['GET'])
+@jwt_required()
+def get_user_tours():
+    try:
+        # Get the ID of the logged-in user from the token
+        current_user_id = get_jwt_identity()
+        
+        # Convert to int for proper comparison with database
+        try:
+            user_id = int(current_user_id) if current_user_id is not None else None
+        except (TypeError, ValueError):
+            return jsonify({"message": "Invalid user ID in token"}), 401
+        
+        # Query only the tours that belong to this user
+        tours = TourPlan.query.filter_by(user_id=user_id).all()
+        
+        # Format the data for the frontend
+        results = []
+        for tour in tours:
+            # Get driver_price from related Booking if exists
+            booking = Booking.query.filter_by(tour_id=tour.id).first()
+            driver_price = booking.total_price if booking else None
+            
+            results.append({
+                "id": tour.id,
+                "total_distance_km": tour.total_distance_km,
+                "total_days": tour.total_days,
+                "status": tour.status,
+                "start_date": tour.start_date.isoformat() if tour.start_date else None,
+                "estimated_price": tour.estimated_price,
+                "driver_price": driver_price  # Get from Booking model
+            })
+            
+        return jsonify(results), 200
+    except Exception as e:
+        print(f"Error in get_user_tours: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": "Server error fetching your tours"}), 500
+
+# 1. DRIVER SENDS LOCATION
+@tour_bp.route('/<int:tour_id>/location', methods=['PUT']) # ⬅️ CHANGED TO tour_bp
+@jwt_required()
+def update_driver_location(tour_id):
+    claims = get_jwt()
+    if claims.get('role') != 'driver':
+        return jsonify({"message": "Only drivers can update location"}), 403
+
+    current_driver_id = get_jwt_identity()
+    tour = TourPlan.query.get(tour_id)
+
+    if not tour:
+        return jsonify({"message": "Tour not found"}), 404
+        
+    # Check the Booking model to ensure this driver is assigned
+    booking = Booking.query.filter_by(tour_id=tour_id, driver_id=current_driver_id).first()
+    if not booking:
+        return jsonify({"message": "You are not assigned to this tour"}), 403
+
+    data = request.get_json()
+    
+    # Update the coordinates
+    tour.driver_lat = data.get('latitude')
+    tour.driver_lng = data.get('longitude')
+    tour.last_location_update = datetime.utcnow()
+    
+    db.session.commit()
+    
+    return jsonify({"message": "Location updated successfully"}), 200
+
+
+# 2. USER READS LOCATION
+@tour_bp.route('/<int:tour_id>/location', methods=['GET']) # ⬅️ CHANGED TO tour_bp
+@jwt_required()
+def get_driver_location(tour_id):
+    current_user_id = get_jwt_identity()
+    tour = TourPlan.query.get(tour_id)
+
+    if not tour:
+        return jsonify({"message": "Tour not found"}), 404
+        
+    # Security: Ensure the person asking is the user who booked it
+    if str(tour.user_id) != str(current_user_id):
+        return jsonify({"message": "Unauthorized"}), 403
+
+    # If the driver hasn't sent a location yet
+    if not tour.driver_lat or not tour.driver_lng:
+        return jsonify({"message": "Driver location not available yet"}), 404
+
+    return jsonify({
+        "latitude": tour.driver_lat,
+        "longitude": tour.driver_lng,
+        "last_update": tour.last_location_update.isoformat()
+    }), 200

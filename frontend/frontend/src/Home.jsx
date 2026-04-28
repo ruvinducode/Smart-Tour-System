@@ -7,6 +7,7 @@ import {
   Popup,
   TileLayer,
   useMapEvents,
+  useMap,
 } from 'react-leaflet'
 
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
@@ -14,22 +15,46 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 import appLogo from '../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 
-// Custom CSS animations for video hero section
+// Custom CSS animations
 const customStyles = `
   @keyframes fade-in-up {
-    0% {
-      opacity: 0;
-      transform: translateY(30px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    0% { opacity: 0; transform: translateY(30px); }
+    100% { opacity: 1; transform: translateY(0); }
   }
-  
   .animate-fade-in-up {
     animation: fade-in-up 700ms ease-out forwards;
     opacity: 0;
+  }
+
+  /* Route dash marching from start -> end */
+  @keyframes dashFlow {
+    from { stroke-dashoffset: 0; }
+    to   { stroke-dashoffset: -20; }
+  }
+  .route-dash-animate {
+    animation: dashFlow 0.6s linear infinite;
+  }
+
+  /* Marker pulse ring */
+  @keyframes markerPulse {
+    0%   { transform: scale(1);   opacity: 0.8; }
+    50%  { transform: scale(1.5); opacity: 0.3; }
+    100% { transform: scale(2);   opacity: 0; }
+  }
+  .marker-pulse-ring {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 28px; height: 28px;
+    margin-top: -14px; margin-left: -14px;
+    border-radius: 50%;
+    background: rgba(225, 29, 72, 0.6);
+    animation: markerPulse 1.4s ease-out infinite;
+    pointer-events: none;
+  }
+  .marker-wrap {
+    position: relative;
+    width: 28px;
+    height: 40px;
   }
 `
 
@@ -40,75 +65,89 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleSheet)
 }
 
-const customIcon = new L.Icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
+// Green live-location marker
+const GREEN_PIN_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="42" viewBox="0 0 30 42">
+  <path d="M15 0C6.716 0 0 6.716 0 15c0 10 15 27 15 27S30 25 30 15C30 6.716 23.284 0 15 0z" fill="#16a34a"/>
+  <circle cx="15" cy="15" r="7" fill="#fff"/>
+  <circle cx="15" cy="15" r="3.5" fill="#16a34a"/>
+</svg>`
+
+const greenIcon = L.divIcon({
+  html: `<div class="marker-wrap"><div class="marker-pulse-ring" style="background:rgba(22,163,74,0.55)"></div>${GREEN_PIN_SVG}</div>`,
+  className: '',
+  iconSize: [30, 42],
+  iconAnchor: [15, 42],
+  popupAnchor: [0, -42],
+})
+
+// Red custom pin marker with blink pulse ring
+const RED_PIN_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="40" viewBox="0 0 28 40">
+  <path d="M14 0C6.268 0 0 6.268 0 14c0 9.333 14 26 14 26S28 23.333 28 14C28 6.268 21.732 0 14 0z" fill="#e11d48"/>
+  <circle cx="14" cy="14" r="6" fill="#fff"/>
+</svg>`
+
+const redIcon = L.divIcon({
+  html: `<div class="marker-wrap"><div class="marker-pulse-ring"></div>${RED_PIN_SVG}</div>`,
+  className: '',
+  iconSize: [28, 40],
+  iconAnchor: [14, 40],
+  popupAnchor: [0, -40],
 })
 
 // Function to get location name from coordinates using OpenStreetMap Nominatim
 async function getLocationName(lat, lng) {
-  try {
-    console.log(`Getting location name for: ${lat}, ${lng}`)
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`,
-      {
-        headers: {
-          'User-Agent': 'SmartTour/1.0'
-        }
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=16&addressdetails=1`,
+    {
+      headers: {
+        'User-Agent': 'SmartTour/1.0'
       }
-    )
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
     }
-    
-    const data = await response.json()
-    console.log('Geocoding response:', data)
-    
-    if (data && data.display_name) {
-      // Extract meaningful parts of the address
-      const address = data.display_name
-      console.log('Full address:', address)
-      
-      // Try to get a more specific location name
-      if (data.address) {
-        const addr = data.address
-        // Priority: city > town > village > suburb > county > state
-        const locationName = addr.city || addr.town || addr.village || addr.suburb || addr.county || addr.state
-        const country = addr.country || 'Sri Lanka'
-        
-        if (locationName) {
-          const result = `${locationName}, ${country}`
-          console.log('Extracted location name:', result)
-          return result
-        }
-      }
-      
-      // Fallback: use the full display name but limit length
-      if (address.length > 50) {
-        const parts = address.split(',')
-        if (parts.length >= 2) {
-          // Return the most relevant part (usually city/town)
-          const result = parts[parts.length - 2].trim() + ', ' + parts[parts.length - 1].trim()
-          console.log('Fallback location name:', result)
-          return result
-        }
-      }
-      
-      console.log('Using full address:', address)
-      return address
-    }
-    
-    console.log('No location data found, using coordinates')
-    return `Location ${lat.toFixed(4)}, ${lng.toFixed(4)}`
-  } catch (error) {
-    console.error('Error getting location name:', error)
-    return `Location ${lat.toFixed(4)}, ${lng.toFixed(4)}`
+  )
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`)
   }
+  
+  const data = await response.json()
+  
+  if (!data || data.error) {
+    throw new Error('Please select a valid land location within Sri Lanka.')
+  }
+  
+  if (data && data.display_name) {
+    if (data.address) {
+      const addr = data.address
+      if (addr.country_code !== 'lk') {
+        throw new Error('Please select a location within Sri Lanka.')
+      }
+      if (addr.sea || addr.ocean) {
+        throw new Error('Please select a valid land location, not the sea.')
+      }
+      
+      const locationName = addr.city || addr.town || addr.village || addr.suburb || addr.county || addr.state
+      const country = addr.country || 'Sri Lanka'
+      
+      if (locationName) {
+        return `${locationName}, ${country}`
+      }
+    }
+    
+    // Fallback: use the full display name but limit length
+    const address = data.display_name
+    if (address.length > 50) {
+      const parts = address.split(',')
+      if (parts.length >= 2) {
+        return parts[parts.length - 2].trim() + ', ' + parts[parts.length - 1].trim()
+      }
+    }
+    
+    return address
+  }
+  
+  throw new Error('Location not found')
 }
 
 import { VEHICLE_OPTIONS } from './vehicleOptions.js'
@@ -124,6 +163,11 @@ function apiUrl(path) {
 const SRI_LANKA_CENTER = [7.8731, 80.7718]
 const DEFAULT_ZOOM = 7
 
+const SRI_LANKA_BOUNDS = [
+  [5.9, 79.5], // South-West
+  [9.9, 81.9]  // North-East
+]
+
 const POLYLINE_STYLE = {
   color: '#38bdf8',
   weight: 3,
@@ -132,7 +176,7 @@ const POLYLINE_STYLE = {
   lineCap: 'round',
 }
 
-/** Fix default marker assets with Vite (bundler does not resolve Leaflet image URLs). */
+/** Use red pin marker on the map. */
 function useLeafletDefaultIcon() {
   useEffect(() => {
     delete L.Icon.Default.prototype._getIconUrl
@@ -153,7 +197,24 @@ function MapClickHandler({ onLocationAdd }) {
   return null
 }
 
-export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip }) {
+function MapEffect({ locations }) {
+  const map = useMap()
+  useEffect(() => {
+    if (locations.length > 0) {
+      const lastLoc = locations[locations.length - 1]
+      // Fly in close to show the pinned location clearly
+      map.flyTo([lastLoc.lat, lastLoc.lng], 13, { duration: 0.8 })
+      // After 2.5 seconds, fly back out to the full Sri Lanka overview
+      const timer = setTimeout(() => {
+        map.flyTo(SRI_LANKA_CENTER, DEFAULT_ZOOM, { duration: 1.5 })
+      }, 2500)
+      return () => clearTimeout(timer)
+    }
+  }, [locations, map])
+  return null
+}
+
+export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip, onBookingConfirmed }) {
   useLeafletDefaultIcon()
 
   const listId = useId()
@@ -165,28 +226,162 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip 
   const [currentStep, setCurrentStep] = useState(1) // 1: Locations, 2: Vehicle, 3: Review
   const [estimatedPrice, setEstimatedPrice] = useState(null)
   const [bookingConfirmed, setBookingConfirmed] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [liveLocation, setLiveLocation] = useState(null)   // { lat, lng, name }
+  const [gpsLoading, setGpsLoading] = useState(false)
+  const [startSearchQuery, setStartSearchQuery] = useState('')
+  const [startSearchResults, setStartSearchResults] = useState([])
+  const [isStartSearching, setIsStartSearching] = useState(false)
+
+  // Live GPS detection
+  const handleGetLiveLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setMessage('Geolocation is not supported by your browser.')
+      return
+    }
+    setGpsLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        try {
+          const name = await getLocationName(lat, lng)
+          const loc = { id: 'live-start', lat, lng, name, isStart: true }
+          setLiveLocation(loc)
+          // Insert as first location (start point)
+          setLocations((prev) => {
+            const rest = prev.filter((l) => l.id !== 'live-start')
+            return [loc, ...rest]
+          })
+          setMessage('')
+        } catch (err) {
+          setMessage(err.message || 'Could not resolve live location.')
+        } finally {
+          setGpsLoading(false)
+        }
+      },
+      (err) => {
+        setGpsLoading(false)
+        setMessage('Location access denied. Please allow location access and try again.')
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }, [])
+
+  // Start-point search logic
+  const performStartSearch = useCallback(async (query) => {
+    if (!query.trim()) {
+      setStartSearchResults([])
+      return
+    }
+    setIsStartSearching(true)
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=lk`,
+        { headers: { 'User-Agent': 'SmartTour/1.0' } }
+      )
+      setStartSearchResults(await res.json())
+    } catch {
+      // ignore
+    } finally {
+      setIsStartSearching(false)
+    }
+  }, [])
+
+  // Debounced effect for start search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      performStartSearch(startSearchQuery)
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [startSearchQuery, performStartSearch])
+
+  const handleStartSearch = (e) => {
+    e.preventDefault()
+    performStartSearch(startSearchQuery)
+  }
+
+  const addStartLocation = (result) => {
+    const lat = parseFloat(result.lat)
+    const lng = parseFloat(result.lon)
+    const name = result.display_name.split(',').slice(0, 2).join(', ')
+    const loc = { id: 'live-start', lat, lng, name, isStart: true }
+    setLiveLocation(loc)
+    setLocations((prev) => {
+      const rest = prev.filter((l) => l.id !== 'live-start')
+      return [loc, ...rest]
+    })
+    setStartSearchQuery('')
+    setStartSearchResults([])
+  }
+
+  // Destination search logic
+  const performSearch = useCallback(async (query) => {
+    if (!query.trim()) {
+      setSearchResults([])
+      return
+    }
+    setIsSearching(true)
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=lk`, {
+        headers: { 'User-Agent': 'SmartTour/1.0' }
+      })
+      const data = await response.json()
+      setSearchResults(data)
+    } catch (error) {
+      console.error('Search failed:', error)
+    } finally {
+      setIsSearching(false)
+    }
+  }, [])
+
+  // Debounced effect for destination search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      performSearch(searchQuery)
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [searchQuery, performSearch])
+
+  const handleSearch = (e) => {
+    e.preventDefault()
+    performSearch(searchQuery)
+  }
+
+  const addSearchedLocation = (result) => {
+    const lat = parseFloat(result.lat)
+    const lng = parseFloat(result.lon)
+    const name = result.display_name.split(',').slice(0, 2).join(', ')
+    
+    setLocations((prev) => [
+      ...prev,
+      {
+        id: Date.now() + Math.random(),
+        lat,
+        lng,
+        name
+      }
+    ])
+    setSearchQuery('')
+    setSearchResults([])
+  }
 
   const addLocation = useCallback(async (lat, lng) => {
-    console.log(`Adding location at: ${lat}, ${lng}`)
-    
-    // First add location with loading state
-    const tempId = Date.now()
+    setMessage('')
+    const tempId = Date.now() + Math.random()
     setLocations((prev) => [
       ...prev,
       {
         id: tempId,
         lat,
         lng,
-        name: 'Loading location name...',
+        name: 'Loading location...',
       },
     ])
     
-    // Then get the actual location name
     try {
       const locationName = await getLocationName(lat, lng)
-      console.log(`Got location name: ${locationName}`)
-      
-      // Update the location with the real name
       setLocations((prev) => 
         prev.map((loc) => 
           loc.id === tempId 
@@ -196,15 +391,9 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip 
       )
     } catch (error) {
       console.error('Failed to get location name:', error)
-      
-      // Update with fallback name
-      setLocations((prev) => 
-        prev.map((loc) => 
-          loc.id === tempId 
-            ? { ...loc, name: `Location ${lat.toFixed(4)}, ${lng.toFixed(4)}` }
-            : loc
-        )
-      )
+      setMessage(error.message || 'Invalid location selected.')
+      // Remove the temporary location
+      setLocations((prev) => prev.filter((loc) => loc.id !== tempId))
     }
   }, [])
 
@@ -220,13 +409,14 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip 
     setLocations([])
   }, [])
 
+  const [routeCoords, setRouteCoords] = useState([])
+  const [legDistances, setLegDistances] = useState([]) // km per segment
+
   const createTour = useCallback(async () => {
-    // Validation
     if (locations.length === 0) {
       setMessage('Please select at least 1 location')
       return
     }
-
     if (!selectedVehicle) {
       setMessage('Please select a vehicle')
       return
@@ -238,57 +428,141 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip 
     try {
       const token = localStorage.getItem('smart_tour_token')
       if (!token) {
-        setMessage('Please login first')
+        setMessage('Session expired. Please log out and log in again.')
         return
       }
 
-      // Find vehicle by type to get vehicle_id
+      // 1. Fetch vehicles list
       const vehicleResponse = await fetch('http://127.0.0.1:5001/vehicles-test')
+      if (!vehicleResponse.ok) throw new Error('Could not load vehicle list')
       const vehicles = await vehicleResponse.json()
-      const selectedVehicleObj = vehicles.find(v => v.type === selectedVehicle)
-      
+
+      // 2. Normalise vehicle name casing to match DB exactly
+      const VEHICLE_ALIASES = {
+        'Mini Car': 'Mini car', 'mini car': 'Mini car',
+        'Mini Van': 'Mini van', 'mini van': 'Mini van',
+        'Mini Bus': 'Mini bus', 'mini bus': 'Mini bus',
+      }
+      const resolvedVehicle = VEHICLE_ALIASES[selectedVehicle] ?? selectedVehicle
+
+      // 3. Find matching vehicle (exact → case-insensitive fallback)
+      let selectedVehicleObj = vehicles.find((v) => v.type === resolvedVehicle)
+        || vehicles.find((v) => v.type.toLowerCase() === resolvedVehicle.toLowerCase())
+
+      // 4. If still not found, seed then retry once
       if (!selectedVehicleObj) {
-        setMessage('Selected vehicle not found')
+        await fetch('http://127.0.0.1:5001/seed-all-vehicles', { method: 'POST' })
+        const retryVehicles = await (await fetch('http://127.0.0.1:5001/vehicles-test')).json()
+        selectedVehicleObj = retryVehicles.find(
+          (v) => v.type.toLowerCase() === resolvedVehicle.toLowerCase()
+        )
+      }
+
+      if (!selectedVehicleObj) {
+        setMessage(`Vehicle "${resolvedVehicle}" not found. Please go back and re-select a vehicle.`)
         return
       }
 
+      // 4. Compute real total km from OSRM leg distances
+      const totalKm = legDistances.length > 0
+        ? legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)
+        : 100 // fallback
+
+      // 5. Compute dates
+      const today = new Date()
+      const days = estimatedPrice?.days || 1
+      const endDate = new Date(today)
+      endDate.setDate(endDate.getDate() + days)
+      const fmt = (d) => d.toISOString().split('T')[0]
+
+      // 6. Build locations payload
+      const locationsPayload = locations.map((loc, i) => ({
+        place_name: loc.name || `Stop ${i + 1}`,
+        latitude: loc.lat,
+        longitude: loc.lng,
+      }))
+
+      // 7. Create the tour
       const response = await fetch('http://127.0.0.1:5001/tour/create-tour', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           vehicle_id: selectedVehicleObj.id,
-          latitude: locations[0].lat,
-          longitude: locations[0].lng,
-          total_distance_km: 100,
-          total_days: 1,
-          start_date: "2026-04-01",
-          end_date: "2026-04-02"
-        })
+          total_distance_km: totalKm,
+          total_days: days,
+          start_date: fmt(today),
+          end_date: fmt(endDate),
+          locations: locationsPayload,
+        }),
       })
-      
+
       const data = await response.json()
-      
+
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Session expired. Please log out and log in again.')
+        }
         throw new Error(data.message || 'Failed to create tour')
       }
-      
-      setMessage(`✅ Tour created successfully! Price: $${estimatedPrice?.usd || 0} USD / රු. ${estimatedPrice?.lkr?.toLocaleString() || 0}`)
+
+      setMessage(`Tour booked! ${totalKm} km • ${days} day${days !== 1 ? 's' : ''} • $${estimatedPrice?.usd || 0} USD`)
       setBookingConfirmed(true)
-      
+
+      // Navigate to Uber-style finding-driver screen
+      if (onBookingConfirmed) {
+        const startLoc = locations.find(l => l.isStart) || locations[0]
+        onBookingConfirmed({
+          startLocation: startLoc
+            ? { lat: startLoc.lat, lng: startLoc.lng, name: startLoc.name }
+            : null,
+          bookingDetails: {
+            vehicle: selectedVehicle,
+            days: estimatedPrice?.days || days,
+            usd: estimatedPrice?.usd || 0,
+            lkr: estimatedPrice?.lkr || 0,
+          },
+        })
+      }
+
     } catch (error) {
-      setMessage(`❌ ${error.message}`)
+      setMessage(error.message)
     } finally {
       setLoading(false)
     }
   }, [locations, selectedVehicle, estimatedPrice])
 
-  const polylinePositions = useMemo(
-    () => locations.map((loc) => [loc.lat, loc.lng]),
-    [locations],
-  )
+
+  // Fetch real road route from OSRM whenever locations change
+  useEffect(() => {
+    const validLocs = locations.filter((l) => !l.name.startsWith('Loading'))
+    if (validLocs.length < 2) {
+      setRouteCoords([])
+      setLegDistances([])
+      return
+    }
+    const coords = validLocs.map((l) => `${l.lng},${l.lat}`).join(';')
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
+    let cancelled = false
+    fetch(url)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return
+        const route = data?.routes?.[0]
+        if (route) {
+          setRouteCoords(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+          // Each leg = distance between consecutive stops
+          const legs = route.legs || []
+          setLegDistances(legs.map((leg) => +(leg.distance / 1000).toFixed(1)))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) { setRouteCoords([]); setLegDistances([]) }
+      })
+    return () => { cancelled = true }
+  }, [locations])
 
   const canUndo = locations.length > 0
 
@@ -296,39 +570,42 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip 
   const calculateEstimatedPrice = useCallback(() => {
     if (!selectedVehicle || locations.length === 0) return { usd: 0, lkr: 0, days: 0, hours: 0 }
     
-    // Base prices per vehicle type
-    const vehicleBasePrices = {
-      'Car': 50,
-      'Mini Car': 40,
-      'Van': 80,
-      'Mini Van': 70,
-      'Bus': 120,
-      'Mini Bus': 100,
-      'Jeep': 90,
-      'Mini Bus': 100
+    // Get total distance from legDistances (computed via OSRM)
+    const totalKm = legDistances.reduce((s, k) => +(s + k).toFixed(1), 0) || (locations.length * 50)
+    
+    // Estimate trip duration based on distance and locations
+    const hoursPerLocation = 2.5
+    const travelSpeed = 40 // Average km/h in Sri Lanka
+    const travelHours = totalKm / travelSpeed
+    const totalHours = (locations.length * hoursPerLocation) + travelHours
+    const totalDays = Math.ceil(totalHours / 8) // 8 hours = 1 day
+
+    // Rates in USD (roughly matching backend LKR rates)
+    const rates = {
+      'Mini car': { km: 0.14, day: 14 },
+      'Car': { km: 0.16, day: 16 },
+      'Mini van': { km: 0.19, day: 20 },
+      'Van': { km: 0.22, day: 25 },
+      'SUV': { km: 0.20, day: 22 },
+      'Mini bus': { km: 0.26, day: 35 },
+      'Bus': { km: 0.28, day: 38 },
     }
     
-    const basePrice = vehicleBasePrices[selectedVehicle] || 50
-    const locationMultiplier = locations.length > 1 ? 0.8 : 1 // Discount for multiple locations
-    const totalUSD = basePrice * locations.length * locationMultiplier
+    const vehicleRate = rates[selectedVehicle] || rates['Car']
+    
+    // FINAL CALCULATION: (km * rate_km) + (days * rate_day) - NO BASE PRICE
+    const totalUSD = (totalKm * vehicleRate.km) + (totalDays * vehicleRate.day)
     
     // Convert USD to LKR (approximate rate: 1 USD = 320 LKR)
     const totalLKR = Math.round(totalUSD * 320)
-    
-    // Estimate trip duration based on locations
-    // Assume average 2-3 hours per location + travel time
-    const hoursPerLocation = 2.5
-    const travelHours = locations.length > 1 ? (locations.length - 1) * 1.5 : 0
-    const totalHours = (locations.length * hoursPerLocation) + travelHours
-    const totalDays = Math.ceil(totalHours / 8) // 8 hours = 1 day
     
     return {
       usd: Math.round(totalUSD),
       lkr: totalLKR,
       days: totalDays,
-      hours: Math.round(totalHours * 10) / 10 // Round to 1 decimal place
+      hours: Math.round(totalHours * 10) / 10
     }
-  }, [selectedVehicle, locations.length])
+  }, [selectedVehicle, locations.length, legDistances])
 
   // Calculate price when locations or vehicle changes
   useEffect(() => {
@@ -517,182 +794,254 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip 
 
       {/* MAIN CONTENT */}
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      {/* ──────────── STEP 1 ──────────── */}
         {currentStep === 1 && (
           <div>
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-gray-900 mb-4">
-                Step 1: Select Your Tour Locations
-              </h2>
-              <p className="text-lg text-gray-600 mb-4">
-                Click anywhere on the map to add stops for your Sri Lanka tour
-              </p>
-              
-              {/* PRICE PREVIEW */}
-              {locations.length > 0 && (
-                <div className="bg-gray-50 rounded-lg p-4 mb-4 max-w-md mx-auto border border-gray-200">
-                  <div className="text-sm text-gray-600">
-                    <i className="bi bi-info-circle me-1"></i>
-                    Current tour: {locations.length} location{locations.length !== 1 ? 's' : ''}
-                    {selectedVehicle && ` • ${selectedVehicle}`}
-                  </div>
-                  {selectedVehicle && (
-                    <div className="text-lg font-semibold text-blue-600 mt-1">
-                      Starting from ${estimatedPrice?.usd || 0} USD / රු. {estimatedPrice?.lkr?.toLocaleString() || 0}
-                    </div>
-                  )}
-                  <div className="text-xs text-gray-500 mt-2">
-                    <i className="bi bi-clock me-1"></i>
-                    Estimated duration: {estimatedPrice?.days || 0} day{estimatedPrice?.days !== 1 ? 's' : ''} ({estimatedPrice?.hours || 0} hours)
-                  </div>
-                </div>
-              )}
-              
-              <div className="flex flex-wrap justify-center gap-4 text-sm">
-                <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg border border-blue-200">
-                  <i className="bi bi-mouse2 me-2"></i>
-                  Click to add location
-                </div>
-                <div className="bg-green-50 text-green-700 px-4 py-2 rounded-lg border border-green-200">
-                  <i className="bi bi-plus-circle me-2"></i>
-                  Scroll to zoom
-                </div>
-                <div className="bg-purple-50 text-purple-700 px-4 py-2 rounded-lg border border-purple-200">
-                  <i className="bi bi-hand-index me-2"></i>
-                  Drag to pan
-                </div>
-              </div>
+            {/* HEADER */}
+            <div className="text-center mb-6">
+              <h2 className="text-3xl font-bold text-gray-900 mb-1">Plan Your Tour Route</h2>
+              <p className="text-gray-500 text-sm">Set your start point, add stops, and watch the real road route build live on the map.</p>
             </div>
 
-            {/* MAP CONTAINER */}
-            <div className="bg-white rounded-2xl shadow-lg p-4 mb-8">
-              <div className="h-[60vh] min-h-125 max-w-7xl mx-auto overflow-hidden rounded-xl">
-                <MapContainer
-                  center={SRI_LANKA_CENTER}
-                  zoom={DEFAULT_ZOOM}
-                  scrollWheelZoom={true}
-                  className="h-full w-full"
-                  style={{ minHeight: '500px', height: '60vh' }}
+            {/* TOP ROW: two search panels side by side */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+
+              {/* ── LEFT: START LOCATION ── */}
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl border border-green-200 p-5 shadow-md">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-green-600 text-white text-xs font-bold shrink-0">S</span>
+                  <div>
+                    <h3 className="font-bold text-green-900 leading-none">Start Location</h3>
+                    {liveLocation && <p className="text-xs text-green-700 mt-0.5 truncate"><i className="bi bi-geo-alt-fill"></i> {liveLocation.name}</p>}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGetLiveLocation}
+                  disabled={gpsLoading}
+                  className="w-full mb-3 flex items-center justify-center gap-2 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-60"
                 >
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-                  <MapClickHandler onLocationAdd={addLocation} />
-                  {polylinePositions.length >= 2 ? (
-                    <Polyline positions={polylinePositions} pathOptions={POLYLINE_STYLE} />
-                  ) : null}
-                  {locations.map((loc, index) => (
-                    <Marker key={loc.id} position={[loc.lat, loc.lng]}>
-                      <Popup>
-                        <div className="min-w-48 text-gray-800">
-                          <p className="font-medium">Stop {index + 1}</p>
-                          <p className="text-sm text-gray-700 font-medium">
-                            {loc.name || 'Unknown Location'}
-                          </p>
-                          <p className="text-xs text-gray-600">
-                            {loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}
-                          </p>
-                          <button
-                            type="button"
-                            className="mt-2 text-xs font-medium text-red-600 underline hover:text-red-700"
-                            onClick={() => removeLocation(loc.id)}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))}
-                </MapContainer>
-              </div>
-            </div>
+                  {gpsLoading
+                    ? <><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />Detecting...</>
+                    : <><i className="bi bi-crosshair2" />Use My Live Location</>}
+                </button>
 
-            {/* SELECTED LOCATIONS */}
-            {locations.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-bold text-gray-900">
-                    Selected Locations ({locations.length})
-                  </h3>
-                  <div className="text-sm text-gray-500">
-                    <i className="bi bi-info-circle me-1"></i>
-                    Click on markers to see details
-                  </div>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {locations.map((loc, index) => (
-                    <div key={loc.id} className="bg-linear-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-200 hover:shadow-md transition-shadow">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
-                            {index + 1}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-gray-900">
-                              {loc.name || `Location ${index + 1}`}
-                            </p>
-                            <p className="text-xs text-gray-500 font-mono">
-                              {loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeLocation(loc.id)}
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg p-1 transition-colors"
-                          title="Remove location"
-                        >
-                          <i className="bi bi-trash text-sm"></i>
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-600">
-                        <i className="bi bi-geo-alt"></i>
-                        <span>Stop {index + 1} of {locations.length}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {locations.length > 1 && (
-                  <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
-                    <div className="flex items-center gap-2 text-green-700 text-sm">
-                      <i className="bi bi-check-circle"></i>
-                      <span>Great! You have {locations.length} stops selected. Ready to choose your vehicle?</span>
-                    </div>
+                <p className="text-center text-xs text-green-600 mb-2">— or search —</p>
+
+                <form onSubmit={handleStartSearch} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={startSearchQuery}
+                    onChange={(e) => setStartSearchQuery(e.target.value)}
+                    placeholder="Search starting city..."
+                    className="flex-1 px-3 py-2 text-sm text-gray-700 border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                  />
+                  <button type="submit" disabled={isStartSearching || !startSearchQuery.trim()}
+                    className="px-4 py-2 bg-green-700 text-white text-sm font-medium rounded-lg hover:bg-green-800 disabled:opacity-50 transition-colors">
+                    {isStartSearching ? '…' : 'Find'}
+                  </button>
+                </form>
+
+                {startSearchResults.length > 0 && (
+                  <div className="mt-2 border border-green-200 rounded-lg overflow-hidden max-h-44 overflow-y-auto bg-white">
+                    <ul className="divide-y divide-gray-100">
+                      {startSearchResults.map((r, i) => (
+                        <li key={i}>
+                          <button type="button" onClick={() => addStartLocation(r)}
+                            className="w-full text-left px-3 py-2 hover:bg-green-50 flex items-start gap-2 transition-colors">
+                            <i className="bi bi-geo-alt-fill text-green-600 mt-0.5 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="font-medium text-gray-900 text-xs">{r.display_name.split(',')[0]}</p>
+                              <p className="text-xs text-gray-400 truncate">{r.display_name}</p>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>
+
+              {/* ── RIGHT: ADD TOUR STOPS ── */}
+              <div className="bg-white rounded-2xl border border-orange-200 p-5 shadow-md">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-orange-500 text-white text-xs font-bold shrink-0">+</span>
+                  <div>
+                    <h3 className="font-bold text-gray-900 leading-none">Add Tour Stops</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">{locations.filter(l=>!l.isStart).length} stop{locations.filter(l=>!l.isStart).length !== 1 ? 's' : ''} added</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSearch} className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search destination or landmark..."
+                    className="flex-1 px-3 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                  <button type="submit" disabled={isSearching || !searchQuery.trim()}
+                    className="px-4 py-2 bg-slate-800 text-white text-sm font-medium rounded-lg hover:bg-slate-700 disabled:opacity-50 transition-colors">
+                    {isSearching ? '…' : 'Search'}
+                  </button>
+                </form>
+
+                {searchResults.length > 0 && (
+                  <div className="border border-gray-200 rounded-lg overflow-hidden max-h-44 overflow-y-auto">
+                    <ul className="divide-y divide-gray-200">
+                      {searchResults.map((r, i) => (
+                        <li key={i}>
+                          <button type="button" onClick={() => addSearchedLocation(r)}
+                            className="w-full text-left px-3 py-2 hover:bg-orange-50 flex items-start gap-2 transition-colors">
+                            <i className="bi bi-geo-alt-fill text-orange-500 mt-0.5 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="font-medium text-gray-900 text-xs">{r.display_name.split(',')[0]}</p>
+                              <p className="text-xs text-gray-400 truncate">{r.display_name}</p>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {locations.length === 0 && searchResults.length === 0 && (
+                  <p className="text-xs text-gray-400 mt-2 text-center">Or click directly on the map to drop a pin</p>
+                )}
+              </div>
+            </div>
+
+            {/* MAP + FLOATING IN-MAP CONTROLS */}
+            <div className="relative rounded-2xl overflow-hidden shadow-xl border border-gray-200 mb-4" style={{ height: '65vh', minHeight: '480px' }}>
+              <MapContainer
+                center={SRI_LANKA_CENTER}
+                zoom={DEFAULT_ZOOM}
+                minZoom={7}
+                maxBounds={SRI_LANKA_BOUNDS}
+                maxBoundsViscosity={1.0}
+                scrollWheelZoom={true}
+                className="h-full w-full z-0"
+                style={{ height: '100%' }}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <MapClickHandler onLocationAdd={addLocation} />
+                <MapEffect locations={locations} />
+                {routeCoords.length >= 2 && (
+                  <Polyline
+                    positions={routeCoords}
+                    pathOptions={{ ...POLYLINE_STYLE, color: '#f97316', weight: 5, dashArray: '12 8' }}
+                    className="route-dash-animate"
+                  />
+                )}
+                {locations.map((loc, index) => (
+                  <Marker key={loc.id} position={[loc.lat, loc.lng]} icon={loc.isStart ? greenIcon : redIcon}>
+                    <Popup>
+                      <div className="min-w-44 text-gray-800 text-sm">
+                        <p className="font-bold text-base mb-1">
+                          {loc.isStart ? <><i className="bi bi-geo-alt-fill text-emerald-500 mr-2"></i>Start</> : <><i className="bi bi-geo-alt-fill text-rose-500 mr-2"></i>Stop {index}</>}
+                        </p>
+                        <p className="font-medium text-gray-700">{loc.name || 'Unknown Location'}</p>
+                        <p className="text-xs text-gray-400 mt-1">{loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}</p>
+                        <button
+                          type="button"
+                          onClick={() => removeLocation(loc.id)}
+                          className="mt-2 w-full text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg py-1.5 px-3 transition-colors"
+                        >
+                          <i className="bi bi-trash3-fill mr-1"></i> Remove This Stop
+                        </button>
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+
+              {/* FLOATING IN-MAP CONTROL BAR */}
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg px-4 py-2 border border-gray-200">
+                <span className="text-xs font-semibold text-gray-600 mr-1">Map Controls</span>
+                <button
+                  type="button"
+                  onClick={undoLast}
+                  disabled={!canUndo}
+                  title="Undo last stop"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-xl border border-amber-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <i className="bi bi-arrow-counterclockwise" /> Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  disabled={locations.length === 0}
+                  title="Remove all stops"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-red-100 hover:bg-red-200 text-red-700 rounded-xl border border-red-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <i className="bi bi-trash" /> Clear All
+                </button>
+                <span className="text-xs text-gray-400 border-l border-gray-300 pl-2 ml-1">{locations.length} stop{locations.length !== 1 ? 's' : ''}</span>
+              </div>
+
+              {/* HINT */}
+              {locations.length === 0 && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[1000] bg-slate-800/80 text-white text-xs px-4 py-2 rounded-full backdrop-blur-sm">
+                  <i className="bi bi-cursor-fill mr-1"></i> Click anywhere on the map to drop a pin
+                </div>
+              )}
+            </div>
+
+            {/* ROUTE KM BREAKDOWN */}
+            {locations.length >= 2 && (
+              <div className="flex gap-4 mb-6">
+                {/* Left: per-leg distances */}
+                <div className="flex-1 bg-white rounded-2xl border border-gray-200 shadow-md p-4">
+                  <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                    <i className="bi bi-sign-turn-right-fill text-orange-500" /> Route Legs
+                  </h4>
+                  {legDistances.length === 0 && (
+                    <p className="text-xs text-gray-400">Calculating route distances...</p>
+                  )}
+                  <ul className="space-y-2">
+                    {legDistances.map((km, i) => (
+                      <li key={i} className="flex items-center gap-2 text-sm">
+                        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-100 text-green-700 font-bold text-xs shrink-0">{i + 1}</span>
+                        <span className="text-gray-500 text-xs truncate flex-1">
+                          {locations[i]?.name?.split(',')[0] ?? `Stop ${i+1}`}
+                          <span className="mx-1 text-gray-300">→</span>
+                          {locations[i + 1]?.name?.split(',')[0] ?? `Stop ${i+2}`}
+                        </span>
+                        <span className="font-semibold text-orange-600 text-xs whitespace-nowrap">{km} km</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Right: total km summary */}
+                <div className="w-44 bg-gradient-to-br from-orange-500 to-amber-500 rounded-2xl shadow-md p-4 flex flex-col items-center justify-center text-white shrink-0">
+                  <i className="bi bi-map-fill text-2xl mb-1" />
+                  <p className="text-xs font-semibold uppercase tracking-wide opacity-80 mb-1">Total Distance</p>
+                  <p className="text-3xl font-black">
+                    {legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)}
+                  </p>
+                  <p className="text-sm font-semibold opacity-90">km</p>
+                  <p className="text-xs opacity-70 mt-1">{locations.length} stops</p>
+                </div>
+              </div>
             )}
 
-            {/* STEP 1 ACTIONS */}
-            <div className="flex flex-wrap items-center gap-3 mb-6">
-              <button
-                type="button"
-                onClick={undoLast}
-                disabled={!canUndo}
-                className="rounded-lg border border-gray-300 bg-white px-6 py-3 text-sm font-medium text-gray-700 transition-all duration-200 hover:border-gray-400 hover:bg-gray-50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Undo last point
-              </button>
-              
-              <button
-                type="button"
-                onClick={clearAll}
-                disabled={locations.length === 0}
-                className="rounded-lg border border-red-300 bg-red-50 px-6 py-3 text-sm font-medium text-red-700 transition-all duration-200 hover:border-red-400 hover:bg-red-100 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Clear all
-              </button>
-
-              {locations.length > 0 && (
+            {/* NEXT STEP BUTTON */}
+            {locations.length > 0 && (
+              <div className="flex justify-end mb-6">
                 <button
                   type="button"
                   onClick={() => setCurrentStep(2)}
-                  className="rounded-lg bg-orange-500 px-8 py-3 text-sm font-medium text-white transition-all duration-200 hover:bg-orange-600 hover:shadow-lg"
+                  className="rounded-xl bg-orange-500 hover:bg-orange-600 px-8 py-3 text-sm font-semibold text-white transition-all shadow-lg hover:shadow-orange-200"
                 >
                   Next: Choose Vehicle →
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -825,7 +1174,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip 
                                   <circle cx="35" cy="58" r="2.5" fill="#6B7280"/>
                                   <circle cx="65" cy="58" r="2.5" fill="#6B7280"/>
                                   <circle cx="80" cy="58" r="2.5" fill="#6B7280"/>
-                                ` : v.id.includes('jeep') ? `
+                                ` : v.id.toLowerCase().includes('suv') ? `
                                   <rect x="10" y="32" width="80" height="25" rx="4" fill="#EF4444"/>
                                   <rect x="15" y="18" width="70" height="20" rx="3" fill="#F87171"/>
                                   <rect x="20" y="22" width="60" height="12" rx="2" fill="#FEE2E2"/>
@@ -968,10 +1317,8 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip 
                   </div>
                   <div className="space-y-2 text-sm text-gray-600">
                     <div className="flex justify-between">
-                      <span>Base Price:</span>
-                      <span>${VEHICLE_OPTIONS.find(v => v.id === selectedVehicle)?.id.includes('Car') ? '50' : 
-                              VEHICLE_OPTIONS.find(v => v.id === selectedVehicle)?.id.includes('Van') ? '80' :
-                              VEHICLE_OPTIONS.find(v => v.id === selectedVehicle)?.id.includes('Bus') ? '120' : '90'}</span>
+                      <span>Total Distance:</span>
+                      <span>{legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)} km</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Locations:</span>

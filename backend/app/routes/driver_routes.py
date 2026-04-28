@@ -1,5 +1,8 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+import os, uuid
+from datetime import datetime
 
 from flask_jwt_extended import (
     create_access_token,
@@ -9,12 +12,30 @@ from flask_jwt_extended import (
 )
 
 from app import db
-from app.models import Driver, TourPlan, User, Notification
+from app.models import Driver, TourPlan, User, Notification, Booking
 
 driver_bp = Blueprint("driver_bp", __name__)
 
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads", "drivers")
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 
-def create_notification(recipient_email, subject, message):
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def save_upload(file_obj, subfolder=""):
+    """Save an uploaded file and return its relative path, or None."""
+    if not file_obj or file_obj.filename == "":
+        return None
+    if not allowed_file(file_obj.filename):
+        return None
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    ext = file_obj.filename.rsplit(".", 1)[1].lower()
+    unique_name = f"{uuid.uuid4().hex}.{ext}"
+    file_obj.save(os.path.join(UPLOAD_FOLDER, unique_name))
+    return unique_name
+
+
+def create_notification(recipient_email, subject, message, tour_id=None):
     if not recipient_email:
         return
     note = Notification(
@@ -22,60 +43,125 @@ def create_notification(recipient_email, subject, message):
         subject=subject,
         message=message,
         status="sent",
+        tour_id=tour_id
     )
     db.session.add(note)
 
+
 # =========================
-# DRIVER REGISTER
+# SERVE UPLOADED IMAGES
+# =========================
+@driver_bp.route("/uploads/drivers/<path:filename>", methods=["GET"])
+def serve_driver_upload(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+
+# =========================
+# DRIVER REGISTER  (multipart/form-data)
 # =========================
 @driver_bp.route("/driver/register", methods=["POST"])
 def register_driver():
-    data = request.get_json()
+    # Accept both JSON (legacy) and multipart form data
+    if request.content_type and "multipart/form-data" in request.content_type:
+        form = request.form
+        files = request.files
+    else:
+        form = request.get_json() or {}
+        files = {}
 
-    if not data:
-        return jsonify({"message": "No input data"}), 400
+    # ── Required fields ──────────────────────────
+    full_name  = form.get("full_name", "").strip()
+    phone      = form.get("phone", "").strip()
+    password   = form.get("password", "").strip()
 
-    full_name = data.get("full_name")
-    email = data.get("email")
-    password = data.get("password")
-    phone = data.get("phone")
+    if not full_name or not phone or not password:
+        return jsonify({"message": "full_name, phone and password are required"}), 400
 
-    license_number = data.get("license_number")
-    vehicle_number = data.get("vehicle_number")
-    vehicle_type = data.get("vehicle_type")
-    capacity = data.get("capacity")
+    # ── Optional / conditional fields ────────────
+    email           = (form.get("email") or "").strip().lower() or None
+    nic_number      = form.get("nic_number", "").strip() or None
+    gender          = form.get("gender", "").strip() or None
+    home_district   = form.get("home_district", "").strip() or None
+    home_address    = form.get("home_address", "").strip() or None
+    license_number  = form.get("license_number", "").strip() or None
+    vehicle_type    = form.get("vehicle_type", "").strip() or None
+    vehicle_brand   = form.get("vehicle_brand", "").strip() or None
+    vehicle_number  = form.get("vehicle_number", "").strip() or None
+    vehicle_color   = form.get("vehicle_color", "").strip() or None
 
-    if not full_name or not email or not password or not phone:
-        return jsonify({"message": "Missing required fields"}), 400
+    # Parse dates
+    dob_str     = form.get("date_of_birth", "")
+    lic_exp_str = form.get("license_expiry_date", "")
+    date_of_birth      = None
+    license_expiry_date = None
+    if dob_str:
+        try:
+            date_of_birth = datetime.strptime(dob_str, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    if lic_exp_str:
+        try:
+            license_expiry_date = datetime.strptime(lic_exp_str, "%Y-%m-%d").date()
+        except ValueError:
+            pass
 
-    email = email.lower()
+    # Parse capacity
+    cap_raw  = form.get("capacity")
+    capacity = int(cap_raw) if cap_raw and str(cap_raw).isdigit() else None
 
-    existing_driver = Driver.query.filter_by(email=email).first()
-    if existing_driver:
-        return jsonify({"message": "Driver already exists"}), 400
+    # ── Uniqueness checks ─────────────────────────
+    if email:
+        if Driver.query.filter_by(email=email).first():
+            return jsonify({"message": "A driver with this email already exists"}), 400
+    if nic_number:
+        if Driver.query.filter_by(nic_number=nic_number).first():
+            return jsonify({"message": "A driver with this NIC already exists"}), 400
 
-    # Use PBKDF2 explicitly for compatibility with Python environments
-    # where hashlib.scrypt is not available.
-    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+    # ── Save uploaded images ──────────────────────
+    profile_photo         = save_upload(files.get("profile_photo"))
+    license_front_image   = save_upload(files.get("license_front_image"))
+    license_back_image    = save_upload(files.get("license_back_image"))
+    vehicle_reg_book_image = save_upload(files.get("vehicle_reg_book_image"))
+    revenue_license_image  = save_upload(files.get("revenue_license_image"))
+    insurance_cert_image   = save_upload(files.get("insurance_cert_image"))
 
+    # ── Hash password ─────────────────────────────
+    hashed_password = generate_password_hash(password, method="pbkdf2:sha256")
+
+    # ── Create driver record ──────────────────────
     new_driver = Driver(
         full_name=full_name,
         email=email,
         password=hashed_password,
         phone=phone,
+        nic_number=nic_number,
+        date_of_birth=date_of_birth,
+        gender=gender,
+        home_district=home_district,
+        home_address=home_address,
+        profile_photo=profile_photo,
         license_number=license_number,
-        vehicle_number=vehicle_number,
+        license_expiry_date=license_expiry_date,
+        license_front_image=license_front_image,
+        license_back_image=license_back_image,
         vehicle_type=vehicle_type,
+        vehicle_brand=vehicle_brand,
+        vehicle_number=vehicle_number,
+        vehicle_color=vehicle_color,
         capacity=capacity,
-        is_approved=False
+        vehicle_reg_book_image=vehicle_reg_book_image,
+        revenue_license_image=revenue_license_image,
+        insurance_cert_image=insurance_cert_image,
+        is_approved=False,
     )
 
     db.session.add(new_driver)
     db.session.commit()
 
     return jsonify({
-        "message": "Driver registered. Waiting for admin approval."
+        "message": "Driver registered successfully. Waiting for admin approval."
     }), 201
+
 
 
 # =========================
@@ -160,7 +246,25 @@ def get_pending_drivers():
             "name": d.full_name,
             "email": d.email,
             "phone": d.phone,
-            "vehicle": d.vehicle_type
+            "nic_number": d.nic_number,
+            "date_of_birth": str(d.date_of_birth) if d.date_of_birth else None,
+            "gender": d.gender,
+            "home_district": d.home_district,
+            "home_address": d.home_address,
+            "profile_photo": d.profile_photo,
+            "license_number": d.license_number,
+            "license_expiry_date": str(d.license_expiry_date) if d.license_expiry_date else None,
+            "license_front_image": d.license_front_image,
+            "license_back_image": d.license_back_image,
+            "vehicle": d.vehicle_type,
+            "vehicle_brand": d.vehicle_brand,
+            "vehicle_number": d.vehicle_number,
+            "vehicle_color": d.vehicle_color,
+            "capacity": d.capacity,
+            "vehicle_reg_book_image": d.vehicle_reg_book_image,
+            "revenue_license_image": d.revenue_license_image,
+            "insurance_cert_image": d.insurance_cert_image,
+            "created_at": str(d.created_at) if d.created_at else None,
         })
 
     return jsonify(result), 200
@@ -321,6 +425,7 @@ def approve_tour_request_as_driver(tour_id):
             user.email,
             "Driver accepted your tour request",
             f"{driver_name} accepted your tour request #{tour.id}.",
+            tour.id
         )
 
     admins = User.query.filter_by(role="admin").all()
@@ -329,6 +434,7 @@ def approve_tour_request_as_driver(tour_id):
             admin.email,
             "Driver accepted a tour request",
             f"{driver_name} accepted tour request #{tour.id}.",
+            tour.id
         )
 
     db.session.commit()
@@ -369,6 +475,21 @@ def negotiate_price_as_driver(tour_id):
     tour.estimated_price = driver_price
     tour.status = "price_sent_by_driver"
 
+    # Create or update booking for this tour
+    booking = Booking.query.filter_by(tour_id=tour_id).first()
+    if not booking:
+        booking = Booking(
+            tour_id=tour_id,
+            driver_id=driver_id,
+            total_price=driver_price,
+            status="pending"
+        )
+        db.session.add(booking)
+    else:
+        booking.total_price = driver_price
+        booking.driver_id = driver_id
+        booking.status = "pending"
+
     user = User.query.get(tour.user_id) if tour.user_id else None
     raw_id = get_jwt_identity()
     try:
@@ -383,6 +504,7 @@ def negotiate_price_as_driver(tour_id):
             user.email,
             "Driver sent a negotiated price",
             f"{driver_name} sent a new price for tour request #{tour.id}: Rs. {driver_price:.2f}",
+            tour.id
         )
 
     admins = User.query.filter_by(role="admin").all()
@@ -391,6 +513,7 @@ def negotiate_price_as_driver(tour_id):
             admin.email,
             "Driver negotiated a tour price",
             f"{driver_name} set Rs. {driver_price:.2f} for tour request #{tour.id}.",
+            tour.id
         )
 
     db.session.commit()

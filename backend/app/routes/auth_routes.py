@@ -153,6 +153,7 @@ def get_user_notifications():
     return jsonify([
         {
             "id": n.id,
+            "tour_id": n.tour_id,
             "subject": n.subject,
             "message": n.message,
             "status": n.status,
@@ -187,6 +188,7 @@ def get_admin_notifications():
     return jsonify([
         {
             "id": n.id,
+            "tour_id": n.tour_id,
             "subject": n.subject,
             "message": n.message,
             "status": n.status,

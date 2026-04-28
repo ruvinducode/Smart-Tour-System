@@ -6,6 +6,8 @@ import LandingPage from './pages/LandingPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import AdminDashboardPage from './pages/AdminDashboardPage.jsx'
 import DriverDashboardPage from './pages/DriverDashboardPage.jsx'
+import FindingDriverPage from './pages/FindingDriverPage.jsx'
+import UserDashboardPage from './pages/UserDashboardPage.jsx'
 import useAuth from './hooks/useAuth.js'
 import { calculateTourEstimate, getApiBaseUrl, loginDriver, loginUser } from './services/api.js'
 
@@ -29,6 +31,7 @@ export default function App() {
   const [publicPage, setPublicPage] = useState('landing')
   const [authPreset, setAuthPreset] = useState({ accountType: 'user', mode: 'login' })
   const [showLoginPassword, setShowLoginPassword] = useState(false)
+  const [findingDriverData, setFindingDriverData] = useState(null) // { startLocation, bookingDetails }
 
   const [loginForm, setLoginForm] = useState({ email: '', password: '' })
   const [driverLoginForm, setDriverLoginForm] = useState({ email: '', password: '' })
@@ -85,17 +88,11 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPopState)
   }, [loggedIn])
 
-  const handleStartTour = useCallback(() => {
-    setActivePage('plan-trip')
-  }, [])
-
-  const handleBackToHome = useCallback(() => {
-    setActivePage('home')
-  }, [])
-
-  const handleOpenPlanTrip = useCallback(() => {
-    setActivePage('plan-trip')
-  }, [])
+  // Navigation Handlers
+  const handleStartTour = useCallback(() => setActivePage('plan-trip'), [])
+  const handleBackToHome = useCallback(() => setActivePage('home'), [])
+  const handleOpenPlanTrip = useCallback(() => setActivePage('plan-trip'), [])
+  const handleViewDashboard = useCallback(() => setActivePage('dashboard'), [])
 
   const handleLogout = useCallback(() => {
     logout()
@@ -143,8 +140,6 @@ export default function App() {
           setInfo(driverData.message || 'Driver signed in.')
           return
         } catch (driverError) {
-          // If this email is a driver but not approved (or has another driver-only issue),
-          // show that message directly and do not try user login.
           const msg = String(driverError?.message || '')
           const shouldStopOnDriverError =
             msg.includes('Driver not approved') ||
@@ -222,6 +217,7 @@ export default function App() {
     [locationCount, vehicleType],
   )
 
+  // --- MAIN RENDER LOGIC ---
   if (loggedIn) {
     const role = userRole || getRoleFromToken(token)
 
@@ -233,28 +229,61 @@ export default function App() {
       return <DriverDashboardPage token={token} userName={userName} onLogout={handleLogout} />
     }
 
-    if (activePage === 'home') {
+    // Finding-driver screen (Uber-style)
+    if (findingDriverData) {
       return (
-        <HomePage
-          onStartTour={handleStartTour}
-          onGoToPlanTrip={handleOpenPlanTrip}
-          userName={userName}
-          token={token}
-          onLogout={handleLogout}
+        <FindingDriverPage
+          startLocation={findingDriverData.startLocation}
+          bookingDetails={findingDriverData.bookingDetails}
+          onCancel={() => setFindingDriverData(null)}
+          onDriverFound={() => {
+            setFindingDriverData(null)
+            setActivePage('dashboard') // Redirects to the new dashboard once a driver is found!
+          }}
         />
       )
     }
 
-    return (
-      <Home
-        onLogout={handleLogout}
-        userName={userName}
-        onBackToHome={handleBackToHome}
-        onGoToPlanTrip={handleOpenPlanTrip}
-      />
-    )
+    // User Routing block
+    if (role === 'user') {
+      if (activePage === 'dashboard') {
+        return (
+          <UserDashboardPage 
+            token={token} 
+            userName={userName} 
+            onLogout={handleLogout}
+            onGoToPlanner={handleOpenPlanTrip}
+          />
+        )
+      }
+
+      if (activePage === 'home') {
+        return (
+          <HomePage
+            onStartTour={handleStartTour}
+            onGoToPlanTrip={handleOpenPlanTrip}
+            onViewDashboard={handleViewDashboard} // Passed down to let HomePage trigger the dashboard
+            userName={userName}
+            token={token}
+            onLogout={handleLogout}
+          />
+        )
+      }
+
+      // Default to "plan-trip" view
+      return (
+        <Home
+          onLogout={handleLogout}
+          userName={userName}
+          onBackToHome={handleBackToHome}
+          onGoToPlanTrip={handleOpenPlanTrip}
+          onBookingConfirmed={(data) => setFindingDriverData(data)}
+        />
+      )
+    }
   }
 
+  // --- PUBLIC VIEWS ---
   if (publicPage === 'landing') {
     return (
       <LandingPage
