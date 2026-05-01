@@ -4,50 +4,61 @@ import L from 'leaflet'
 
 // ── inject styles ──────────────────────────────────────────────
 const STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --primary-orange: #f97316;
+  --primary-green: #10b981;
+  --bg-white: #ffffff;
+  --text-dark: #1e293b;
+  --text-muted: #64748b;
+}
 
 @keyframes fd-ping {
   0%   { transform:scale(1);   opacity:.8; }
   70%  { transform:scale(2.2); opacity:.2; }
   100% { transform:scale(2.8); opacity:0;  }
 }
-@keyframes fd-car-float {
-  0%,100% { transform:translateY(0px) rotate(var(--r,0deg)); }
-  50%      { transform:translateY(-6px) rotate(var(--r,0deg)); }
+@keyframes fd-float {
+  0%,100% { transform:translateY(0px); }
+  50%      { transform:translateY(-8px); }
 }
 @keyframes fd-bar {
-  0%,100% { transform:scaleX(.25); }
-  50%      { transform:scaleX(1);   }
+  0%,100% { transform:scaleY(.3); opacity: 0.4; }
+  50%      { transform:scaleY(1);   opacity: 1;   }
 }
 @keyframes fd-dots {
-  0%,20%  { opacity:0; }
-  50%     { opacity:1; }
-  80%,100%{ opacity:0; }
+  0%,20%  { opacity:0; transform: translateY(2px); }
+  50%     { opacity:1; transform: translateY(0); }
+  80%,100%{ opacity:0; transform: translateY(-2px); }
 }
 @keyframes fd-slide-up {
-  from { transform:translateY(60px); opacity:0; }
+  from { transform:translateY(100%); opacity:0; }
   to   { transform:translateY(0);    opacity:1; }
 }
 @keyframes fd-ripple {
-  0%   { box-shadow:0 0 0 0 rgba(20,184,166,.45); }
-  70%  { box-shadow:0 0 0 20px rgba(20,184,166,0); }
-  100% { box-shadow:0 0 0 0 rgba(20,184,166,0); }
+  0%   { box-shadow:0 0 0 0 rgba(249, 115, 22, 0.4); }
+  70%  { box-shadow:0 0 0 25px rgba(249, 115, 22, 0); }
+  100% { box-shadow:0 0 0 0 rgba(249, 115, 22, 0); }
 }
 @keyframes fd-spin {
   to { transform:rotate(360deg); }
 }
+@keyframes mesh-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
 .fd-ping  { animation:fd-ping 1.4s cubic-bezier(0,0,.2,1) infinite; }
-.fd-float { animation:fd-car-float 2.4s ease-in-out infinite; }
-.fd-bar-1 { animation:fd-bar 1.2s ease-in-out infinite; }
-.fd-bar-2 { animation:fd-bar 1.2s ease-in-out .2s infinite; }
-.fd-bar-3 { animation:fd-bar 1.2s ease-in-out .4s infinite; }
-.fd-bar-4 { animation:fd-bar 1.2s ease-in-out .6s infinite; }
-.fd-dot-1 { animation:fd-dots 1.4s ease-in-out 0s infinite; }
-.fd-dot-2 { animation:fd-dots 1.4s ease-in-out .25s infinite; }
-.fd-dot-3 { animation:fd-dots 1.4s ease-in-out .5s infinite; }
-.fd-slide  { animation:fd-slide-up .5s ease-out both; }
-.fd-ripple { animation:fd-ripple 1.6s ease-out infinite; }
+.fd-float { animation:fd-float 2.4s ease-in-out infinite; }
+.fd-bar { animation:fd-bar 1s ease-in-out infinite; }
+.fd-dot { animation:fd-dots 1.4s ease-in-out infinite; }
+.fd-slide { animation:fd-slide-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.fd-ripple { animation:fd-ripple 1.8s ease-out infinite; }
 .fd-spin   { animation:fd-spin .9s linear infinite; }
+.mesh-bg   { animation: mesh-pulse 8s ease-in-out infinite; }
+
+.leaflet-container { font-family: 'Plus Jakarta Sans', sans-serif; }
 `
 if (typeof document !== 'undefined' && !document.getElementById('fd-styles')) {
   const s = document.createElement('style')
@@ -57,20 +68,18 @@ if (typeof document !== 'undefined' && !document.getElementById('fd-styles')) {
 }
 
 // ── SVG car icon factory ───────────────────────────────────────
-function makeCarIcon(color = '#0f766e', rotation = 0) {
+function makeCarIcon(color = '#f97316', rotation = 0) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
     <g transform="rotate(${rotation},18,18)">
-      <rect x="6" y="12" width="24" height="14" rx="4" fill="${color}"/>
-      <rect x="9" y="8"  width="18" height="10" rx="3" fill="${color}" opacity=".85"/>
-      <rect x="11" y="10" width="14" height="6" rx="2" fill="white" opacity=".5"/>
+      <rect x="6" y="12" width="24" height="14" rx="5" fill="${color}"/>
+      <rect x="9" y="8"  width="18" height="10" rx="4" fill="${color}" opacity=".9"/>
+      <rect x="11" y="10" width="14" height="6" rx="2" fill="white" opacity=".6"/>
       <circle cx="10" cy="27" r="3.5" fill="#1e293b"/>
       <circle cx="26" cy="27" r="3.5" fill="#1e293b"/>
-      <circle cx="10" cy="27" r="1.5" fill="#64748b"/>
-      <circle cx="26" cy="27" r="1.5" fill="#64748b"/>
     </g>
   </svg>`
   return L.divIcon({
-    html: `<div style="filter:drop-shadow(0 3px 6px rgba(0,0,0,.35))">${svg}</div>`,
+    html: `<div style="filter:drop-shadow(0 4px 8px rgba(0,0,0,.2))">${svg}</div>`,
     className: '',
     iconSize: [36, 36],
     iconAnchor: [18, 18],
@@ -78,33 +87,38 @@ function makeCarIcon(color = '#0f766e', rotation = 0) {
 }
 
 function makeUserIcon() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="52" viewBox="0 0 40 52">
-    <path d="M20 0C9 0 0 9 0 20c0 14 20 32 20 32S40 34 40 20C40 9 31 0 20 0z" fill="#0f766e"/>
-    <circle cx="20" cy="20" r="9" fill="white"/>
-    <circle cx="20" cy="20" r="5" fill="#0f766e"/>
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="56" viewBox="0 0 44 56">
+    <defs>
+      <linearGradient id="pin-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#f97316" />
+        <stop offset="100%" stop-color="#ea580c" />
+      </linearGradient>
+    </defs>
+    <path d="M22 0C10 0 0 10 0 22c0 16 22 34 22 34S44 38 44 22C44 10 34 0 22 0z" fill="url(#pin-grad)"/>
+    <circle cx="22" cy="22" r="10" fill="white"/>
+    <path d="M22 15a7 7 0 0 1 7 7 7 7 0 0 1-7 7 7 7 0 0 1-7-7 7 7 0 0 1 7-7z" fill="#f97316"/>
   </svg>`
   return L.divIcon({
-    html: `<div class="fd-ripple" style="display:inline-block;border-radius:50%">${svg}</div>`,
+    html: `<div class="fd-ripple" style="display:flex; align-items:center; justify-content:center; border-radius:50%">${svg}</div>`,
     className: '',
-    iconSize: [40, 52],
-    iconAnchor: [20, 52],
+    iconSize: [44, 56],
+    iconAnchor: [22, 56],
   })
 }
 
 // ── Animated drivers on map ────────────────────────────────────
-const CAR_COLORS = ['#0f766e','#0891b2','#7c3aed','#db2777','#ea580c','#16a34a']
+const CAR_COLORS = ['#f97316', '#10b981', '#3b82f6', '#8b5cf6', '#f43f5e', '#f59e0b']
 
-function generateNearbyDrivers(center, count = 6) {
+function generateNearbyDrivers(center, count = 7) {
   return Array.from({ length: count }, (_, i) => {
     const angle = (i / count) * 2 * Math.PI + Math.random() * 0.5
-    const dist  = 0.012 + Math.random() * 0.025
+    const dist  = 0.01 + Math.random() * 0.02
     return {
       id: i,
       lat: center[0] + Math.sin(angle) * dist,
       lng: center[1] + Math.cos(angle) * dist,
       rotation: Math.floor(Math.random() * 360),
       color: CAR_COLORS[i % CAR_COLORS.length],
-      speed: 0.00015 + Math.random() * 0.00025,
       angle,
     }
   })
@@ -116,18 +130,18 @@ function AnimatedDriverMarkers({ center }) {
     const id = setInterval(() => {
       setDrivers(prev =>
         prev.map(d => {
-          const newAngle = d.angle + (Math.random() - 0.5) * 0.08
-          const dist     = 0.012 + Math.random() * 0.025
+          const newAngle = d.angle + (Math.random() - 0.5) * 0.1
+          const dist     = 0.01 + Math.random() * 0.02
           return {
             ...d,
             angle: newAngle,
             lat: center[0] + Math.sin(newAngle) * dist,
             lng: center[1] + Math.cos(newAngle) * dist,
-            rotation: (d.rotation + (Math.random() > .5 ? 15 : -15)) % 360,
+            rotation: (d.rotation + (Math.random() > .5 ? 10 : -10)) % 360,
           }
         })
       )
-    }, 1200)
+    }, 1500)
     return () => clearInterval(id)
   }, [center])
 
@@ -140,7 +154,6 @@ function AnimatedDriverMarkers({ center }) {
   ))
 }
 
-// keeps map centred on user location
 function MapCenterer({ center }) {
   const map = useMap()
   useEffect(() => { map.setView(center, 15) }, [center, map])
@@ -149,261 +162,194 @@ function MapCenterer({ center }) {
 
 // ── PHASE messages ─────────────────────────────────────────────
 const PHASES = [
-  { icon: <i className="bi bi-search"></i>,          label: 'Scanning nearby drivers…',   sub: 'Looking for drivers around your location' },
-  { icon: <i className="bi bi-broadcast"></i>,       label: 'Connecting to drivers…',     sub: 'Sending your booking details' },
-  { icon: <i className="bi bi-car-front-fill"></i>,  label: 'Drivers responding…',        sub: 'Waiting for driver confirmations' },
-  { icon: <i className="bi bi-check-circle-fill"></i>, label: 'Driver found!',              sub: 'A driver is on their way to you' },
+  { icon: 'bi-radar', label: 'Searching Nearby Drivers', sub: 'Locating top-rated drivers in your area...' },
+  { icon: 'bi-broadcast-pin', label: 'Connecting to Fleet', sub: 'Dispatching your tour details to the network.' },
+  { icon: 'bi-car-front-fill', label: 'Drivers Responding', sub: 'Accepting driver confirmations and profiles.' },
+  { icon: 'bi-check2-circle', label: 'Perfect Match Found!', sub: 'Your driver has been secured and is ready.' },
 ]
 
-// ── Main component ─────────────────────────────────────────────
 export default function FindingDriverPage({
-  startLocation,   // { lat, lng, name }
-  bookingDetails,  // { vehicle, days, usd, lkr }
+  startLocation,
+  bookingDetails,
   onCancel,
   onDriverFound,
 }) {
-  const center = startLocation
-    ? [startLocation.lat, startLocation.lng]
-    : [6.9271, 79.8612] // default Colombo
-
-  const [phase,   setPhase]   = useState(0)
+  const center = startLocation ? [startLocation.lat, startLocation.lng] : [6.9271, 79.8612]
+  const [phase, setPhase] = useState(0)
   const [elapsed, setElapsed] = useState(0)
-  const timerRef = useRef(null)
-
+  
   useEffect(() => {
-    // advance through phases
     const phaseTimer = setInterval(() => {
-      setPhase(p => {
-        if (p >= PHASES.length - 1) {
-          clearInterval(phaseTimer)
-          return p
-        }
-        return p + 1
-      })
-    }, 4000)
-
-    // elapsed counter
-    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
-
-    return () => {
-      clearInterval(phaseTimer)
-      clearInterval(timerRef.current)
-    }
+      setPhase(p => p >= PHASES.length - 1 ? p : p + 1)
+    }, 4500)
+    const clock = setInterval(() => setElapsed(e => e + 1), 1000)
+    return () => { clearInterval(phaseTimer); clearInterval(clock); }
   }, [])
 
-  // auto-call onDriverFound after last phase
   useEffect(() => {
     if (phase === PHASES.length - 1) {
-      const t = setTimeout(() => onDriverFound && onDriverFound(), 3000)
+      const t = setTimeout(() => onDriverFound && onDriverFound(), 3500)
       return () => clearTimeout(t)
     }
   }, [phase, onDriverFound])
 
-  const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0')
-  const seconds = String(elapsed % 60).padStart(2, '0')
+  const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
   const progress = ((phase + 1) / PHASES.length) * 100
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg,#0b3d3f 0%,#0f6460 50%,#134e4a 100%)',
-        fontFamily: "'Inter',sans-serif",
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      {/* ── Top bar ── */}
-      <div style={{
-        padding: '14px 20px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        background: 'rgba(0,0,0,.25)',
-        backdropFilter: 'blur(10px)',
-        borderBottom: '1px solid rgba(255,255,255,.1)',
-      }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <div style={{
-            width:36, height:36, borderRadius:10,
-            background:'linear-gradient(135deg,#14b8a6,#0ea5e9)',
-            display:'flex', alignItems:'center', justifyContent:'center',
-            fontSize:18,
-          }}>
-            <i className="bi bi-compass-fill text-white"></i>
+    <div className="flex flex-col h-screen overflow-hidden bg-white text-slate-800 font-['Plus_Jakarta_Sans']">
+      
+      {/* ── Dynamic Mesh Background ── */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="mesh-bg absolute top-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-orange-100 blur-[120px] opacity-40"></div>
+        <div className="mesh-bg absolute bottom-[-5%] left-[-10%] w-[40%] h-[50%] rounded-full bg-emerald-100 blur-[100px] opacity-40" style={{ animationDelay: '-2s' }}></div>
+      </div>
+
+      {/* ── Modern Header ── */}
+      <header className="relative z-50 px-6 py-5 flex items-center justify-between bg-white/70 backdrop-blur-xl border-b border-slate-100">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30 flex items-center justify-center text-white text-2xl">
+            <i className="bi bi-geo-fill"></i>
           </div>
           <div>
-            <div style={{ color:'rgba(255,255,255,.5)', fontSize:11, letterSpacing:2, textTransform:'uppercase' }}>Smart Tour</div>
-            <div style={{ color:'white', fontWeight:700, fontSize:15 }}>Finding Your Driver</div>
+            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight leading-tight">Smart Tour</h1>
+            <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest uppercase">Live Tracking</p>
           </div>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div style={{
-            background:'rgba(255,255,255,.12)', borderRadius:8,
-            padding:'4px 12px', color:'rgba(255,255,255,.8)', fontSize:13, fontWeight:600,
-          }}>
-            ⏱ {minutes}:{seconds}
+
+        <div className="flex items-center gap-3">
+          <div className="px-4 py-2 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+            <span className="text-sm font-bold tabular-nums text-slate-700">{formatTime(elapsed)}</span>
           </div>
           <button
             onClick={onCancel}
-            style={{
-              background:'rgba(239,68,68,.2)', border:'1px solid rgba(239,68,68,.35)',
-              borderRadius:8, color:'#fca5a5', padding:'6px 14px', fontSize:13,
-              fontWeight:600, cursor:'pointer',
-            }}
+            className="px-5 py-2.5 rounded-xl bg-rose-50 text-rose-600 border border-rose-100 text-sm font-bold hover:bg-rose-500 hover:text-white transition-all active:scale-95"
           >
             Cancel
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* ── Map ── */}
-      <div style={{ flex:'1 1 0', minHeight:0, position:'relative' }}>
+      {/* ── Map Container ── */}
+      <main className="flex-1 relative z-10 min-h-0">
         <MapContainer
           center={center}
           zoom={15}
           zoomControl={false}
-          style={{ height:'100%', width:'100%' }}
+          className="h-full w-full"
         >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution="&copy; OpenStreetMap"
-          />
+          <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
           <MapCenterer center={center} />
 
-          {/* Pulse ring around user */}
           <Circle
             center={center}
-            radius={600}
-            pathOptions={{ color:'#14b8a6', fillColor:'#14b8a6', fillOpacity:.07, weight:1.5, opacity:.35 }}
+            radius={500}
+            pathOptions={{ color:'#f97316', fillColor:'#f97316', fillOpacity:.05, weight:1, opacity:.2 }}
           />
           <Circle
             center={center}
-            radius={280}
-            pathOptions={{ color:'#14b8a6', fillColor:'#14b8a6', fillOpacity:.12, weight:2, opacity:.5 }}
+            radius={250}
+            pathOptions={{ color:'#10b981', fillColor:'#10b981', fillOpacity:.08, weight:1.5, opacity:.3 }}
           />
 
-          {/* User marker */}
           <Marker position={center} icon={makeUserIcon()} />
-
-          {/* Animated drivers */}
           <AnimatedDriverMarkers center={center} />
         </MapContainer>
 
-        {/* Map overlay — "scanning" radar ring */}
-        <div style={{
-          position:'absolute', inset:0, pointerEvents:'none',
-          background:'radial-gradient(circle at 50% 50%, transparent 30%, rgba(11,61,63,.35) 100%)',
-          zIndex:400,
-        }} />
-      </div>
+        {/* Map Overlays */}
+        <div className="absolute inset-0 pointer-events-none z-[400] shadow-[inset_0_0_150px_rgba(0,0,0,0.05)]"></div>
+      </main>
 
-      {/* ── Bottom panel ── */}
-      <div
-        className="fd-slide"
-        style={{
-          background:'linear-gradient(180deg,rgba(11,61,63,0) 0%,#0b2e30 8%)',
-          backdropFilter:'blur(16px)',
-          padding:'24px 20px 32px',
-          borderTop:'1px solid rgba(255,255,255,.08)',
-          zIndex:500,
-        }}
-      >
-        {/* Phase indicator */}
-        <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:18 }}>
-          <div style={{
-            width:52, height:52, borderRadius:'50%',
-            background:'linear-gradient(135deg,#14b8a6,#0ea5e9)',
-            display:'flex', alignItems:'center', justifyContent:'center',
-            fontSize:24, flexShrink:0,
-            boxShadow:'0 0 0 8px rgba(20,184,166,.18)',
-          }}>
-            {PHASES[phase].icon}
-          </div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ color:'white', fontWeight:700, fontSize:17, marginBottom:4 }}>
-              {PHASES[phase].label}
-              {phase < PHASES.length - 1 && (
-                <span style={{ marginLeft:4 }}>
-                  <span className="fd-dot-1" style={{ opacity:0 }}>.</span>
-                  <span className="fd-dot-2" style={{ opacity:0 }}>.</span>
-                  <span className="fd-dot-3" style={{ opacity:0 }}>.</span>
-                </span>
-              )}
+      {/* ── Bottom Control Panel ── */}
+      <footer className="relative z-[500] fd-slide">
+        <div className="bg-white rounded-t-[3rem] shadow-[0_-25px_60px_-15px_rgba(0,0,0,0.1)] border-t border-slate-100 p-8 pb-10">
+          
+          {/* Status Row */}
+          <div className="flex items-start gap-6 mb-8">
+            <div className="w-20 h-20 rounded-3xl bg-orange-500 shadow-xl shadow-orange-500/20 flex items-center justify-center text-white text-4xl relative overflow-hidden">
+               <div className="absolute inset-0 bg-white/20 fd-spin opacity-20"></div>
+               <i className={`bi ${PHASES[phase].icon}`}></i>
             </div>
-            <div style={{ color:'rgba(255,255,255,.55)', fontSize:13 }}>{PHASES[phase].sub}</div>
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        <div style={{ marginBottom:18 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-            <span style={{ color:'rgba(255,255,255,.5)', fontSize:12 }}>Progress</span>
-            <span style={{ color:'#5eead4', fontSize:12, fontWeight:600 }}>{Math.round(progress)}%</span>
-          </div>
-          <div style={{ background:'rgba(255,255,255,.1)', borderRadius:999, height:6, overflow:'hidden' }}>
-            <div style={{
-              height:'100%', borderRadius:999,
-              background:'linear-gradient(90deg,#14b8a6,#38bdf8)',
-              width:`${progress}%`,
-              transition:'width .8s cubic-bezier(.4,0,.2,1)',
-            }} />
-          </div>
-        </div>
-
-        {/* Soundwave / bar loader */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:5, marginBottom:20, height:28 }}>
-          {['fd-bar-1','fd-bar-2','fd-bar-3','fd-bar-4','fd-bar-3','fd-bar-2','fd-bar-1'].map((cls, i) => (
-            <div
-              key={i}
-              className={cls}
-              style={{
-                width:4, height:24, borderRadius:4,
-                background:'linear-gradient(180deg,#14b8a6,#38bdf8)',
-                transformOrigin:'center',
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Booking summary chips */}
-        {bookingDetails && (
-          <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:20 }}>
-            {[
-              { icon: <i className="bi bi-car-front-fill"></i>, text: bookingDetails.vehicle || 'Vehicle' },
-              { icon: <i className="bi bi-calendar-event"></i>, text: `${bookingDetails.days || 1} day${bookingDetails.days !== 1 ? 's' : ''}` },
-              { icon: <i className="bi bi-currency-dollar"></i>, text: `$${bookingDetails.usd || 0} USD` },
-              { icon: <i className="bi bi-cash-stack"></i>, text: `රු.${(bookingDetails.lkr || 0).toLocaleString()}` },
-            ].map((chip, i) => (
-              <div key={i} style={{
-                background:'rgba(255,255,255,.1)', border:'1px solid rgba(255,255,255,.15)',
-                borderRadius:20, padding:'5px 12px', display:'flex', alignItems:'center', gap:5,
-                color:'rgba(255,255,255,.85)', fontSize:12, fontWeight:500,
-              }}>
-                <span>{chip.icon}</span>
-                <span>{chip.text}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1.5">
+                <h3 className="text-2xl font-black text-slate-900 tracking-tight">{PHASES[phase].label}</h3>
+                {phase < PHASES.length - 1 && (
+                  <div className="flex gap-1">
+                    {[0,1,2].map(i => <div key={i} className="w-1.5 h-1.5 rounded-full bg-orange-500 fd-dot" style={{ animationDelay: `${i*0.2}s` }}></div>)}
+                  </div>
+                )}
               </div>
+              <p className="text-slate-500 font-medium leading-relaxed">{PHASES[phase].sub}</p>
+            </div>
+          </div>
+
+          {/* Progress Section */}
+          <div className="mb-10">
+            <div className="flex justify-between items-center mb-3">
+              <span className="text-xs font-black uppercase tracking-widest text-slate-400">System Progress</span>
+              <span className="text-sm font-black text-emerald-600">{Math.round(progress)}%</span>
+            </div>
+            <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-emerald-500 transition-all duration-1000 ease-out relative"
+                style={{ width: `${progress}%` }}
+              >
+                <div className="absolute inset-0 bg-white/20 animate-[pulse_2s_infinite]"></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Visualization / Soundwave */}
+          <div className="flex items-center justify-center gap-2 mb-10 h-12">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 2, 1].map((n, i) => (
+              <div 
+                key={i} 
+                className="w-1.5 bg-orange-400 rounded-full fd-bar"
+                style={{ 
+                  height: `${n * 15}%`, 
+                  animationDelay: `${i * 0.1}s`,
+                  backgroundColor: n > 4 ? '#10b981' : '#f97316'
+                }}
+              ></div>
             ))}
           </div>
-        )}
 
-        {/* Start location */}
-        {startLocation && (
-          <div style={{
-            background:'rgba(255,255,255,.07)', borderRadius:12,
-            padding:'10px 14px', display:'flex', alignItems:'center', gap:10,
-            border:'1px solid rgba(255,255,255,.1)',
-          }}>
-            <span style={{ fontSize:18, color: '#14b8a6' }}>
-              <i className="bi bi-geo-alt-fill"></i>
-            </span>
-            <div>
-              <div style={{ color:'rgba(255,255,255,.45)', fontSize:11, marginBottom:2 }}>Pickup Location</div>
-              <div style={{ color:'white', fontWeight:600, fontSize:13 }}>{startLocation.name || 'Your Location'}</div>
+          {/* Booking Summary */}
+          {bookingDetails && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+              {[
+                { icon: 'bi-car-front-fill', label: 'Vehicle', val: bookingDetails.vehicle || 'Standard' },
+                { icon: 'bi-calendar-date', label: 'Duration', val: `${bookingDetails.days || 1} Days` },
+                { icon: 'bi-currency-dollar', label: 'USD', val: `$${bookingDetails.usd || 0}` },
+                { icon: 'bi-cash-stack', label: 'LKR', val: `රු.${(bookingDetails.lkr || 0).toLocaleString()}` },
+              ].map((item, i) => (
+                <div key={i} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col gap-1">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <i className={`bi ${item.icon} text-xs`}></i>
+                    <span className="text-[9px] font-black uppercase tracking-[0.15em]">{item.label}</span>
+                  </div>
+                  <span className="text-sm font-extrabold text-slate-800">{item.val}</span>
+                </div>
+              ))}
             </div>
-          </div>
-        )}
-      </div>
+          )}
+
+          {/* Pickup Address */}
+          {startLocation && (
+            <div className="p-5 bg-orange-50/50 rounded-3xl border border-orange-100/50 flex items-center gap-5">
+              <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-orange-500 text-xl">
+                <i className="bi bi-geo-alt-fill"></i>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-orange-600 mb-0.5">Pickup Address</p>
+                <p className="text-sm font-bold text-slate-800 truncate">{startLocation.name || 'Current Location'}</p>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </footer>
     </div>
   )
 }

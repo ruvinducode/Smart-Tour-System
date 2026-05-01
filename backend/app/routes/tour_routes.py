@@ -40,8 +40,32 @@ def calculate_tour():
     if not locations or not vehicle_type:
         return jsonify({"message": "Missing data"}), 400
 
-    total_distance = len(locations) * 50
-    total_days = max(1, total_distance // 100)
+    # Accept real road distance from frontend (computed via BRouter)
+    # Fall back to haversine sum if not provided
+    total_distance_km = data.get("total_distance_km")
+    if total_distance_km and total_distance_km > 0:
+        total_distance = float(total_distance_km)
+    else:
+        # Fallback: sum haversine distances between consecutive stops
+        total_distance = 0.0
+        for i in range(len(locations) - 1):
+            lat1 = locations[i].get("latitude", 0)
+            lon1 = locations[i].get("longitude", 0)
+            lat2 = locations[i+1].get("latitude", 0)
+            lon2 = locations[i+1].get("longitude", 0)
+            total_distance += haversine(lat1, lon1, lat2, lon2)
+        total_distance = round(total_distance * 1.25, 1)  # road penalty factor
+
+    # ── Practical days calculation ──────────────────────────────────────────────
+    # Assumptions (Sri Lanka tourism context):
+    #   • Max comfortable driving per day: 300 km  (6 hrs at ~50 km/h)
+    #   • Each stop after the start needs ~0.5 day for sightseeing
+    #   • Minimum 1 full day for any trip
+    # Formula: driving_days + sightseeing_days, rounded up to nearest whole day
+    num_locations = len(locations)
+    driving_days = total_distance / 300
+    sightseeing_days = (num_locations - 1) * 0.5   # each stop after pickup
+    total_days = max(1, math.ceil(driving_days + sightseeing_days))
 
     vehicle = Vehicle.query.filter_by(type=vehicle_type).first()
 

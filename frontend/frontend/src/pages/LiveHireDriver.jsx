@@ -242,31 +242,32 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
       return
     }
     const target = locations[0]
-    const url = `https://router.project-osrm.org/route/v1/driving/${currentLoc[1]},${currentLoc[0]};${target.longitude},${target.latitude}?overview=full&geometries=geojson`
+    const url = `https://brouter.de/brouter?lonlats=${currentLoc[1]},${currentLoc[0]}|${target.longitude},${target.latitude}&profile=car-fast&alternativeidx=0&format=geojson`
     fetch(url)
       .then(r => r.json())
       .then(data => {
-        const route = data?.routes?.[0]
-        if (route) {
-          setApproachRoute(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+        const routeCoords = data?.features?.[0]?.geometry?.coordinates
+        if (routeCoords) {
+          setApproachRoute(routeCoords.map(([lng, lat]) => [lat, lng]))
           if (rideStatus === 'Heading to Pickup') {
-            setDistanceToPickup((route.distance / 1000).toFixed(1))
+            const distKm = (data.features[0].properties['track-length'] || 0) / 1000
+            setDistanceToPickup(distKm.toFixed(1))
           }
         }
-      })
+      }).catch(() => {})
   }, [currentLoc, locations, rideStatus])
 
   useEffect(() => {
     if (locations.length < 2) return
-    const coords = locations.map(l => `${l.longitude},${l.latitude}`).join(';')
-    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
+    const coords = locations.map(l => `${l.longitude},${l.latitude}`).join('|')
+    const url = `https://brouter.de/brouter?lonlats=${coords}&profile=car-fast&alternativeidx=0&format=geojson`
     fetch(url)
       .then(r => r.json())
       .then(data => {
-        if (data?.routes?.[0]) {
-          setTourRoute(data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+        if (data?.features?.[0]?.geometry?.coordinates) {
+          setTourRoute(data.features[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]))
         }
-      })
+      }).catch(() => {})
   }, [locations])
 
   return (

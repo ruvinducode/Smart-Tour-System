@@ -107,10 +107,13 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
               else setEta(mins < 1 ? 'Arriving' : `${mins} min`)
               
               if (details.status !== 'ongoing') {
-                fetch(`https://router.project-osrm.org/route/v1/driving/${locData.longitude},${locData.latitude};${userLng},${userLat}?overview=full&geometries=geojson`)
+                const url = `https://brouter.de/brouter?lonlats=${locData.longitude},${locData.latitude}|${userLng},${userLat}&profile=car-fast&alternativeidx=0&format=geojson`
+                fetch(url)
                   .then(r => r.json())
                   .then(res => {
-                    if (res.routes?.[0]) setRoute(res.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+                    if (res.features?.[0]?.geometry?.coordinates) {
+                      setRoute(res.features[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+                    }
                   }).catch(() => {})
               } else {
                 setRoute([])

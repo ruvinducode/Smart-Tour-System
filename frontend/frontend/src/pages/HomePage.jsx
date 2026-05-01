@@ -24,6 +24,8 @@ import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import heroImg from '../assets/sri-lanka-hero.png'
 import colomboImg from '../assets/colombo.png'
 import teaImg from '../assets/tea-plantations.png'
+import kandyImg from '../assets/kandy.png'
+import galleImg from '../assets/galle.png'
 
 const customStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:wght@700;900&display=swap');
@@ -94,8 +96,8 @@ const DEFAULT_ZOOM = 7
 
 const TOURIST_DESTINATIONS = [
   { id: 1, name: 'Colombo', lat: 6.9271, lng: 79.8612, description: 'Contemporary city life, colonial streets.', region: 'West Coast', image: colomboImg },
-  { id: 2, name: 'Kandy', lat: 7.2906, lng: 80.6337, description: 'Sacred temples, highland culture.', region: 'Central Hills', image: 'https://images.unsplash.com/photo-1588598116719-743229f998b0?q=80&w=800&auto=format&fit=crop' },
-  { id: 3, name: 'Galle', lat: 6.0535, lng: 80.22, description: 'Fort walls, boutique coastal charm.', region: 'South Coast', image: 'https://images.unsplash.com/photo-1627664819818-e147d6221422?q=80&w=800&auto=format&fit=crop' },
+  { id: 2, name: 'Kandy', lat: 7.2906, lng: 80.6337, description: 'Sacred temples, highland culture.', region: 'Central Hills', image: kandyImg },
+  { id: 3, name: 'Galle', lat: 6.0535, lng: 80.22, description: 'Fort walls, boutique coastal charm.', region: 'South Coast', image: galleImg },
   { id: 4, name: 'Sigiriya', lat: 7.9574, lng: 80.757, description: 'Legendary rock citadel.', region: 'Cultural Triangle', image: heroImg },
   { id: 5, name: 'Anuradhapura', lat: 8.3114, lng: 80.4037, description: 'Grand stupas, sacred ruins.', region: 'North Central', image: 'https://images.unsplash.com/photo-1546271876-af6caec5fae5?q=80&w=800&auto=format&fit=crop' },
   { id: 6, name: 'Nuwara Eliya', lat: 6.9478, lng: 80.7957, description: 'Cool-climate tea valleys.', region: 'Hill Country', image: teaImg },
