@@ -8,8 +8,11 @@ import {
   Target, 
   Award,
   ArrowLeft,
-  ChevronRight
+  ChevronRight,
+  Shield,
+  Globe
 } from 'lucide-react'
+import Footer from '../components/Footer.jsx'
 import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 
 // Assets
@@ -76,10 +79,10 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
             animate={{ opacity: 1, x: 0 }}
             className="flex items-center gap-3"
           >
-            <div className="bg-emerald-900 text-white p-2 rounded-xl">
-              <Compass size={24} />
+            <div className="w-14 h-14 overflow-hidden rounded-xl shadow-lg border-2 border-emerald-900">
+              <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
             </div>
-            <span className="text-xl font-extrabold text-emerald-900 uppercase tracking-tighter">Smart Tour <span className="font-light text-slate-400">| About</span></span>
+            <span className="text-xl font-extrabold text-emerald-900 uppercase tracking-tighter">Air B&C <span className="font-light text-slate-400">| About</span></span>
           </motion.div>
           <button
             onClick={onBackHome}
@@ -145,7 +148,7 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
           <h2 className="text-4xl font-serif text-emerald-950 mb-8">Who We Are</h2>
           <div className="space-y-6 text-lg text-slate-600 leading-relaxed">
             <p>
-              Smart Tour LK emerged from a simple realization: Sri Lanka’s beauty is vast, but navigating it can be complex. We wanted to build a bridge between the island’s rich traditions and the needs of the modern explorer.
+              Air B&C LK emerged from a simple realization: Sri Lanka’s beauty is vast, but navigating it can be complex. We wanted to build a bridge between the island’s rich traditions and the needs of the modern explorer.
             </p>
             <p>
               What started as a small group of travel enthusiasts has grown into a tech-forward platform that empowers both travelers and local drivers. We don't just provide transport; we provide the keys to the island's soul.
@@ -216,18 +219,7 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
         </div>
       </section>
 
-      {/* Minimal Footer */}
-      <footer className="py-16 bg-[#fffbeb] border-t border-amber-100">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
-           <div className="flex items-center gap-3">
-              <div className="bg-emerald-900 text-white p-2 rounded-xl">
-                <Compass size={20} />
-              </div>
-              <span className="text-xl font-extrabold text-emerald-900 uppercase">Smart Tour <span className="font-light text-slate-400">| Sri Lanka</span></span>
-           </div>
-           <p className="text-slate-400 text-sm">© 2026 Smart Tour LK. All Rights Reserved.</p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   )
 }

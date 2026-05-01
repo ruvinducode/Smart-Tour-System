@@ -14,9 +14,12 @@ import {
   Mail,
   Instagram,
   Linkedin,
-  Youtube
+  Youtube,
+  Volume2,
+  VolumeX
 } from 'lucide-react'
 import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
+import Footer from '../components/Footer.jsx'
 
 // Assets
 import heroImg from '../assets/sri-lanka-hero.png'
@@ -136,8 +139,54 @@ export default function LandingPage({
     if (section) section.scrollIntoView({ behavior: 'smooth' })
   }
 
+  const [isMuted, setIsMuted] = useState(false)
+  const audioRef = useRef(null)
+
+  useEffect(() => {
+    const audio = new Audio('/gajaga-wannama-edm-remix_dv9oPeCI.mp3')
+    audio.loop = false
+    audioRef.current = audio
+
+    const playAudio = () => {
+      audio.play().catch(err => console.log("Autoplay blocked, waiting for interaction", err))
+    }
+
+    // Try to play on mount
+    playAudio()
+
+    // Also play on first user interaction if blocked
+    const handleFirstInteraction = () => {
+      playAudio()
+      window.removeEventListener('click', handleFirstInteraction)
+    }
+    window.addEventListener('click', handleFirstInteraction)
+
+    return () => {
+      audio.pause()
+      window.removeEventListener('click', handleFirstInteraction)
+    }
+  }, [])
+
+  const toggleMute = () => {
+    if (audioRef.current) {
+      audioRef.current.muted = !isMuted
+      setIsMuted(!isMuted)
+    }
+  }
+
   return (
     <div className="relative min-h-screen bg-[#fffbeb] text-slate-900 overflow-x-hidden">
+      {/* Audio Toggle */}
+      <div className="fixed bottom-8 left-8 z-[3000]">
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={toggleMute}
+          className="w-12 h-12 bg-emerald-900/10 backdrop-blur-xl border border-emerald-900/20 rounded-2xl flex items-center justify-center text-emerald-900 shadow-2xl group hover:bg-emerald-900/20 transition-all"
+        >
+          {isMuted ? <VolumeX size={20} className="text-rose-600" /> : <Volume2 size={20} className="text-emerald-600 animate-pulse" />}
+        </motion.button>
+      </div>
       {/* Navigation */}
       <nav className={`fixed top-0 left-0 right-0 z-[100] transition-all duration-500 ${isScrolled ? 'glass-nav py-3' : 'bg-transparent py-6'}`}>
         <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
@@ -146,10 +195,10 @@ export default function LandingPage({
             animate={{ opacity: 1, x: 0 }}
             className="flex items-center gap-3"
           >
-            <div className="bg-white text-emerald-900 p-2 rounded-xl shadow-lg">
-              <Compass size={24} />
+            <div className="w-14 h-14 overflow-hidden rounded-xl shadow-lg border border-white/20">
+              <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
             </div>
-            <span className="text-xl font-extrabold text-white">Smart Tour <span className="font-light text-white/60 text-sm">| LK</span></span>
+            <span className="text-xl font-extrabold text-white">Air B&C <span className="font-light text-white/60 text-sm">| LK</span></span>
           </motion.div>
 
           <div className="hidden md:flex items-center gap-8">
@@ -163,7 +212,13 @@ export default function LandingPage({
               </button>
             ))}
             <button 
-              onClick={onOpenLogin}
+              onClick={onOpenDriverLogin}
+              className="text-white/80 hover:text-white transition-colors text-sm font-bold uppercase tracking-widest"
+            >
+              Driver Portal
+            </button>
+            <button 
+              onClick={onOpenUserLogin}
               className="bg-amber-500 text-emerald-950 px-6 py-2.5 rounded-full font-bold shadow-xl hover:bg-amber-400 transition-all hover:scale-105"
             >
               Start Planning
@@ -226,7 +281,7 @@ export default function LandingPage({
             className="flex flex-col sm:flex-row gap-4 justify-center items-center"
           >
             <button 
-              onClick={onOpenLogin}
+              onClick={onOpenUserLogin}
               className="bg-amber-500 text-emerald-950 px-10 py-5 rounded-2xl font-bold text-lg shadow-2xl flex items-center gap-3 hover:bg-amber-400 transition-all hover:scale-105 group"
             >
               Start Exploring
@@ -302,7 +357,7 @@ export default function LandingPage({
         </div>
       </section>
 
-      {/* Why Smart Tour Section */}
+      {/* Why Air B&C Section */}
       <section id="about" className="bg-emerald-950 py-32 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-800 rounded-full blur-[150px] opacity-20 -translate-y-1/2 translate-x-1/2"></div>
         <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-amber-600 rounded-full blur-[150px] opacity-10 translate-y-1/2 -translate-x-1/2"></div>
@@ -319,7 +374,7 @@ export default function LandingPage({
                   Less Time Planning, <br /> More Time Dreaming.
                 </h2>
                 <p className="text-lg text-emerald-100/70 mb-12 leading-relaxed">
-                  Smart Tour LK is not just a booking platform. It’s your intelligent travel companion designed specifically for the unique landscapes of Sri Lanka.
+                  Air B&C LK is not just a booking platform. It’s your intelligent travel companion designed specifically for the unique landscapes of Sri Lanka.
                 </p>
 
                 <div className="space-y-8">
@@ -442,54 +497,7 @@ export default function LandingPage({
         </div>
       </section>
 
-      {/* Elegant Footer */}
-      <footer className="bg-emerald-950 text-white pt-32 pb-16 relative overflow-hidden">
-        <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 md:grid-cols-4 gap-16 mb-24">
-           <div className="col-span-1 md:col-span-2">
-              <div className="flex items-center gap-3 mb-8">
-                <div className="bg-white text-emerald-900 p-2 rounded-xl">
-                  <Compass size={24} />
-                </div>
-                <span className="text-2xl font-extrabold text-white">Smart Tour <span className="font-light text-white/40">| LK</span></span>
-              </div>
-              <p className="text-emerald-100/50 max-w-sm mb-8 leading-relaxed">
-                Empowering travelers to discover the hidden gems of Sri Lanka with intelligence, safety, and authentic local heart.
-              </p>
-              <div className="flex gap-6">
-                <Instagram className="text-white/40 hover:text-amber-400 cursor-pointer transition-colors" />
-                <Linkedin className="text-white/40 hover:text-amber-400 cursor-pointer transition-colors" />
-                <Youtube className="text-white/40 hover:text-amber-400 cursor-pointer transition-colors" />
-              </div>
-           </div>
-           
-           <div>
-              <h4 className="font-bold mb-8 uppercase tracking-widest text-sm text-amber-400">Quick Links</h4>
-              <ul className="space-y-4 text-emerald-100/60 text-sm">
-                <li className="hover:text-white cursor-pointer transition-colors" onClick={() => scrollToSection('destinations')}>Destinations</li>
-                <li className="hover:text-white cursor-pointer transition-colors" onClick={() => scrollToSection('tours')}>Tour Packages</li>
-                <li className="hover:text-white cursor-pointer transition-colors" onClick={onOpenAbout}>About Us</li>
-                <li className="hover:text-white cursor-pointer transition-colors">Safety Guidelines</li>
-              </ul>
-           </div>
-
-           <div>
-              <h4 className="font-bold mb-8 uppercase tracking-widest text-sm text-amber-400">Contact Us</h4>
-              <ul className="space-y-4 text-emerald-100/60 text-sm">
-                <li className="flex items-center gap-3"><Phone size={16} className="text-amber-400" /> +94 11 234 5678</li>
-                <li className="flex items-center gap-3"><Mail size={16} className="text-amber-400" /> hello@smarttour.lk</li>
-                <li className="flex items-center gap-3"><MapPin size={16} className="text-amber-400" /> Colombo, Sri Lanka</li>
-              </ul>
-           </div>
-        </div>
-
-        <div className="max-w-7xl mx-auto px-6 pt-16 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-8 text-emerald-100/30 text-xs font-bold uppercase tracking-[0.2em]">
-           <span>© 2026 Smart Tour Sri Lanka</span>
-           <div className="flex gap-12">
-             <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-             <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
-           </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   )
 }

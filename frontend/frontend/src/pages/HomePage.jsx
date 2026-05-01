@@ -19,6 +19,8 @@ import {
 } from 'lucide-react'
 import { getUserNotifications } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
+import Footer from '../components/Footer.jsx'
+import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 
 // Assets
 import heroImg from '../assets/sri-lanka-hero.png'
@@ -171,11 +173,11 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
             animate={{ opacity: 1, x: 0 }}
             className="flex items-center gap-3"
           >
-            <div className="bg-emerald-900 text-white p-2 rounded-xl shadow-lg">
-              <Compass size={24} />
+            <div className="w-14 h-14 overflow-hidden rounded-xl shadow-lg border border-white/20">
+              <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
             </div>
             <div>
-              <span className={`block text-xs font-bold uppercase tracking-widest ${isScrolled ? 'text-emerald-900' : 'text-white/80'}`}>Smart Tour</span>
+              <span className={`block text-xs font-bold uppercase tracking-widest ${isScrolled ? 'text-emerald-900' : 'text-white/80'}`}>Air B&C</span>
               <span className={`block text-xl font-extrabold ${isScrolled ? 'text-slate-900' : 'text-white'}`}>Sri Lanka</span>
             </div>
           </motion.div>
@@ -467,7 +469,7 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
       {/* Features/Why Us */}
       <section className="py-24 bg-white">
         <div className="max-w-7xl mx-auto px-6 text-center mb-16">
-          <h2 className="text-4xl md:text-5xl font-serif text-emerald-950 mb-4">Why Travel With Smart Tour?</h2>
+          <h2 className="text-4xl md:text-5xl font-serif text-emerald-950 mb-4">Why Travel With Air B&C?</h2>
           <p className="text-slate-500 max-w-2xl mx-auto">We combine technology with local heart to give you the most authentic Sri Lankan experience possible.</p>
         </div>
 
@@ -488,29 +490,7 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
         </div>
       </section>
 
-      {/* Elegant Footer */}
-      <footer className="bg-[#fffbeb] border-t border-amber-100 py-16">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
-           <div className="flex items-center gap-3">
-              <div className="bg-emerald-900 text-white p-2 rounded-xl">
-                <Compass size={20} />
-              </div>
-              <span className="text-xl font-extrabold text-emerald-900">Smart Tour <span className="font-light text-slate-400">| Sri Lanka</span></span>
-           </div>
-           
-           <div className="flex gap-8 text-sm font-bold text-slate-500 uppercase tracking-widest">
-              <button onClick={onOpenAbout} className="hover:text-emerald-900 transition-colors uppercase">About</button>
-              <a href="#" className="hover:text-emerald-900 transition-colors uppercase">Destinations</a>
-              <a href="#" className="hover:text-emerald-900 transition-colors uppercase">Experiences</a>
-              <a href="#" className="hover:text-emerald-900 transition-colors uppercase">Privacy</a>
-              <a href="#" className="hover:text-emerald-900 transition-colors uppercase">Support</a>
-           </div>
-
-           <div className="text-slate-400 text-sm">
-             © 2026 Smart Tour Sri Lanka. All Rights Reserved.
-           </div>
-        </div>
-      </footer>
+      <Footer />
 
       {/* Notifications Drawer (Simplified for UI) */}
       <AnimatePresence>

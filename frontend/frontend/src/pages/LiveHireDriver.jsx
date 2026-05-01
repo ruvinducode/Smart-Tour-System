@@ -14,7 +14,9 @@ import {
   Info,
   Maximize2,
   Focus,
-  Target
+  Target,
+  ChevronUp,
+  ChevronDown
 } from 'lucide-react'
 import { 
   updateDriverLocation, 
@@ -153,6 +155,7 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
   const [isSimulating, setIsSimulating] = useState(false)
   const [autoFollow, setAutoFollow] = useState(true)
   const [navMode, setNavMode] = useState(false)
+  const [isMinimized, setIsMinimized] = useState(false)
   
   const latestLocRef = useRef(null)
 
@@ -242,15 +245,15 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
       return
     }
     const target = locations[0]
-    const url = `https://brouter.de/brouter?lonlats=${currentLoc[1]},${currentLoc[0]}|${target.longitude},${target.latitude}&profile=car-fast&alternativeidx=0&format=geojson`
+    const url = `https://router.project-osrm.org/route/v1/driving/${currentLoc[1]},${currentLoc[0]};${target.longitude},${target.latitude}?overview=full&geometries=geojson`
     fetch(url)
       .then(r => r.json())
       .then(data => {
-        const routeCoords = data?.features?.[0]?.geometry?.coordinates
-        if (routeCoords) {
-          setApproachRoute(routeCoords.map(([lng, lat]) => [lat, lng]))
+        const route = data?.routes?.[0]
+        if (route && route.geometry?.coordinates) {
+          setApproachRoute(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
           if (rideStatus === 'Heading to Pickup') {
-            const distKm = (data.features[0].properties['track-length'] || 0) / 1000
+            const distKm = route.distance / 1000
             setDistanceToPickup(distKm.toFixed(1))
           }
         }
@@ -259,13 +262,14 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
 
   useEffect(() => {
     if (locations.length < 2) return
-    const coords = locations.map(l => `${l.longitude},${l.latitude}`).join('|')
-    const url = `https://brouter.de/brouter?lonlats=${coords}&profile=car-fast&alternativeidx=0&format=geojson`
+    const coords = locations.map(l => `${l.longitude},${l.latitude}`).join(';')
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
     fetch(url)
       .then(r => r.json())
       .then(data => {
-        if (data?.features?.[0]?.geometry?.coordinates) {
-          setTourRoute(data.features[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+        const route = data?.routes?.[0]
+        if (route && route.geometry?.coordinates) {
+          setTourRoute(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
         }
       }).catch(() => {})
   }, [locations])
@@ -433,70 +437,99 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
           >
             <Target size={22} />
           </motion.button>
+
+          {isMinimized && (
+            <motion.div 
+              initial={{ x: 50, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              onClick={() => setIsMinimized(false)}
+              className="bg-white/95 backdrop-blur-md rounded-2xl p-4 shadow-2xl border border-amber-100 cursor-pointer hover:bg-white transition-all flex items-center gap-4"
+            >
+              <div className="h-10 w-10 rounded-xl bg-emerald-900 text-white flex items-center justify-center shadow-lg">
+                <Info size={20} />
+              </div>
+              <div className="pr-2">
+                <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Status</p>
+                <p className="text-sm font-black text-emerald-950 leading-none">{rideStatus}</p>
+              </div>
+            </motion.div>
+          )}
         </div>
 
         {/* Driver Control Panel - Bottom Floating */}
-        <div className="absolute bottom-12 left-0 right-0 z-[1001] px-6">
-           <motion.div 
+        <div className={`absolute bottom-12 left-0 right-0 z-[1001] px-6 transition-all duration-700 ${isMinimized ? 'translate-y-[120%] opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}`}>
+          <motion.div 
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             className="max-w-xl mx-auto glass-card rounded-[3rem] p-4 premium-shadow"
-           >
-              <div className="bg-emerald-900/5 p-6 rounded-[2.5rem] flex items-center gap-6 mb-4 border border-emerald-900/5">
-                 <div className="h-16 w-16 rounded-[1.5rem] bg-emerald-900 text-white flex items-center justify-center shadow-xl">
-                    <Info size={32} />
-                 </div>
-                 <div>
-                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700 mb-1 block">Live Status</span>
-                    <h2 className="text-3xl font-serif text-emerald-950 leading-none">{rideStatus}</h2>
-                 </div>
+          >
+            {/* Header / Minimizer Toggle */}
+            <div 
+              className="bg-emerald-900/5 p-6 rounded-[2.5rem] flex items-center justify-between border border-emerald-900/5 cursor-pointer hover:bg-emerald-900/10 transition-colors"
+              onClick={() => setIsMinimized(true)}
+            >
+              <div className="flex items-center gap-6">
+                <div className="h-16 w-16 rounded-[1.5rem] bg-emerald-900 text-white flex items-center justify-center shadow-xl">
+                  <Info size={32} />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700 mb-1 block">Live Status</span>
+                  <h2 className="text-3xl font-serif text-emerald-950 leading-none">{rideStatus}</h2>
+                </div>
               </div>
+              <div className="h-10 w-10 rounded-full bg-white shadow-sm flex items-center justify-center text-emerald-900">
+                <ChevronDown size={20} />
+              </div>
+            </div>
 
+            <div className="pt-4">
               <div className="grid grid-cols-3 gap-3 mb-4">
-                 {[
-                   { label: 'Start', icon: Navigation, status: 'Ready to Start', color: 'bg-emerald-900', action: markTourEnRoute, next: 'Heading to Pickup' },
-                   { label: 'Arrived', icon: MapPin, status: 'Heading to Pickup', color: 'bg-amber-600', action: markTourArrived, next: 'Arrived at Pickup' },
-                   { label: 'Start Tour', icon: Play, status: 'Arrived at Pickup', color: 'bg-emerald-700', action: startTour, next: 'Tour in Progress' }
-                 ].map((btn, i) => (
-                   <motion.button 
-                     key={i}
-                     whileHover={rideStatus === btn.status ? { scale: 1.05 } : {}}
-                     whileTap={rideStatus === btn.status ? { scale: 0.95 } : {}}
-                     disabled={rideStatus !== btn.status}
-                     onClick={async () => {
-                        try {
-                          await btn.action(tourId, token)
-                          setRideStatus(btn.next)
-                          if (btn.label === 'Start') { setNavMode(true); setAutoFollow(true); }
-                        } catch (err) { alert(err.message) }
-                     }}
-                     className={`flex flex-col items-center justify-center py-6 rounded-[2rem] gap-2 transition-all border ${
-                       rideStatus === btn.status 
-                       ? `${btn.color} text-white shadow-xl border-transparent` 
-                       : 'bg-slate-100 border-slate-200 text-slate-300'
-                     }`}
-                   >
-                     <btn.icon size={24} />
-                     <span className="text-[10px] font-black uppercase tracking-widest">{btn.label}</span>
-                   </motion.button>
-                 ))}
+                {[
+                  { label: 'Start', icon: Navigation, status: 'Ready to Start', color: 'bg-emerald-900', action: markTourEnRoute, next: 'Heading to Pickup' },
+                  { label: 'Arrived', icon: MapPin, status: 'Heading to Pickup', color: 'bg-amber-600', action: markTourArrived, next: 'Arrived at Pickup' },
+                  { label: 'Start Tour', icon: Play, status: 'Arrived at Pickup', color: 'bg-emerald-700', action: startTour, next: 'Tour in Progress' }
+                ].map((btn, i) => (
+                  <motion.button 
+                    key={i}
+                    whileHover={rideStatus === btn.status ? { scale: 1.05 } : {}}
+                    whileTap={rideStatus === btn.status ? { scale: 0.95 } : {}}
+                    disabled={rideStatus !== btn.status}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await btn.action(tourId, token)
+                        setRideStatus(btn.next)
+                        if (btn.label === 'Start') { setNavMode(true); setAutoFollow(true); }
+                      } catch (err) { alert(err.message) }
+                    }}
+                    className={`flex flex-col items-center justify-center py-6 rounded-[2rem] gap-2 transition-all border ${
+                      rideStatus === btn.status 
+                      ? `${btn.color} text-white shadow-xl border-transparent` 
+                      : 'bg-slate-100 border-slate-200 text-slate-300'
+                    }`}
+                  >
+                    <btn.icon size={24} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">{btn.label}</span>
+                  </motion.button>
+                ))}
               </div>
 
               <div className="flex gap-4 mb-4">
-                 <div className="flex-1 bg-white border border-amber-100 rounded-2xl p-5 flex items-center justify-between shadow-sm">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Current</span>
-                    <p className="text-2xl font-black text-emerald-900">{actualDistance.toFixed(1)} <span className="text-xs">KM</span></p>
-                 </div>
-                 <div className="flex-1 bg-white border border-amber-100 rounded-2xl p-5 flex items-center justify-between shadow-sm">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Goal</span>
-                    <p className="text-2xl font-black text-amber-600">{tour?.total_distance_km || 0} <span className="text-xs">KM</span></p>
-                 </div>
+                <div className="flex-1 bg-white border border-amber-100 rounded-2xl p-5 flex items-center justify-between shadow-sm">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Current</span>
+                  <p className="text-2xl font-black text-emerald-900">{actualDistance.toFixed(1)} <span className="text-xs">KM</span></p>
+                </div>
+                <div className="flex-1 bg-white border border-amber-100 rounded-2xl p-5 flex items-center justify-between shadow-sm">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Goal</span>
+                  <p className="text-2xl font-black text-amber-600">{tour?.total_distance_km || 0} <span className="text-xs">KM</span></p>
+                </div>
               </div>
 
               <motion.button 
                 whileHover={rideStatus === 'Tour in Progress' && distanceToDestination <= 0.5 ? { scale: 1.02 } : {}}
                 whileTap={rideStatus === 'Tour in Progress' && distanceToDestination <= 0.5 ? { scale: 0.98 } : {}}
-                onClick={async () => {
+                onClick={async (e) => {
+                  e.stopPropagation();
                   if (!window.confirm("Finish tour?")) return
                   try {
                     const res = await completeTour(tourId, token)
@@ -517,13 +550,14 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
 
               <div className="mt-4 text-center">
                 <button 
-                  onClick={() => setShowConfirmCancel(true)}
+                  onClick={(e) => { e.stopPropagation(); setShowConfirmCancel(true); }}
                   className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-500/40 hover:text-rose-500 transition-colors p-2"
                 >
                   Emergency Cancellation
                 </button>
               </div>
-           </motion.div>
+            </div>
+          </motion.div>
         </div>
       </div>
 

@@ -43,7 +43,7 @@ export default function Login({
                 Secure sign in
               </p>
               <h2 className="mt-3 font-['Space_Grotesk'] text-3xl font-semibold text-slate-900">Welcome back</h2>
-              <p className="mt-1 text-sm text-slate-600">Access your Smart Tour dashboard with enterprise-grade authentication.</p>
+              <p className="mt-1 text-sm text-slate-600">Access your Air B&C dashboard with enterprise-grade authentication.</p>
             </div>
             {onBackToLanding ? (
               <button type="button" onClick={onBackToLanding} className={buttonSecondary}>

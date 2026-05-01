@@ -64,7 +64,9 @@ export default function App() {
     if (typeof window === 'undefined') return
 
     const normalizePublicView = (view) => {
-      if (view === 'login') return 'login'
+      if (view === 'user-auth') return 'user-auth'
+      if (view === 'driver-auth') return 'driver-auth'
+      if (view === 'login') return 'user-auth' // Fallback
       if (view === 'about') return 'about'
       return 'landing'
     }
@@ -109,54 +111,19 @@ export default function App() {
       setInfo('')
       setLoading(true)
       try {
-        if (authPreset.accountType === 'driver') {
-          const driverData = await loginDriver(loginForm)
-          const t = driverData.token
-          const name = driverData.driver?.name || driverData.driver?.email || ''
-          if (!t) throw new Error('No token in response')
-          persistSession(t, name, 'driver')
-          setInfo(driverData.message || 'Driver signed in.')
-          return
-        }
-
         if (authPreset.accountType === 'user') {
           const userData = await loginUser(loginForm)
           const t = userData.token
           const name = userData.user?.name || userData.user?.email || ''
           const role = userData.user?.role || 'user'
+          
           if (!t) throw new Error('No token in response')
-          persistSession(t, name, role)
-          setInfo(userData.message || 'Signed in.')
-          return
-        }
-
-        // Try driver first so approved driver accounts go straight to driver dashboard.
-        try {
-          const driverData = await loginDriver(loginForm)
-          const t = driverData.token
-          const name = driverData.driver?.name || driverData.driver?.email || ''
-          if (!t) throw new Error('No token in response')
-          persistSession(t, name, 'driver')
-          setInfo(driverData.message || 'Driver signed in.')
-          return
-        } catch (driverError) {
-          const msg = String(driverError?.message || '')
-          const shouldStopOnDriverError =
-            msg.includes('Driver not approved') ||
-            msg.includes('Invalid password') ||
-            msg.includes('Legacy driver password') ||
-            msg.includes('Driver already exists')
-
-          if (shouldStopOnDriverError) {
-            throw driverError
+          
+          // Role check: Only allow 'user' or 'admin'
+          if (role === 'driver') {
+            throw new Error('Drivers must use the Partner Portal to sign in.')
           }
-
-          // Only fallback to user login when driver account is not found.
-          const userData = await loginUser(loginForm)
-          const t = userData.token
-          const name = userData.user?.name || userData.user?.email || ''
-          const role = userData.user?.role || 'user'
-          if (!t) throw new Error('No token in response')
+          
           persistSession(t, name, role)
           setInfo(userData.message || 'Signed in.')
           return
@@ -177,12 +144,35 @@ export default function App() {
       setInfo('')
       setLoading(true)
       try {
-        const driverData = await loginDriver(loginForm)
-        const t = driverData.token
-        const name = driverData.driver?.name || driverData.driver?.email || ''
-        if (!t) throw new Error('No token in response')
-        persistSession(t, name, 'driver')
-        setInfo(driverData.message || 'Driver signed in.')
+        // 1. Try Driver Login
+        try {
+          const driverData = await loginDriver(loginForm)
+          const t = driverData.token
+          const name = driverData.driver?.name || driverData.driver?.email || ''
+          if (!t) throw new Error('No token in response')
+          persistSession(t, name, 'driver')
+          setInfo(driverData.message || 'Driver signed in.')
+          return
+        } catch (driverError) {
+          // If it's a "not approved" or "wrong password" error, don't fallback to user
+          const msg = String(driverError?.message || '')
+          if (msg.includes('not approved') || msg.includes('Invalid password')) {
+            throw driverError
+          }
+          
+          // 2. Fallback to User Login ONLY for Admins
+          const userData = await loginUser(loginForm)
+          const t = userData.token
+          const name = userData.user?.name || userData.user?.email || ''
+          const role = userData.user?.role || 'user'
+          
+          if (role !== 'admin') {
+            throw new Error('This portal is for Drivers only. Please use the Traveler login.')
+          }
+          
+          persistSession(t, name, role)
+          setInfo('Admin signed in via Partner Portal.')
+        }
       } catch (err) {
         setError(err.message || 'Driver login failed')
       } finally {
@@ -248,9 +238,9 @@ export default function App() {
     if (role === 'user') {
       if (activePage === 'dashboard') {
         return (
-          <UserDashboardPage 
-            token={token} 
-            userName={userName} 
+          <UserDashboardPage
+            token={token}
+            userName={userName}
             onLogout={handleLogout}
             onGoToPlanner={handleOpenPlanTrip}
           />
@@ -292,25 +282,21 @@ export default function App() {
   if (publicPage === 'landing') {
     return (
       <LandingPage
-        onOpenLogin={() => {
-          setAuthPreset({ accountType: '', mode: 'login' })
-          setPublicView('login', true)
-        }}
         onOpenUserLogin={() => {
           setAuthPreset({ accountType: 'user', mode: 'login' })
-          setPublicView('login', true)
+          setPublicView('user-auth', true)
         }}
         onOpenUserRegister={() => {
           setAuthPreset({ accountType: 'user', mode: 'register' })
-          setPublicView('login', true)
+          setPublicView('user-auth', true)
         }}
         onOpenDriverLogin={() => {
           setAuthPreset({ accountType: 'driver', mode: 'login' })
-          setPublicView('login', true)
+          setPublicView('driver-auth', true)
         }}
         onOpenDriverRegister={() => {
           setAuthPreset({ accountType: 'driver', mode: 'register' })
-          setPublicView('login', true)
+          setPublicView('driver-auth', true)
         }}
         onOpenAbout={() => setPublicView('about', true)}
       />
@@ -321,26 +307,30 @@ export default function App() {
     return <AboutPage onBackHome={() => setPublicView('landing', true)} onOpenLogin={() => setPublicView('login', true)} />
   }
 
-  return (
-    <LoginPage
-      error={error}
-      info={info}
-      loading={loading}
-      loginForm={loginForm}
-      setLoginForm={setLoginForm}
-      showLoginPassword={showLoginPassword}
-      setShowLoginPassword={setShowLoginPassword}
-      onLogin={handleUnifiedLogin}
-      onDriverLogin={handleDriverOnlyLogin}
-      initialAccountType={authPreset.accountType || 'user'}
-      initialMode={authPreset.mode || 'login'}
-      vehicleType={vehicleType}
-      setVehicleType={setVehicleType}
-      locationCount={locationCount}
-      setLocationCount={setLocationCount}
-      onEstimate={handleEstimate}
-      estimate={estimate}
-      apiBaseUrl={API_BASE_URL}
-    />
-  )
+  if (publicPage === 'user-auth') {
+    return (
+      <LoginPage
+        error={error} info={info} loading={loading}
+        loginForm={loginForm} setLoginForm={setLoginForm}
+        onLogin={handleUnifiedLogin}
+        roleLock="user"
+        initialMode={authPreset.mode || 'login'}
+      />
+    )
+  }
+
+  if (publicPage === 'driver-auth') {
+    return (
+      <LoginPage
+        error={error} info={info} loading={loading}
+        loginForm={loginForm} setLoginForm={setLoginForm}
+        onLogin={handleUnifiedLogin}
+        onDriverLogin={handleDriverOnlyLogin}
+        roleLock="driver"
+        initialMode={authPreset.mode || 'login'}
+      />
+    )
+  }
+
+  return null // Should not reach here
 }

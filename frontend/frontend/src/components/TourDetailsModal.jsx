@@ -123,12 +123,13 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
         // Fetch OSRM Route
         const validLocs = locs.filter(loc => loc.latitude && loc.longitude)
         if (validLocs.length >= 2) {
-          const coords = validLocs.map(l => `${l.longitude},${l.latitude}`).join('|')
-          const url = `https://brouter.de/brouter?lonlats=${coords}&profile=car-fast&alternativeidx=0&format=geojson`
+          const coords = validLocs.map(l => `${l.longitude},${l.latitude}`).join(';')
+          const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
           const res = await fetch(url)
           const routeData = await res.json()
-          if (routeData?.features?.[0]?.geometry?.coordinates) {
-            setRouteCoords(routeData.features[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+          const route = routeData?.routes?.[0]
+          if (route && route.geometry?.coordinates) {
+            setRouteCoords(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
           }
         }
       } catch (err) {

@@ -13,6 +13,7 @@ import {
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
+import Footer from './components/Footer.jsx'
 import appLogo from '../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 import sigiriyaImg from '../images/sigiriya.png'
 import galleImg from '../images/galle.png'
@@ -819,39 +820,30 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
       setLegDistances([])
       return
     }
-    const coords = validLocs.map((l) => `${l.lng},${l.lat}`).join('|')
-    const url = `https://brouter.de/brouter?lonlats=${coords}&profile=car-fast&alternativeidx=0&format=geojson`
+    const coords = validLocs.map((l) => `${l.lng},${l.lat}`).join(';')
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
     let cancelled = false
     fetch(url)
       .then((res) => {
-        if (!res.ok) throw new Error(`BRouter error: ${res.status}`)
+        if (!res.ok) throw new Error(`OSRM error: ${res.status}`)
         return res.json()
       })
       .then((data) => {
         if (cancelled) return
-        const routeCoords = data?.features?.[0]?.geometry?.coordinates
-        if (routeCoords) {
-          setRouteCoords(routeCoords.map(([lng, lat]) => [lat, lng]))
+        const route = data?.routes?.[0]
+        if (route && route.geometry?.coordinates) {
+          setRouteCoords(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
           
-          // BRouter gives total distance in meters
-          const totalDistanceKm = (data.features[0].properties['track-length'] || 0) / 1000
+          const totalDistanceKm = route.distance / 1000
           
-          // Distribute the total road distance proportionally across the legs
-          const straightLegs = []
-          let totalStraight = 0
-          for (let i = 0; i < validLocs.length - 1; i++) {
-            const dist = getHaversineDistance(validLocs[i].lat, validLocs[i].lng, validLocs[i+1].lat, validLocs[i+1].lng)
-            straightLegs.push(dist)
-            totalStraight += dist
-          }
-          
-          if (totalStraight > 0 && validLocs.length > 2) {
-            setLegDistances(straightLegs.map(dist => +((dist / totalStraight) * totalDistanceKm).toFixed(1)))
+          const legs = route.legs || []
+          if (legs.length > 0) {
+            setLegDistances(legs.map(leg => +(leg.distance / 1000).toFixed(1)))
           } else {
             setLegDistances([+(totalDistanceKm).toFixed(1)])
           }
         } else {
-          console.warn('No route found in BRouter response', data)
+          console.warn('No route found in OSRM response', data)
           throw new Error('No route found')
         }
       })
@@ -973,12 +965,12 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
       {/* ── FLOATING NAVBAR ── */}
       <header className="sticky top-4 z-[2000] mx-auto max-w-5xl px-4">
         <div className="glass rounded-3xl p-3 flex items-center justify-between shadow-2xl shadow-slate-900/10">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl overflow-hidden shadow-lg border-2 border-white">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg border-2 border-white">
               <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
             </div>
             <div className="hidden sm:block">
-              <h2 className="text-lg font-black text-slate-900 leading-none">Smart Tour</h2>
+              <h2 className="text-lg font-black text-slate-900 leading-none">Air B&C</h2>
               <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest mt-1">Premium Routing</p>
             </div>
           </div>
@@ -1433,16 +1425,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
 
       </main>
 
-      {/* ── FOOTER DECOR ── */}
-      <footer className="py-12 bg-white border-t border-slate-100 relative z-10">
-        <div className="max-w-6xl mx-auto px-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-6 opacity-30 grayscale">
-             <img src={appLogo} alt="Logo" className="w-8 h-8 rounded-lg" />
-             <span className="text-lg font-black text-slate-900">Smart Tour</span>
-          </div>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">© 2026 Smart Tour Sri Lanka • Powered by Advanced Routing Engine</p>
-        </div>
-      </footer>
+      <Footer minimal={true} />
 
     </div>
   )

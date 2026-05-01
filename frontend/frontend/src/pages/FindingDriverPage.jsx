@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Circle, useMap } from 'react-leaflet'
 import L from 'leaflet'
+import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 
 // ── inject styles ──────────────────────────────────────────────
 const STYLES = `
@@ -208,11 +209,11 @@ export default function FindingDriverPage({
       {/* ── Modern Header ── */}
       <header className="relative z-50 px-6 py-5 flex items-center justify-between bg-white/70 backdrop-blur-xl border-b border-slate-100">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-orange-500 shadow-lg shadow-orange-500/30 flex items-center justify-center text-white text-2xl">
-            <i className="bi bi-geo-fill"></i>
+          <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-lg shadow-orange-500/10 flex items-center justify-center border-2 border-white">
+            <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
           </div>
           <div>
-            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight leading-tight">Smart Tour</h1>
+            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight leading-tight">Air B&C</h1>
             <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest uppercase">Live Tracking</p>
           </div>
         </div>

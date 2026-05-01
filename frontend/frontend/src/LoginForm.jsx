@@ -52,7 +52,7 @@ export default function LoginForm({ onLogin, onSwitchToRegister }) {
         <div className="mb-6 flex items-center justify-between gap-3">
           <div>
             <h2 className="font-['Space_Grotesk'] text-2xl font-semibold text-slate-900">Welcome Back</h2>
-            <p className="text-slate-600">Sign in to your Smart Tour account</p>
+            <p className="text-slate-600">Sign in to your Air B&C account</p>
           </div>
           <div className="rounded-2xl bg-gradient-to-br from-sky-500 to-orange-500 p-3">
             <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

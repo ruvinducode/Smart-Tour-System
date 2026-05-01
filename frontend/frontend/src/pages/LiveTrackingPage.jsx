@@ -107,12 +107,13 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
               else setEta(mins < 1 ? 'Arriving' : `${mins} min`)
               
               if (details.status !== 'ongoing') {
-                const url = `https://brouter.de/brouter?lonlats=${locData.longitude},${locData.latitude}|${userLng},${userLat}&profile=car-fast&alternativeidx=0&format=geojson`
+                const url = `https://router.project-osrm.org/route/v1/driving/${locData.longitude},${locData.latitude};${userLng},${userLat}?overview=full&geometries=geojson`
                 fetch(url)
                   .then(r => r.json())
                   .then(res => {
-                    if (res.features?.[0]?.geometry?.coordinates) {
-                      setRoute(res.features[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+                    const route = res?.routes?.[0]
+                    if (route && route.geometry?.coordinates) {
+                      setRoute(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
                     }
                   }).catch(() => {})
               } else {
@@ -182,11 +183,25 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
             <i className="bi bi-arrow-left text-xl"></i>
           </button>
           <div>
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">Live Journey</h1>
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">Air B&C</h1>
             <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">{status}</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
+          {!panelOpen && (
+            <div 
+              onClick={() => setPanelOpen(true)}
+              className="bg-white rounded-2xl p-3 shadow-xl border border-slate-100 cursor-pointer hover:bg-slate-50 transition-all flex items-center gap-3"
+            >
+              <div className="h-8 w-8 rounded-lg bg-orange-500 text-white flex items-center justify-center shadow-md">
+                <i className="bi bi-info-circle text-sm"></i>
+              </div>
+              <div className="pr-1">
+                <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-0.5">Journey</p>
+                <p className="text-[10px] font-black text-slate-900 leading-none">{status}</p>
+              </div>
+            </div>
+          )}
           <div className="text-right">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tracking ID</p>
             <p className="text-base font-black text-slate-900 leading-none">#{tourId}</p>
@@ -246,7 +261,7 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
         )}
 
         {/* ── Bottom Floating Panel ── */}
-        <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 w-[92%] max-w-xl z-[1000] transition-all duration-700 ${panelOpen ? 'translate-y-0' : 'translate-y-[calc(100%-60px)]'}`}>
+        <div className={`absolute bottom-8 left-1/2 -translate-x-1/2 w-[92%] max-w-xl z-[1000] transition-all duration-700 ease-in-out ${panelOpen ? 'translate-y-0 opacity-100' : 'translate-y-[120%] opacity-0 pointer-events-none'}`}>
           <div className="bg-white rounded-[2.5rem] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.2)] border border-slate-100 overflow-hidden">
 
             {/* Control Handle */}

@@ -13,6 +13,34 @@ import {
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import DriverDetailsModal from '../components/DriverDetailsModal.jsx'
 import ConfirmationModal from '../components/ConfirmationModal.jsx'
+import DashboardChart from '../components/DashboardChart.jsx'
+import DashboardPieChart from '../components/DashboardPieChart.jsx'
+import Footer from '../components/Footer.jsx'
+import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
+
+const adminChartData = [
+  { name: 'Mon', bookings: 12, revenue: 4500 },
+  { name: 'Tue', bookings: 19, revenue: 5200 },
+  { name: 'Wed', bookings: 15, revenue: 4800 },
+  { name: 'Thu', bookings: 22, revenue: 6100 },
+  { name: 'Fri', bookings: 30, revenue: 8500 },
+  { name: 'Sat', bookings: 45, revenue: 12000 },
+  { name: 'Sun', bookings: 38, revenue: 9500 },
+];
+
+const vehicleDistributionData = [
+  { name: 'Cars', value: 45 },
+  { name: 'Vans', value: 25 },
+  { name: 'Tuk Tuks', value: 20 },
+  { name: 'Luxury Bus', value: 10 },
+];
+
+const tourStatusDistributionData = [
+  { name: 'Completed', value: 42 },
+  { name: 'Confirmed', value: 28 },
+  { name: 'Planned', value: 18 },
+  { name: 'Cancelled', value: 12 },
+];
 
 const tourStatusStyle = {
   planned:              { label: 'Planned',      bg: 'bg-blue-100',    text: 'text-blue-800'   },
@@ -198,11 +226,11 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
       >
         {/* Logo */}
         <div>
-          <div className="flex items-center gap-3 px-6 py-6 border-b border-slate-800">
-            <div className="h-10 w-10 flex-shrink-0 rounded-xl bg-orange-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
-              <i className="bi bi-shield-lock-fill text-xl"></i>
+          <div className="flex items-center gap-4 px-6 py-6 border-b border-slate-800">
+            <div className="h-14 w-14 flex-shrink-0 rounded-xl overflow-hidden border border-slate-700 shadow-lg shadow-orange-500/10">
+              <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
             </div>
-            {sidebarOpen && <span className="text-lg font-bold text-white tracking-tight">AdminPanel</span>}
+            {sidebarOpen && <span className="text-lg font-bold text-white tracking-tight">Air B&C ADMIN</span>}
           </div>
 
           {/* Nav */}
@@ -339,28 +367,68 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                 ))}
               </div>
 
-              {/* Trip Statistics + Quick Actions */}
-              <div className="grid gap-6 lg:grid-cols-2">
-                {/* Trip Statistics */}
-                <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                    <h3 className="text-base font-bold text-slate-800">Trip Statistics</h3>
-                    <span className="rounded-full bg-[#1a2e6f] text-white text-xs font-bold px-3 py-1">Overview</span>
-                  </div>
-                  <div className="divide-y divide-slate-100">
-                    {[
-                      { label: 'Total Tours',    value: tourPlans.length,                                    color: 'text-[#1a2e6f]' },
-                      { label: 'Confirmed',      value: confirmed,                                           color: 'text-emerald-600' },
-                      { label: 'Negotiating',    value: negotiating,                                         color: 'text-amber-600' },
-                      { label: 'Pending Approval', value: pendingDrivers.length,                             color: 'text-rose-600' },
-                    ].map(row => (
-                      <div key={row.label} className="flex items-center justify-between px-6 py-4">
-                        <p className="text-sm text-slate-600 font-medium">{row.label}</p>
-                        <p className={`text-xl font-black ${row.color}`}>{row.value}</p>
-                      </div>
-                    ))}
-                  </div>
+              {/* Analytics Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                  <DashboardChart 
+                    data={adminChartData} 
+                    title="Weekly Booking Analytics" 
+                    barKey="bookings" 
+                    lineKey="revenue" 
+                  />
                 </div>
+                <div>
+                  <DashboardPieChart 
+                    data={vehicleDistributionData} 
+                    title="Vehicle Fleet Mix" 
+                  />
+                </div>
+              </div>
+
+              {/* Analytics Charts Row 2 */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div>
+                   <DashboardPieChart 
+                    data={tourStatusDistributionData} 
+                    title="Tour Status Share" 
+                  />
+                </div>
+                <div className="lg:col-span-2">
+                   {/* Trip Statistics + Quick Actions */}
+                   <div className="grid gap-6 h-full">
+                    <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden h-full">
+                      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                        <h3 className="text-base font-bold text-slate-800">Operational Statistics</h3>
+                        <span className="rounded-full bg-[#1a2e6f] text-white text-xs font-bold px-3 py-1">Real-time</span>
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-slate-100 h-full">
+                        <div className="divide-y divide-slate-100">
+                          {[
+                            { label: 'Total Tours',    value: tourPlans.length,                                    color: 'text-[#1a2e6f]' },
+                            { label: 'Confirmed',      value: confirmed,                                           color: 'text-emerald-600' },
+                          ].map(row => (
+                            <div key={row.label} className="flex items-center justify-between px-6 py-6">
+                              <p className="text-sm text-slate-600 font-medium">{row.label}</p>
+                              <p className={`text-xl font-black ${row.color}`}>{row.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="divide-y divide-slate-100">
+                          {[
+                            { label: 'Negotiating',    value: negotiating,                                         color: 'text-amber-600' },
+                            { label: 'Pending Approval', value: pendingDrivers.length,                             color: 'text-rose-600' },
+                          ].map(row => (
+                            <div key={row.label} className="flex items-center justify-between px-6 py-6">
+                              <p className="text-sm text-slate-600 font-medium">{row.label}</p>
+                              <p className={`text-xl font-black ${row.color}`}>{row.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                   </div>
+                </div>
+              </div>
 
                 {/* Quick Actions + System Status */}
                 <div className="space-y-4">
@@ -389,8 +457,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                         <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full">{item.status}</span>
                       </div>
                     ))}
-                  </div>
-                </div>
+                 </div>
               </div>
             </div>
           )}
@@ -723,8 +790,8 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
               )}
             </div>
           )}
-
         </div>
+        <Footer minimal={true} />
       </main>
 
       <TourDetailsModal

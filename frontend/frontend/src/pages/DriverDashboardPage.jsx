@@ -10,7 +10,20 @@ import {
 } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import ConfirmationModal from '../components/ConfirmationModal.jsx'
+import DashboardChart from '../components/DashboardChart.jsx'
+import Footer from '../components/Footer.jsx'
 import LiveHireDriver from './LiveHireDriver.jsx'
+import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
+
+const driverChartData = [
+  { name: 'Mon', trips: 4, earnings: 1500 },
+  { name: 'Tue', trips: 6, earnings: 2200 },
+  { name: 'Wed', trips: 5, earnings: 1800 },
+  { name: 'Thu', trips: 7, earnings: 2800 },
+  { name: 'Fri', trips: 9, earnings: 3500 },
+  { name: 'Sat', trips: 12, earnings: 5000 },
+  { name: 'Sun', trips: 10, earnings: 4200 },
+];
 
 const statusConfig = {
   planned:               { label: 'Pending',        bg: 'bg-amber-100',   text: 'text-amber-800'  },
@@ -198,11 +211,11 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
     <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900">
       <aside className={`flex flex-col justify-between bg-slate-900 border-r border-slate-800 transition-all duration-300 ${sidebarOpen ? 'w-64' : 'w-20'} min-h-screen`}>
         <div>
-          <div className="flex items-center gap-3 px-6 py-6 border-b border-slate-800">
-            <div className="h-10 w-10 flex-shrink-0 rounded-xl bg-orange-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
-              <i className="bi bi-car-front-fill text-xl"></i>
+          <div className="flex items-center gap-4 px-6 py-6 border-b border-slate-800">
+            <div className="h-14 w-14 flex-shrink-0 rounded-xl overflow-hidden border border-slate-700 shadow-lg shadow-orange-500/10">
+              <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
             </div>
-            {sidebarOpen && <span className="text-lg font-bold text-white tracking-tight">SmartTour</span>}
+            {sidebarOpen && <span className="text-lg font-bold text-white tracking-tight">Air B&C</span>}
           </div>
           <nav className="mt-6 px-3 space-y-2">
             {NAV_ITEMS.map(item => (
@@ -334,6 +347,13 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                   </div>
                 ))}
               </div>
+
+              <DashboardChart 
+                data={driverChartData} 
+                title="Weekly Earnings & Trips" 
+                barKey="trips" 
+                lineKey="earnings" 
+              />
 
               <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
@@ -565,6 +585,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
             </div>
           )}
         </div>
+        <Footer minimal={true} />
       </main>
 
       <TourDetailsModal tourId={selectedTourId} token={token} isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)} userRole="driver" />

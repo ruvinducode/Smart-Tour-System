@@ -56,7 +56,7 @@ export default function RegisterForm({ onRegister, onSwitchToLogin }) {
         <div className="mb-6 flex items-center justify-between gap-3">
           <div>
             <h2 className="font-['Space_Grotesk'] text-2xl font-semibold text-slate-900">Create Account</h2>
-            <p className="text-slate-600">Join Smart Tour today</p>
+            <p className="text-slate-600">Join Air B&C today</p>
           </div>
           <div className="rounded-2xl bg-gradient-to-br from-orange-500 to-sky-500 p-3">
             <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

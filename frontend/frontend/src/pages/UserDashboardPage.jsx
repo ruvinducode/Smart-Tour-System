@@ -31,6 +31,17 @@ import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import LiveTrackingPage from './LiveTrackingPage.jsx'
 import LiveTrackingPanel from '../components/LiveTrackingPanel.jsx'
 import CancellationModal from '../components/CancellationModal.jsx'
+import DashboardChart from '../components/DashboardChart.jsx'
+import Footer from '../components/Footer.jsx'
+
+const userChartData = [
+  { name: 'Jan', spending: 12000, trips: 2 },
+  { name: 'Feb', spending: 8500, trips: 1 },
+  { name: 'Mar', spending: 25000, trips: 4 },
+  { name: 'Apr', spending: 18000, trips: 3 },
+  { name: 'May', spending: 15000, trips: 2 },
+  { name: 'Jun', spending: 32000, trips: 5 },
+];
 
 // --- Professional Design Tokens ---
 const THEME = {
@@ -353,6 +364,13 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                 ))}
               </motion.div>
 
+              <DashboardChart 
+                data={userChartData} 
+                title="Spending & Travel Activity" 
+                barKey="trips" 
+                lineKey="spending" 
+              />
+
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
                 {/* Main Column */}
                 <div className="lg:col-span-8 space-y-12">
@@ -638,6 +656,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
              </div>
           )}
         </div>
+        <Footer minimal={true} />
       </main>
 
       {/* ── Live Tracking & Modals ── */}
