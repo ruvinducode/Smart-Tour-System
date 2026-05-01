@@ -76,6 +76,11 @@ class Driver(db.Model):
     vehicle_reg_book_image = db.Column(db.String(255), nullable=True)
     revenue_license_image = db.Column(db.String(255), nullable=True)
     insurance_cert_image = db.Column(db.String(255), nullable=True)
+    
+    # ── Vehicle Photos ─────────────────────────────
+    vehicle_front_image = db.Column(db.String(255), nullable=True)
+    vehicle_rear_image = db.Column(db.String(255), nullable=True)
+    vehicle_side_image = db.Column(db.String(255), nullable=True)
 
     # ── Location & Status ──────────────────────────
     current_location_lat = db.Column(db.Float)
@@ -83,6 +88,11 @@ class Driver(db.Model):
 
     is_available = db.Column(db.Boolean, default=True)
     is_approved = db.Column(db.Boolean, default=False)
+    role = db.Column(db.String(20), default="driver")
+
+    # ── Rating Info ───────────────────────────────
+    rating = db.Column(db.Float, default=5.0)
+    total_ratings = db.Column(db.Integer, default=0)
 
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
@@ -126,8 +136,10 @@ class TourPlan(db.Model):
     total_days = db.Column(db.Integer)
 
     estimated_price = db.Column(db.Float)
+    actual_distance_km = db.Column(db.Float, default=0.0)
 
     status = db.Column(db.String(50), default="planned")
+    cancellation_reason = db.Column(db.Text, nullable=True)
 
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
     
@@ -172,6 +184,7 @@ class Booking(db.Model):
     total_price = db.Column(db.Float)
 
     status = db.Column(db.String(50), default="pending")
+    cancellation_reason = db.Column(db.Text, nullable=True)
     payment_status = db.Column(db.String(50), default="pending")
 
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
@@ -191,5 +204,21 @@ class Notification(db.Model):
     message = db.Column(db.Text)
 
     status = db.Column(db.String(50), default="sent")
+
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+# =========================
+# 🅸 FEEDBACK MODEL
+# =========================
+class Feedback(db.Model):
+    __tablename__ = "feedback"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    tour_id = db.Column(db.Integer, db.ForeignKey("tour_plan.id"))
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    driver_id = db.Column(db.Integer, db.ForeignKey("driver.id"))
+
+    rating = db.Column(db.Integer, nullable=False)  # 1 to 5 stars
+    comment = db.Column(db.Text)
 
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())

@@ -274,6 +274,10 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
                   <p className="text-2xl font-black text-slate-900">{tour?.total_distance_km || 0} km</p>
                 </div>
                 <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Actual Covered</p>
+                  <p className="text-2xl font-black text-emerald-600">{tour?.actual_distance_km?.toFixed(1) || 0.0} km</p>
+                </div>
+                <div className="col-span-2 bg-slate-50 rounded-2xl p-5 border border-slate-100">
                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Trip Duration</p>
                   <p className="text-2xl font-black text-slate-900">{tour?.total_days || 0} days</p>
                 </div>

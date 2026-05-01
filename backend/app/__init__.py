@@ -19,7 +19,7 @@ def create_app():
     app.config.from_object(Config)
 
     # ✅ FIXED CORS (IMPORTANT)
-    CORS(app)
+    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
     # Initialize DB
     db.init_app(app)

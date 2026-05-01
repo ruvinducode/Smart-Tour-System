@@ -19,6 +19,10 @@ class Config:
     # =========================
     SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret-jwt-key")
+    
+    # Set token expiration to 24 hours
+    from datetime import timedelta
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
 
     # =========================
     # DEBUG MODE

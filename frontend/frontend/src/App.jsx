@@ -266,8 +266,13 @@ export default function App() {
             userName={userName}
             token={token}
             onLogout={handleLogout}
+            onOpenAbout={() => setActivePage('about')}
           />
         )
+      }
+
+      if (activePage === 'about') {
+        return <AboutPage onBackHome={() => setActivePage('home')} onOpenLogin={() => setActivePage('home')} />
       }
 
       // Default to "plan-trip" view

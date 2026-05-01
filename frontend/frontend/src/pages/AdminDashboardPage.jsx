@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
-import { approveDriver, getAdminNotifications, getApprovedDrivers, getPendingDrivers, getTourPlans } from '../services/api.js'
+import { 
+  approveDriver, 
+  getAdminNotifications, 
+  getApprovedDrivers, 
+  getPendingDrivers, 
+  getTourPlans,
+  getAllUsers,
+  getAllDrivers,
+  rejectDriver,
+  deactivateDriver
+} from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
+import DriverDetailsModal from '../components/DriverDetailsModal.jsx'
+import ConfirmationModal from '../components/ConfirmationModal.jsx'
 
 const tourStatusStyle = {
   planned:              { label: 'Planned',      bg: 'bg-blue-100',    text: 'text-blue-800'   },
@@ -21,17 +33,20 @@ function TourBadge({ status }) {
 }
 
 const NAV_ITEMS = [
-  { id: 'overview',       icon: 'bi bi-grid-fill',       label: 'Dashboard'       },
-  { id: 'pending',        icon: 'bi bi-person-plus-fill', label: 'Pending Drivers'  },
-  { id: 'approved',       icon: 'bi bi-people-fill',      label: 'Active Drivers'   },
-  { id: 'tours',          icon: 'bi bi-map-fill',         label: 'Tour Requests'    },
-  { id: 'notifications',  icon: 'bi bi-bell-fill',        label: 'Notifications'    },
+  { id: 'overview',           icon: 'bi bi-grid-fill',           label: 'Dashboard'       },
+  { id: 'registered_users',   icon: 'bi bi-people-fill',         label: 'Users List'      },
+  { id: 'registered_drivers', icon: 'bi bi-truck-front-fill',    label: 'Drivers List'    },
+  { id: 'pending',            icon: 'bi bi-person-plus-fill',     label: 'Pending Drivers'  },
+  { id: 'tours',              icon: 'bi bi-map-fill',            label: 'Tour Requests'    },
+  { id: 'notifications',      icon: 'bi bi-bell-fill',           label: 'Notifications'    },
 ]
 
 export default function AdminDashboardPage({ token, userName, onLogout }) {
   const [activeTab, setActiveTab]           = useState('overview')
   const [pendingDrivers, setPendingDrivers] = useState([])
   const [approvedDrivers, setApprovedDrivers] = useState([])
+  const [allDrivers, setAllDrivers]         = useState([])
+  const [users, setUsers]                   = useState([])
   const [tourPlans, setTourPlans]           = useState([])
   const [notifications, setNotifications]   = useState([])
   const [loading, setLoading]               = useState(true)
@@ -40,21 +55,58 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
   const [approvingId, setApprovingId]       = useState(null)
   const [selectedTourId, setSelectedTourId] = useState(null)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
+  const [selectedDriver, setSelectedDriver] = useState(null)
+  const [showDriverModal, setShowDriverModal] = useState(false)
+  
+  // Confirmation Modal State
+  const [confirmState, setConfirmState] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    type: 'warning'
+  })
+
   const [sidebarOpen, setSidebarOpen]       = useState(true)
 
   const loadData = useCallback(async () => {
+    if (!token) {
+      setError('No authentication token found. Please sign in again.')
+      setLoading(false)
+      return
+    }
+
     setError(''); setInfo(''); setLoading(true)
     try {
-      const [pending, approved, tours, notes] = await Promise.all([
+      const results = await Promise.allSettled([
         getPendingDrivers(token),
         getApprovedDrivers(token),
+        getAllDrivers(token),
+        getAllUsers(token),
         getTourPlans(token),
         getAdminNotifications(token),
       ])
+
+      const [pending, approved, allD, allU, tours, notes] = results.map(r => r.status === 'fulfilled' ? r.value : [])
+      
+      // Check if any request failed with 401
+      const isUnauthorized = results.some(r => r.status === 'rejected' && r.reason?.message?.includes('401'))
+      if (isUnauthorized) {
+        setError('Your session has expired. Please sign out and sign in again to continue.')
+        setLoading(false)
+        return
+      }
+
       setPendingDrivers(Array.isArray(pending) ? pending : [])
       setApprovedDrivers(Array.isArray(approved) ? approved : [])
+      setAllDrivers(Array.isArray(allD) ? allD : [])
+      setUsers(Array.isArray(allU) ? allU : [])
       setTourPlans(Array.isArray(tours) ? tours : [])
       setNotifications(Array.isArray(notes) ? notes : [])
+
+      if (results.every(r => r.status === 'rejected')) {
+        setError('Could not load any dashboard data. Please check your connection or backend status.')
+      }
     } catch (err) {
       setError(err.message || 'Could not load data')
     } finally {
@@ -65,16 +117,72 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
   useEffect(() => { loadData() }, [loadData])
 
   const handleApprove = async (driverId) => {
-    setApprovingId(driverId)
-    try {
-      await approveDriver(driverId, token)
-      setInfo('Driver approved successfully!')
-      loadData()
-    } catch (err) {
-      setError(err.message || 'Could not approve driver')
-    } finally {
-      setApprovingId(null)
-    }
+    setConfirmState({
+      isOpen: true,
+      title: 'Approve Driver?',
+      message: 'Are you sure you want to approve this driver? This will allow them to accept tour requests from users.',
+      type: 'success',
+      onConfirm: async () => {
+        setApprovingId(driverId)
+        try {
+          await approveDriver(driverId, token)
+          setInfo('Driver approved successfully!')
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+          loadData()
+        } catch (err) {
+          setError(err.message || 'Could not approve driver')
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+        } finally {
+          setApprovingId(null)
+        }
+      }
+    })
+  }
+
+  const handleReject = async (driverId) => {
+    setConfirmState({
+      isOpen: true,
+      title: 'Reject Registration?',
+      message: 'Are you sure you want to reject this driver registration? This will permanently delete their application.',
+      type: 'warning',
+      onConfirm: async () => {
+        setApprovingId(driverId)
+        try {
+          await rejectDriver(driverId, token)
+          setInfo('Driver registration rejected.')
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+          loadData()
+        } catch (err) {
+          setError(err.message || 'Could not reject driver')
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+        } finally {
+          setApprovingId(null)
+        }
+      }
+    })
+  }
+
+  const handleDeactivate = async (driverId) => {
+    setConfirmState({
+      isOpen: true,
+      title: 'Deactivate Account?',
+      message: 'Are you sure you want to deactivate this driver? They will no longer be able to log in or accept tours.',
+      type: 'warning',
+      onConfirm: async () => {
+        setApprovingId(driverId)
+        try {
+          await deactivateDriver(driverId, token)
+          setInfo('Driver account deactivated.')
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+          loadData()
+        } catch (err) {
+          setError(err.message || 'Could not deactivate driver')
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+        } finally {
+          setApprovingId(null)
+        }
+      }
+    })
   }
 
   const confirmed  = tourPlans.filter(t => t.status === 'confirmed').length
@@ -173,8 +281,42 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
 
           {/* Alerts */}
-          {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-3 text-sm text-rose-700 font-medium">⚠ {error}</div>}
-          {info  && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm text-emerald-700 font-medium">✓ {info}</div>}
+          {error && (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 shadow-sm">
+              <div className="flex items-start gap-4">
+                <div className="h-10 w-10 flex-shrink-0 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
+                  <i className="bi bi-exclamation-triangle-fill text-xl"></i>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-bold text-rose-800">Authentication Required</h3>
+                  <p className="mt-1 text-sm text-rose-600">{error}</p>
+                  {error.includes('session') || error.includes('token') || error.includes('sign in') ? (
+                    <button
+                      onClick={onLogout}
+                      className="mt-4 inline-flex items-center gap-2 rounded-xl bg-rose-600 px-6 py-2 text-sm font-bold text-white hover:bg-rose-700 transition shadow-lg shadow-rose-600/20"
+                    >
+                      <i className="bi bi-box-arrow-left"></i>
+                      Sign Out & Re-login
+                    </button>
+                  ) : (
+                    <button
+                      onClick={loadData}
+                      className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-800 px-6 py-2 text-sm font-bold text-white hover:bg-slate-900 transition"
+                    >
+                      <i className="bi bi-arrow-clockwise"></i>
+                      Retry
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          {info  && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm text-emerald-700 font-medium flex items-center gap-3">
+              <i className="bi bi-check-circle-fill"></i>
+              {info}
+            </div>
+          )}
 
           {/* ── OVERVIEW ── */}
           {activeTab === 'overview' && (
@@ -253,6 +395,144 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
             </div>
           )}
 
+          {/* ── REGISTERED USERS ── */}
+          {activeTab === 'registered_users' && (
+            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                <h2 className="text-base font-bold text-slate-800">Registered Users</h2>
+                <span className="rounded-full bg-sky-100 text-sky-700 text-xs font-bold px-3 py-1">{users.length} Total</span>
+              </div>
+              {loading ? (
+                <div className="py-12 text-center"><div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#1a2e6f]" /></div>
+              ) : users.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-sm">No registered users found.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-400">
+                        <th className="px-5 py-3 text-left">User</th>
+                        <th className="px-5 py-3 text-left">Contact</th>
+                        <th className="px-5 py-3 text-left">Country</th>
+                        <th className="px-5 py-3 text-left">Status</th>
+                        <th className="px-5 py-3 text-left">Joined</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {users.map(u => (
+                        <tr key={u.id} className="hover:bg-slate-50 transition">
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="h-9 w-9 rounded-full bg-sky-100 flex items-center justify-center text-sky-700 font-bold">
+                                {u.name.charAt(0)}
+                              </div>
+                              <span className="font-semibold text-slate-800">{u.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-4">
+                            <p className="text-slate-600">{u.email}</p>
+                            <p className="text-xs text-slate-400">{u.phone}</p>
+                          </td>
+                          <td className="px-5 py-4 text-slate-600">{u.country || 'N/A'}</td>
+                          <td className="px-5 py-4">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                              {u.is_active ? 'Active' : 'Disabled'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 text-slate-400 text-xs">{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── REGISTERED DRIVERS (ALL) ── */}
+          {activeTab === 'registered_drivers' && (
+            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                <h2 className="text-base font-bold text-slate-800">Driver Management</h2>
+                <span className="rounded-full bg-orange-100 text-orange-700 text-xs font-bold px-3 py-1">{allDrivers.length} Registered</span>
+              </div>
+              {loading ? (
+                <div className="py-12 text-center"><div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#1a2e6f]" /></div>
+              ) : allDrivers.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-sm">No drivers found.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-400">
+                        <th className="px-5 py-3 text-left">Driver</th>
+                        <th className="px-5 py-3 text-left">Vehicle</th>
+                        <th className="px-5 py-3 text-left">NIC</th>
+                        <th className="px-5 py-3 text-left">Approval</th>
+                        <th className="px-5 py-3 text-left">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {allDrivers.map(d => (
+                        <tr key={d.id} className="hover:bg-slate-50 transition">
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="h-9 w-9 rounded-full bg-orange-100 flex items-center justify-center text-orange-700 font-bold">
+                                {d.name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="font-semibold text-slate-800">{d.name}</p>
+                                <p className="text-xs text-slate-400">{d.email}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-5 py-4">
+                            <p className="text-slate-600 font-medium">{d.vehicle}</p>
+                            <p className="text-xs text-slate-400">{d.vehicle_number}</p>
+                          </td>
+                          <td className="px-5 py-4 text-slate-600">{d.nic_number}</td>
+                          <td className="px-5 py-4">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${d.is_approved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {d.is_approved ? 'Approved' : 'Pending'}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => { setSelectedDriver(d); setShowDriverModal(true) }}
+                                className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 transition shadow-sm"
+                              >
+                                🔍 Details
+                              </button>
+                              
+                              {!d.is_approved ? (
+                                <button
+                                  onClick={() => handleApprove(d.id)}
+                                  disabled={approvingId === d.id}
+                                  className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-600 disabled:opacity-60 transition shadow-sm"
+                                >
+                                  {approvingId === d.id ? '...' : '✓ Approve'}
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleDeactivate(d.id)}
+                                  disabled={approvingId === d.id}
+                                  className="rounded-xl bg-rose-100 px-4 py-2 text-xs font-bold text-rose-600 hover:bg-rose-200 disabled:opacity-60 transition shadow-sm"
+                                >
+                                  {approvingId === d.id ? '...' : 'Deactivate'}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── PENDING DRIVERS ── */}
           {activeTab === 'pending' && (
             <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
@@ -285,13 +565,26 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                           <td className="px-5 py-4 text-slate-500">{driver.email}</td>
                           <td className="px-5 py-4 text-slate-500">{driver.phone}</td>
                           <td className="px-5 py-4 text-slate-600 font-medium">{driver.vehicle}</td>
-                          <td className="px-5 py-4">
+                          <td className="px-5 py-4 flex items-center gap-2">
+                            <button
+                              onClick={() => { setSelectedDriver(driver); setShowDriverModal(true) }}
+                              className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 transition shadow-sm"
+                            >
+                              🔍 View
+                            </button>
                             <button
                               onClick={() => handleApprove(driver.id)}
                               disabled={approvingId === driver.id}
                               className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-600 disabled:opacity-60 transition shadow-sm"
                             >
                               {approvingId === driver.id ? 'Approving…' : '✓ Approve'}
+                            </button>
+                            <button
+                              onClick={() => handleReject(driver.id)}
+                              disabled={approvingId === driver.id}
+                              className="rounded-xl bg-rose-500 px-4 py-2 text-xs font-bold text-white hover:bg-rose-600 disabled:opacity-60 transition shadow-sm"
+                            >
+                              {approvingId === driver.id ? 'Rejecting…' : '✕ Reject'}
                             </button>
                           </td>
                         </tr>
@@ -327,10 +620,25 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                           <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✓ Active</span>
                         </div>
                       </div>
-                      <div className="space-y-1.5 text-xs text-slate-500">
+                      <div className="space-y-1.5 text-xs text-slate-500 mb-4">
                         <p>📧 {driver.email}</p>
                         <p>📱 {driver.phone}</p>
                         <p>🚗 {driver.vehicle} · {driver.capacity} seats</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => { setSelectedDriver(driver); setShowDriverModal(true) }}
+                          className="flex-1 rounded-xl bg-slate-100 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 transition"
+                        >
+                          🔍 Details
+                        </button>
+                        <button
+                          onClick={() => handleDeactivate(driver.id)}
+                          disabled={approvingId === driver.id}
+                          className="flex-1 rounded-xl bg-rose-100 py-2 text-xs font-bold text-rose-600 hover:bg-rose-200 transition"
+                        >
+                          {approvingId === driver.id ? '...' : 'Deactivate'}
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -425,6 +733,24 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         isOpen={showDetailsModal}
         onClose={() => setShowDetailsModal(false)}
         userRole="admin"
+      />
+
+      <DriverDetailsModal
+        driver={selectedDriver}
+        isOpen={showDriverModal}
+        onClose={() => setShowDriverModal(false)}
+        onApprove={handleApprove}
+        approving={approvingId === selectedDriver?.id}
+      />
+
+      <ConfirmationModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        type={confirmState.type}
+        onConfirm={confirmState.onConfirm}
+        onClose={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+        isLoading={approvingId !== null}
       />
     </div>
   )

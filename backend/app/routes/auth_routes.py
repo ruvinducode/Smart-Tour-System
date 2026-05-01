@@ -164,6 +164,32 @@ def get_user_notifications():
 
 
 # =========================
+# ADMIN: GET ALL USERS
+# =========================
+@auth_bp.route("/admin/users", methods=["GET"])
+@jwt_required()
+def get_all_users():
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"message": "Unauthorized"}), 403
+
+    users = User.query.filter(User.role != "admin").all()
+
+    return jsonify([
+        {
+            "id": u.id,
+            "name": u.full_name,
+            "email": u.email,
+            "phone": u.phone,
+            "country": u.country,
+            "is_active": u.is_active,
+            "created_at": str(u.created_at) if u.created_at else None,
+        }
+        for u in users
+    ]), 200
+
+
+# =========================
 # ADMIN NOTIFICATIONS
 # =========================
 @auth_bp.route("/notifications/admin", methods=["GET"])

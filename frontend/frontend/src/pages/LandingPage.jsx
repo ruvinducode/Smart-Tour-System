@@ -1,5 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
+import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
+import { 
+  Compass, 
+  MapPin, 
+  Users, 
+  ShieldCheck, 
+  ChevronRight, 
+  Star, 
+  ArrowRight,
+  Play,
+  CheckCircle2,
+  Phone,
+  Mail,
+  Instagram,
+  Linkedin,
+  Youtube
+} from 'lucide-react'
 import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
+
+// Assets
+import heroImg from '../assets/sri-lanka-hero.png'
+import galleImg from '../assets/galle.png'
+import kandyImg from '../assets/kandy.png'
+import colomboImg from '../assets/colombo.png'
 
 const SRI_LANKA_VIDEO = '/hh.mp4'
 const SRI_LANKA_POSTER = 'https://images.unsplash.com/photo-1586861635167-e5223aadc9fe?q=80&w=1920&auto=format&fit=crop'
@@ -7,29 +30,86 @@ const SRI_LANKA_POSTER = 'https://images.unsplash.com/photo-1586861635167-e5223a
 const TOUR_DESTINATIONS = [
   {
     name: 'Kandy Heritage',
-    detail: 'Temple visits, cultural dance, and hill-country viewpoints.',
-    image:
-      'https://images.unsplash.com/photo-1593693397690-362cb9666fc2?q=80&w=1200&auto=format&fit=crop',
+    region: 'Hill Country',
+    detail: 'Temple visits, cultural dance, and misty mountain viewpoints.',
+    image: kandyImg,
   },
   {
-    name: 'South Coast Escape',
-    detail: 'Golden beaches, snorkeling, and sunset seafood dinners.',
-    image:
-      'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1200&auto=format&fit=crop',
+    name: 'Galle Coastal',
+    region: 'South Coast',
+    detail: 'Historic fort walls, golden beaches, and boutique charm.',
+    image: galleImg,
   },
   {
-    name: 'Sigiriya Adventure',
-    detail: 'Lion Rock sunrise hike with village-style local experiences.',
-    image:
-      'https://images.unsplash.com/photo-1566552881560-0be862a7c445?q=80&w=1200&auto=format&fit=crop',
+    name: 'Sigiriya Rock',
+    region: 'Cultural Triangle',
+    detail: 'Ancient citadel hike with village-style authentic experiences.',
+    image: heroImg,
   },
 ]
 
 const TOUR_PACKAGES = [
-  { title: '2 Day Explorer', price: '$120', perks: 'Private vehicle, guide, and city highlights.' },
-  { title: '5 Day Island Tour', price: '$320', perks: 'Heritage + beach mix with flexible stops.' },
-  { title: 'Custom Smart Tour', price: 'On Request', perks: 'Route optimization based on your interests.' },
+  { 
+    title: 'Explorer Plus', 
+    price: '$120', 
+    duration: '2 Days',
+    perks: ['Private vehicle', 'Local guide', 'City highlights', 'Hotel transfers'],
+    popular: false
+  },
+  { 
+    title: 'Island Classic', 
+    price: '$320', 
+    duration: '5 Days',
+    perks: ['Heritage & Beach mix', 'Flexible stops', 'Premium vehicle', '24/7 Support'],
+    popular: true
+  },
+  { 
+    title: 'Smart Custom', 
+    price: 'Custom', 
+    duration: 'Flexible',
+    perks: ['Route optimization', 'Interest based stops', 'Choice of vehicle', 'Local host'],
+    popular: false
+  },
 ]
+
+const customStyles = `
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:wght@700;900&display=swap');
+
+  :root {
+    --sri-green: #064e3b;
+    --sri-gold: #d97706;
+    --sri-sand: #fffbeb;
+  }
+
+  .font-serif {
+    font-family: 'Playfair Display', serif;
+  }
+
+  .glass-nav {
+    background: rgba(6, 78, 59, 0.7);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-card {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+  }
+
+  .dark-glass {
+    background: rgba(6, 78, 59, 0.4);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+`
+
+if (typeof document !== 'undefined' && !document.getElementById('landing-premium-styles')) {
+  const styleSheet = document.createElement('style')
+  styleSheet.id = 'landing-premium-styles'
+  styleSheet.textContent = customStyles
+  document.head.appendChild(styleSheet)
+}
 
 export default function LandingPage({
   onOpenLogin,
@@ -40,273 +120,376 @@ export default function LandingPage({
   onOpenDriverRegister,
 }) {
   const videoRef = useRef(null)
-  const [mounted, setMounted] = useState(false)
-
-  const scrollToSection = (id) => {
-    if (typeof window === 'undefined') return
-    const section = document.getElementById(id)
-    if (!section) return
-    section.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
+  const [isScrolled, setIsScrolled] = useState(false)
+  const { scrollYProgress } = useScroll()
+  const opacity = useTransform(scrollYProgress, [0, 0.2], [1, 0])
+  const scale = useTransform(scrollYProgress, [0, 0.2], [1, 0.9])
 
   useEffect(() => {
-    setMounted(true)
-    const el = videoRef.current
-    if (!el) return
-
-    const tryPlay = async () => {
-      try {
-        await el.play()
-      } catch {
-        // Autoplay may be blocked by browser policy.
-      }
-    }
-
-    tryPlay()
+    const handleScroll = () => setIsScrolled(window.scrollY > 50)
+    window.addEventListener('scroll', handleScroll)
+    return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
+  const scrollToSection = (id) => {
+    const section = document.getElementById(id)
+    if (section) section.scrollIntoView({ behavior: 'smooth' })
+  }
+
   return (
-    <div className="relative min-h-screen bg-linear-to-b from-sky-50 to-orange-50 text-slate-900">
-      <section id="hero" className="relative min-h-screen overflow-hidden">
-        <div className="absolute inset-0">
-        <video
-          ref={videoRef}
-          className="h-full w-full object-cover"
-          style={{ 
-            filter: 'brightness(0.78) contrast(1.08) saturate(1.08)',
-            objectFit: 'cover',
-            objectPosition: 'center'
-          }}
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="metadata"
-          poster={SRI_LANKA_POSTER}
-        >
-          <source src={SRI_LANKA_VIDEO} type="video/mp4" />
-          Your browser does not support video tag.
-        </video>
-
-        <div className="absolute inset-0 bg-linear-to-b from-black/20 via-black/28 to-black/38" />
-      </div>
-
-      <nav className="sticky top-0 left-0 right-0 z-50 border-b border-white/20 bg-slate-900/55 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <img
-                src={appLogo}
-                alt="Smart Tour logo"
-                className="h-10 w-10 rounded-lg border border-white/40 object-cover shadow-lg"
-              />
-              <span className="text-white font-xl font-bold">Smart Tour</span>
+    <div className="relative min-h-screen bg-[#fffbeb] text-slate-900 overflow-x-hidden">
+      {/* Navigation */}
+      <nav className={`fixed top-0 left-0 right-0 z-[100] transition-all duration-500 ${isScrolled ? 'glass-nav py-3' : 'bg-transparent py-6'}`}>
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
+          <motion.div 
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex items-center gap-3"
+          >
+            <div className="bg-white text-emerald-900 p-2 rounded-xl shadow-lg">
+              <Compass size={24} />
             </div>
+            <span className="text-xl font-extrabold text-white">Smart Tour <span className="font-light text-white/60 text-sm">| LK</span></span>
+          </motion.div>
 
-            <div className="hidden md:flex items-center gap-8">
-              <button type="button" onClick={() => scrollToSection('hero')} className="text-white/90 hover:text-white transition-colors font-medium">Home</button>
-              <button type="button" onClick={() => scrollToSection('destinations')} className="text-white/90 hover:text-white transition-colors font-medium">Destinations</button>
-              <button type="button" onClick={() => scrollToSection('tours')} className="text-white/90 hover:text-white transition-colors font-medium">Tours</button>
-              <button type="button" onClick={onOpenAbout} className="text-white/90 hover:text-white transition-colors font-medium">About</button>
-              <button type="button" onClick={() => scrollToSection('contact')} className="text-white/90 hover:text-white transition-colors font-medium">Contact</button>
-            </div>
-
-            <button
-              type="button"
+          <div className="hidden md:flex items-center gap-8">
+            {['hero', 'destinations', 'tours', 'about'].map((item) => (
+              <button 
+                key={item}
+                onClick={() => item === 'about' ? onOpenAbout() : scrollToSection(item)}
+                className="text-white/80 hover:text-white transition-colors text-sm font-bold uppercase tracking-widest"
+              >
+                {item}
+              </button>
+            ))}
+            <button 
               onClick={onOpenLogin}
-              className="px-6 py-2 bg-linear-to-r from-orange-500 to-red-600 text-white font-semibold rounded-full transition-all hover:from-orange-400 hover:to-red-500 shadow-lg"
+              className="bg-amber-500 text-emerald-950 px-6 py-2.5 rounded-full font-bold shadow-xl hover:bg-amber-400 transition-all hover:scale-105"
             >
-              Book Now
+              Start Planning
             </button>
           </div>
         </div>
       </nav>
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-6">
-        <div className="mx-auto w-full max-w-3xl">
-          <div className="space-y-6 text-center">
-            <h1
-              className={`whitespace-nowrap text-4xl font-bold leading-none text-white transition-all duration-700 sm:text-6xl lg:text-7xl ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}
-            >
-              <span className="bg-linear-to-r from-orange-400 to-yellow-400 bg-clip-text text-transparent">Discover Sri Lanka</span>
-            </h1>
-
-            <p
-              className={`text-lg leading-relaxed text-white/90 transition-all duration-700 lg:text-xl ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}
-              style={{ transitionDelay: '140ms' }}
-            >
-              Experience breathtaking landscapes, pristine beaches, ancient temples, and unforgettable adventures across Sri Lanka.
-            </p>
-
-            <div
-              className={`mt-12 flex flex-col items-center justify-center gap-4 transition-all duration-700 sm:flex-row ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}
-              style={{ transitionDelay: '260ms' }}
-            >
-              <button
-                onClick={onOpenLogin}
-                className="px-10 py-3 bg-linear-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl transition-all hover:from-blue-500 hover:to-blue-600 shadow-2xl hover:shadow-3xl transform hover:scale-105"
-              >
-                Explore Tours
-              </button>
-              <button
-                type="button"
-                onClick={() => scrollToSection('destinations')}
-                className="px-10 py-3 bg-transparent border-2 border-white/30 text-white font-semibold rounded-xl transition-all hover:bg-white/10 hover:border-white/50 transform hover:scale-105"
-              >
-                Learn More
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 text-sm text-white/80">
-        Scroll to explore tours
-      </div>
-      </section>
-
-      <section id="destinations" className="relative border-t border-sky-200 bg-linear-to-b from-sky-100 via-sky-50 to-orange-100 px-6 py-20">
-        <div className="mx-auto max-w-7xl">
-          <h2 className="text-center text-3xl font-bold text-sky-800 sm:text-4xl">Top Destinations</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-center text-sky-900/75">
-            Choose from curated routes that blend culture, nature, and beach relaxation.
-          </p>
-          <div className="mt-10 grid gap-6 md:grid-cols-3">
-            {TOUR_DESTINATIONS.map((place) => (
-              <article key={place.name} className="overflow-hidden rounded-2xl border border-sky-200 bg-white/90 shadow-xl">
-                <img src={place.image} alt={place.name} className="h-44 w-full object-cover" loading="lazy" />
-                <div className="p-5">
-                  <h3 className="text-xl font-semibold text-orange-600">{place.name}</h3>
-                  <p className="mt-2 text-sm text-slate-600">{place.detail}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="tours" className="border-t border-orange-200 bg-linear-to-b from-orange-100 via-orange-50 to-sky-100 px-6 py-20">
-        <div className="mx-auto max-w-6xl">
-          <h2 className="text-center text-3xl font-bold text-sky-800 sm:text-4xl">Tour Packages</h2>
-          <div className="mt-10 grid gap-6 md:grid-cols-3">
-            {TOUR_PACKAGES.map((pack) => (
-              <article key={pack.title} className="rounded-2xl border border-sky-200 bg-white/90 p-6 shadow-lg shadow-orange-200/40">
-                <p className="text-sm font-semibold text-sky-700">{pack.title}</p>
-                <p className="mt-3 text-3xl font-bold text-orange-600">{pack.price}</p>
-                <p className="mt-3 text-sm text-slate-600">{pack.perks}</p>
-                <button
-                  type="button"
-                  onClick={onOpenLogin}
-                  className="mt-6 w-full rounded-xl bg-orange-500 px-4 py-2.5 font-semibold text-white transition-colors hover:bg-orange-400"
-                >
-                  Select Package
-                </button>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="about" className="border-t border-sky-200 bg-linear-to-b from-sky-50 via-white to-orange-50 px-6 py-20">
-        <div className="mx-auto grid max-w-6xl gap-8 md:grid-cols-2 md:items-center">
-          <div>
-            <h2 className="text-3xl font-bold text-sky-800 sm:text-4xl">Why Travel With Smart Tour</h2>
-            <p className="mt-4 text-slate-600">
-              We combine local knowledge with smart route planning so you spend less time on roads and more time enjoying Sri Lanka.
-            </p>
-            <ul className="mt-6 space-y-3 text-slate-700">
-              <li>Local drivers and verified travel partners</li>
-              <li>Flexible day plans based on your interests</li>
-              <li>Safe, comfortable vehicles for all group sizes</li>
-            </ul>
-          </div>
-          <div className="rounded-3xl border border-orange-200 bg-orange-50/90 p-6 shadow-2xl shadow-orange-200/50">
-            <p className="text-sm text-sky-700">Smart Planning Promise</p>
-            <p className="mt-3 text-2xl font-bold text-orange-600">Best route, best time, best memories.</p>
-            <p className="mt-4 text-slate-600">
-              Start with your preferred destinations and we generate a practical, enjoyable itinerary.
-            </p>
-            <button
-              type="button"
-              onClick={onOpenAbout}
-              className="mt-5 rounded-xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-500"
-            >
-              More About Us
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section id="contact" className="border-t border-orange-200 bg-linear-to-b from-orange-100 to-sky-100 px-6 py-20">
-        <div className="mx-auto max-w-4xl rounded-3xl border border-sky-200 bg-white/90 p-8 text-center shadow-2xl shadow-sky-200/50">
-          <h2 className="text-3xl font-bold text-sky-800 sm:text-4xl">Plan Your Sri Lanka Tour Today</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-slate-600">
-            Sign in to build your route, calculate costs, and book your preferred vehicle.
-          </p>
-          <button
-            type="button"
-            onClick={onOpenLogin}
-            className="mt-8 rounded-xl bg-linear-to-r from-blue-600 to-orange-500 px-10 py-3 font-semibold text-white transition-transform hover:scale-105"
+      {/* Hero Section */}
+      <section id="hero" className="relative h-screen flex items-center justify-center overflow-hidden">
+        <div className="absolute inset-0 z-0">
+          <video
+            ref={videoRef}
+            className="h-full w-full object-cover"
+            style={{ filter: 'brightness(0.6)' }}
+            autoPlay
+            loop
+            muted
+            playsInline
+            poster={SRI_LANKA_POSTER}
           >
-            Start Planning
-          </button>
+            <source src={SRI_LANKA_VIDEO} type="video/mp4" />
+          </video>
+          <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-emerald-950/90"></div>
+        </div>
+
+        <motion.div 
+          style={{ opacity, scale }}
+          className="relative z-10 text-center px-6 max-w-4xl"
+        >
+          <motion.span 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="inline-block bg-amber-500/20 backdrop-blur-md text-amber-200 px-6 py-2 rounded-full text-xs font-bold tracking-[0.3em] mb-8 border border-amber-500/30"
+          >
+            DISCOVER THE WONDER OF ASIA
+          </motion.span>
+          <motion.h1 
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="text-6xl md:text-8xl font-serif text-white leading-[1.1] mb-8"
+          >
+            Your Journey, <br />
+            <span className="text-amber-400">Our Expertise.</span>
+          </motion.h1>
+          <motion.p 
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="text-xl text-emerald-50/70 mb-12 max-w-2xl mx-auto leading-relaxed"
+          >
+            Experience Sri Lanka like never before with smart route planning, verified local drivers, and authentic island stories.
+          </motion.p>
+          
+          <motion.div 
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.6 }}
+            className="flex flex-col sm:flex-row gap-4 justify-center items-center"
+          >
+            <button 
+              onClick={onOpenLogin}
+              className="bg-amber-500 text-emerald-950 px-10 py-5 rounded-2xl font-bold text-lg shadow-2xl flex items-center gap-3 hover:bg-amber-400 transition-all hover:scale-105 group"
+            >
+              Start Exploring
+              <ArrowRight className="group-hover:translate-x-1 transition-transform" />
+            </button>
+            <button 
+              onClick={() => scrollToSection('about')}
+              className="bg-white/10 backdrop-blur-md border border-white/20 text-white px-10 py-5 rounded-2xl font-bold text-lg hover:bg-white/20 transition-all"
+            >
+              How it Works
+            </button>
+          </motion.div>
+        </motion.div>
+
+        <motion.div 
+          animate={{ y: [0, 10, 0] }}
+          transition={{ duration: 2, repeat: Infinity }}
+          className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10"
+        >
+          <div className="w-6 h-10 border-2 border-white/30 rounded-full flex justify-center p-1">
+             <div className="w-1 h-2 bg-amber-400 rounded-full"></div>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* Destinations Section */}
+      <section id="destinations" className="py-32 max-w-7xl mx-auto px-6">
+        <div className="flex flex-col md:flex-row items-end justify-between mb-20 gap-8">
+          <div className="max-w-2xl text-left">
+            <span className="text-amber-600 font-bold uppercase tracking-widest text-sm mb-4 block">Handpicked for You</span>
+            <h2 className="text-4xl md:text-6xl font-serif text-emerald-950 leading-tight">
+              Iconic Destinations <br /> to Ignite Your Soul
+            </h2>
+          </div>
+          <p className="text-slate-500 max-w-md text-left md:text-right mb-2">
+            From misty mountain peaks to golden coastal shores, discover the diverse beauty of the Pearl of the Indian Ocean.
+          </p>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-8">
+          {TOUR_DESTINATIONS.map((dest, idx) => (
+            <motion.div
+              key={dest.name}
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: idx * 0.2 }}
+              className="group cursor-pointer"
+            >
+              <div className="relative h-[500px] rounded-[40px] overflow-hidden shadow-2xl mb-8">
+                <img src={dest.image} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={dest.name} />
+                <div className="absolute inset-0 bg-gradient-to-t from-emerald-950/90 via-emerald-950/20 to-transparent"></div>
+                
+                <div className="absolute top-8 left-8">
+                  <span className="bg-white/20 backdrop-blur-md text-white text-xs font-bold px-4 py-2 rounded-full border border-white/30 uppercase tracking-widest">
+                    {dest.region}
+                  </span>
+                </div>
+
+                <div className="absolute bottom-10 left-10 right-10">
+                  <h3 className="text-3xl font-serif text-white mb-3">{dest.name}</h3>
+                  <p className="text-emerald-50/70 text-sm mb-6 leading-relaxed">
+                    {dest.detail}
+                  </p>
+                  <button onClick={onOpenLogin} className="flex items-center gap-2 text-amber-400 font-bold group/btn">
+                    Explore Routes 
+                    <ChevronRight size={20} className="group-hover/btn:translate-x-1 transition-transform" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          ))}
         </div>
       </section>
 
-      <section id="access-portals" className="border-t border-sky-200 bg-linear-to-b from-sky-100 via-white to-orange-100 px-6 py-20">
-        <div className="mx-auto max-w-6xl">
-          <h2 className="text-center text-3xl font-bold text-sky-800 sm:text-4xl">Access Portals</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-center text-slate-600">
-            Choose your portal below and go directly to the right login or registration form.
-          </p>
+      {/* Why Smart Tour Section */}
+      <section id="about" className="bg-emerald-950 py-32 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-800 rounded-full blur-[150px] opacity-20 -translate-y-1/2 translate-x-1/2"></div>
+        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-amber-600 rounded-full blur-[150px] opacity-10 translate-y-1/2 -translate-x-1/2"></div>
 
-          <div className="mt-10 grid gap-6 md:grid-cols-2">
-            <article className="rounded-3xl border border-sky-200 bg-white/90 p-6 text-left shadow-xl shadow-sky-100/70">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">Traveler Portal</p>
-              <h3 className="mt-2 text-2xl font-bold text-slate-800">User Account</h3>
-              <p className="mt-2 text-sm text-slate-600">For guests and users to plan routes, estimate tours, and manage bookings.</p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={onOpenUserLogin || onOpenLogin}
-                  className="rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-500"
-                >
-                  User Login
-                </button>
-                <button
-                  type="button"
-                  onClick={onOpenUserRegister || onOpenLogin}
-                  className="rounded-xl border border-sky-300 bg-sky-50 px-5 py-2.5 text-sm font-semibold text-sky-800 transition hover:bg-sky-100"
-                >
-                  User Register
-                </button>
-              </div>
-            </article>
+        <div className="max-w-7xl mx-auto px-6 relative z-10">
+          <div className="grid lg:grid-cols-2 gap-20 items-center">
+             <motion.div
+               initial={{ opacity: 0, x: -40 }}
+               whileInView={{ opacity: 1, x: 0 }}
+               viewport={{ once: true }}
+             >
+                <span className="text-amber-400 font-bold uppercase tracking-widest text-sm mb-6 block">The Smart Way to Travel</span>
+                <h2 className="text-4xl md:text-6xl font-serif text-white mb-8 leading-tight">
+                  Less Time Planning, <br /> More Time Dreaming.
+                </h2>
+                <p className="text-lg text-emerald-100/70 mb-12 leading-relaxed">
+                  Smart Tour LK is not just a booking platform. It’s your intelligent travel companion designed specifically for the unique landscapes of Sri Lanka.
+                </p>
 
-            <article className="rounded-3xl border border-orange-200 bg-white/90 p-6 text-left shadow-xl shadow-orange-100/70">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">Partner Portal</p>
-              <h3 className="mt-2 text-2xl font-bold text-slate-800">Driver Account</h3>
-              <p className="mt-2 text-sm text-slate-600">For drivers to register vehicles, log in, and manage assignments after approval.</p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={onOpenDriverLogin || onOpenLogin}
-                  className="rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-400"
-                >
-                  Driver Login
-                </button>
-                <button
-                  type="button"
-                  onClick={onOpenDriverRegister || onOpenLogin}
-                  className="rounded-xl border border-orange-300 bg-orange-50 px-5 py-2.5 text-sm font-semibold text-orange-800 transition hover:bg-orange-100"
-                >
-                  Driver Register
-                </button>
-              </div>
-            </article>
+                <div className="space-y-8">
+                  {[
+                    { icon: Compass, title: "Intelligent Route Optimization", text: "Spend less time on the road with our smart engine that picks the most efficient paths." },
+                    { icon: ShieldCheck, title: "Verified Local Partners", text: "Every driver is vetted for safety, knowledge, and hospitality." },
+                    { icon: Users, title: "Customizable Experiences", text: "Build your trip stop-by-stop based on your unique interests." }
+                  ].map((feature, idx) => (
+                    <div key={idx} className="flex gap-6">
+                       <div className="bg-white/10 p-4 rounded-2xl text-amber-400 shrink-0 self-start">
+                          <feature.icon size={28} />
+                       </div>
+                       <div>
+                          <h4 className="text-xl font-bold text-white mb-2">{feature.title}</h4>
+                          <p className="text-emerald-100/50 text-sm leading-relaxed">{feature.text}</p>
+                       </div>
+                    </div>
+                  ))}
+                </div>
+             </motion.div>
+
+             <motion.div
+               initial={{ opacity: 0, scale: 0.9 }}
+               whileInView={{ opacity: 1, scale: 1 }}
+               viewport={{ once: true }}
+               className="relative"
+             >
+                <div className="rounded-[40px] overflow-hidden border border-white/10 shadow-3xl">
+                   <img src={colomboImg} className="w-full h-[600px] object-cover" alt="Sri Lanka Experience" />
+                </div>
+                <div className="absolute -bottom-10 -left-10 bg-white p-8 rounded-[32px] shadow-2xl max-w-xs">
+                   <div className="flex gap-1 text-amber-500 mb-4">
+                      {[1,2,3,4,5].map(i => <Star key={i} size={16} fill="currentColor" />)}
+                   </div>
+                   <p className="text-slate-800 font-bold mb-2">"The best way to see the island. Seamless and authentic!"</p>
+                   <p className="text-slate-500 text-sm">— Sarah J., Traveler</p>
+                </div>
+             </motion.div>
           </div>
         </div>
       </section>
+
+      {/* Tour Packages Section */}
+      <section id="tours" className="py-32 max-w-7xl mx-auto px-6">
+        <div className="text-center mb-20">
+          <span className="text-amber-600 font-bold uppercase tracking-widest text-sm mb-4 block">Curated Packages</span>
+          <h2 className="text-4xl md:text-5xl font-serif text-emerald-950 mb-6">Choose Your Island Story</h2>
+          <p className="text-slate-500 max-w-2xl mx-auto">Flexible options for every type of explorer. Whether you want a quick city dash or a full island immersion.</p>
+        </div>
+
+        <div className="grid lg:grid-cols-3 gap-8">
+          {TOUR_PACKAGES.map((pack, idx) => (
+            <motion.div
+              key={pack.title}
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: idx * 0.1 }}
+              className={`p-10 rounded-[40px] border transition-all duration-500 flex flex-col ${pack.popular ? 'bg-emerald-950 text-white border-emerald-900 shadow-2xl scale-105 z-10' : 'bg-white border-amber-100 hover:shadow-xl'}`}
+            >
+              {pack.popular && (
+                <span className="bg-amber-500 text-emerald-950 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest self-start mb-6">Most Popular</span>
+              )}
+              <h3 className={`text-2xl font-serif mb-2 ${pack.popular ? 'text-white' : 'text-emerald-950'}`}>{pack.title}</h3>
+              <div className="flex items-end gap-2 mb-8">
+                 <span className={`text-4xl font-black ${pack.popular ? 'text-amber-400' : 'text-emerald-900'}`}>{pack.price}</span>
+                 <span className="text-sm opacity-50 mb-1">/ {pack.duration}</span>
+              </div>
+              
+              <div className="space-y-4 mb-10 flex-grow">
+                 {pack.perks.map((perk, i) => (
+                   <div key={i} className="flex items-center gap-3 text-sm">
+                      <CheckCircle2 size={18} className={pack.popular ? 'text-amber-400' : 'text-emerald-600'} />
+                      <span className={pack.popular ? 'text-emerald-100/80' : 'text-slate-600'}>{perk}</span>
+                   </div>
+                 ))}
+              </div>
+
+              <button 
+                onClick={onOpenLogin}
+                className={`w-full py-4 rounded-2xl font-bold transition-all ${pack.popular ? 'bg-amber-500 text-emerald-950 hover:bg-amber-400 shadow-lg shadow-amber-500/20' : 'bg-emerald-900 text-white hover:bg-emerald-800'}`}
+              >
+                Select {pack.title}
+              </button>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
+      {/* Access Portals Section */}
+      <section className="py-32 bg-[#fffbeb] border-t border-amber-100">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="grid md:grid-cols-2 gap-8">
+            <motion.div
+              whileHover={{ y: -10 }}
+              className="bg-white p-12 rounded-[40px] shadow-xl border border-emerald-100"
+            >
+              <span className="text-emerald-700 font-bold uppercase tracking-widest text-xs mb-6 block">Traveler Portal</span>
+              <h3 className="text-4xl font-serif text-emerald-950 mb-4">Start Your Trip</h3>
+              <p className="text-slate-500 mb-10 leading-relaxed">Join thousands of travelers who planned their perfect Sri Lankan getaway with us.</p>
+              <div className="flex flex-wrap gap-4">
+                <button onClick={onOpenUserLogin} className="bg-emerald-900 text-white px-8 py-3.5 rounded-2xl font-bold hover:bg-emerald-800 transition-all shadow-lg">Login</button>
+                <button onClick={onOpenUserRegister} className="bg-emerald-50 text-emerald-900 border border-emerald-200 px-8 py-3.5 rounded-2xl font-bold hover:bg-emerald-100 transition-all">Sign Up</button>
+              </div>
+            </motion.div>
+
+            <motion.div
+              whileHover={{ y: -10 }}
+              className="bg-emerald-950 p-12 rounded-[40px] shadow-xl border border-white/5"
+            >
+              <span className="text-amber-400 font-bold uppercase tracking-widest text-xs mb-6 block">Partner Portal</span>
+              <h3 className="text-4xl font-serif text-white mb-4">Drive with Us</h3>
+              <p className="text-emerald-100/50 mb-10 leading-relaxed">Become a verified partner and grow your business by hosting travelers from around the world.</p>
+              <div className="flex flex-wrap gap-4">
+                <button onClick={onOpenDriverLogin} className="bg-amber-500 text-emerald-950 px-8 py-3.5 rounded-2xl font-bold hover:bg-amber-400 transition-all shadow-lg shadow-amber-500/20">Driver Login</button>
+                <button onClick={onOpenDriverRegister} className="bg-white/10 text-white border border-white/10 px-8 py-3.5 rounded-2xl font-bold hover:bg-white/20 transition-all">Register</button>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* Elegant Footer */}
+      <footer className="bg-emerald-950 text-white pt-32 pb-16 relative overflow-hidden">
+        <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 md:grid-cols-4 gap-16 mb-24">
+           <div className="col-span-1 md:col-span-2">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="bg-white text-emerald-900 p-2 rounded-xl">
+                  <Compass size={24} />
+                </div>
+                <span className="text-2xl font-extrabold text-white">Smart Tour <span className="font-light text-white/40">| LK</span></span>
+              </div>
+              <p className="text-emerald-100/50 max-w-sm mb-8 leading-relaxed">
+                Empowering travelers to discover the hidden gems of Sri Lanka with intelligence, safety, and authentic local heart.
+              </p>
+              <div className="flex gap-6">
+                <Instagram className="text-white/40 hover:text-amber-400 cursor-pointer transition-colors" />
+                <Linkedin className="text-white/40 hover:text-amber-400 cursor-pointer transition-colors" />
+                <Youtube className="text-white/40 hover:text-amber-400 cursor-pointer transition-colors" />
+              </div>
+           </div>
+           
+           <div>
+              <h4 className="font-bold mb-8 uppercase tracking-widest text-sm text-amber-400">Quick Links</h4>
+              <ul className="space-y-4 text-emerald-100/60 text-sm">
+                <li className="hover:text-white cursor-pointer transition-colors" onClick={() => scrollToSection('destinations')}>Destinations</li>
+                <li className="hover:text-white cursor-pointer transition-colors" onClick={() => scrollToSection('tours')}>Tour Packages</li>
+                <li className="hover:text-white cursor-pointer transition-colors" onClick={onOpenAbout}>About Us</li>
+                <li className="hover:text-white cursor-pointer transition-colors">Safety Guidelines</li>
+              </ul>
+           </div>
+
+           <div>
+              <h4 className="font-bold mb-8 uppercase tracking-widest text-sm text-amber-400">Contact Us</h4>
+              <ul className="space-y-4 text-emerald-100/60 text-sm">
+                <li className="flex items-center gap-3"><Phone size={16} className="text-amber-400" /> +94 11 234 5678</li>
+                <li className="flex items-center gap-3"><Mail size={16} className="text-amber-400" /> hello@smarttour.lk</li>
+                <li className="flex items-center gap-3"><MapPin size={16} className="text-amber-400" /> Colombo, Sri Lanka</li>
+              </ul>
+           </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-6 pt-16 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-8 text-emerald-100/30 text-xs font-bold uppercase tracking-[0.2em]">
+           <span>© 2026 Smart Tour Sri Lanka</span>
+           <div className="flex gap-12">
+             <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
+             <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
+           </div>
+        </div>
+      </footer>
     </div>
   )
 }
