@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { User, Mail, Lock, Phone, Globe, ChevronRight, Camera, FileText, CreditCard, CheckCircle2, AlertCircle, Eye, EyeOff, Compass, Shield } from 'lucide-react'
+import { User, Mail, Lock, Phone, Globe, ChevronRight, Camera, FileText, CreditCard, CheckCircle2, AlertCircle, Eye, EyeOff, Compass, Shield, Calendar } from 'lucide-react'
 import { registerDriver, registerUser } from '../services/api.js'
 import SriLankaMap from '../components/SriLankaMap.jsx'
 import Footer from '../components/Footer.jsx'
@@ -25,6 +25,15 @@ const css = `
 .lp-input::placeholder{color:#94a3b8;}
 .lp-scroll::-webkit-scrollbar{width:4px;}
 .lp-scroll::-webkit-scrollbar-thumb{background:#d1fae5;border-radius:4px;}
+input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    filter: invert(48%) sepia(79%) saturate(2476%) hue-rotate(15deg) brightness(95%) contrast(100%); /* Match amber-500 approx */
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
 `
 if (typeof document !== 'undefined' && !document.getElementById('lp-css')) { const s = document.createElement('style'); s.id = 'lp-css'; s.textContent = css; document.head.appendChild(s) }
 
@@ -47,7 +56,7 @@ function Field({ label, icon: Icon, children }) {
   return (
     <div className="space-y-1.5">
       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-        {Icon && <Icon size={12} className="text-amber-500" />}{label}
+        {Icon && <Icon size={14} className="text-emerald-700" />}{label}
       </label>
       {children}
     </div>
@@ -230,10 +239,14 @@ export default function LoginPage({
                       <input className={inp()} placeholder="NIC Number*" required value={drv.nic_number} onChange={e => onDriverField('nic_number', e.target.value)} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <input type="date" className={inp()} required value={drv.date_of_birth} onChange={e => onDriverField('date_of_birth', e.target.value)} />
-                      <select className={inp()} required value={drv.gender} onChange={e => onDriverField('gender', e.target.value)}>
-                        <option value="">Gender*</option><option>Male</option><option>Female</option><option>Other</option>
-                      </select>
+                      <Field label="Date of Birth" icon={Calendar}>
+                        <input type="date" className={inp()} required value={drv.date_of_birth} onChange={e => onDriverField('date_of_birth', e.target.value)} />
+                      </Field>
+                      <Field label="Gender" icon={User}>
+                        <select className={inp()} required value={drv.gender} onChange={e => onDriverField('gender', e.target.value)}>
+                          <option value="">Gender*</option><option>Male</option><option>Female</option><option>Other</option>
+                        </select>
+                      </Field>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <input className={inp()} placeholder="Phone*" required value={drv.phone} onChange={e => onDriverField('phone', e.target.value)} />
@@ -252,8 +265,12 @@ export default function LoginPage({
                       <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest">Driving License</h4>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <input className={inp()} placeholder="License Number*" required value={drv.license_number} onChange={e => onDriverField('license_number', e.target.value)} />
-                      <input type="date" className={inp()} required value={drv.license_expiry_date} onChange={e => onDriverField('license_expiry_date', e.target.value)} />
+                      <Field label="License Number" icon={Shield}>
+                        <input className={inp()} placeholder="ABC-123456" required value={drv.license_number} onChange={e => onDriverField('license_number', e.target.value)} />
+                      </Field>
+                      <Field label="Expiry Date" icon={Calendar}>
+                        <input type="date" className={inp()} required value={drv.license_expiry_date} onChange={e => onDriverField('license_expiry_date', e.target.value)} />
+                      </Field>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <ImgUpload label="License Front" fieldName="license_front_image" value={drv.license_front_image} onChange={onDriverField} required />

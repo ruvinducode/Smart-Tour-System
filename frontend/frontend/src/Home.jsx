@@ -1094,6 +1094,27 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                       </Popup>
                     </Marker>
                   ))}
+
+                  {/* Segment Distances on Map */}
+                  {locations.length >= 2 && legDistances.length > 0 && locations.slice(0, -1).map((loc, i) => {
+                    const nextLoc = locations[i+1];
+                    const distance = legDistances[i];
+                    if (!nextLoc || distance === undefined) return null;
+                    const midLat = (loc.lat + nextLoc.lat) / 2;
+                    const midLng = (loc.lng + nextLoc.lng) / 2;
+                    return (
+                      <Marker 
+                        key={`leg-${i}`} 
+                        position={[midLat, midLng]} 
+                        interactive={false}
+                        icon={L.divIcon({
+                          className: 'custom-div-icon',
+                          html: `<div style="background: white; border: 2px solid #f97316; border-radius: 20px; padding: 4px 10px; font-size: 10px; font-weight: 900; color: #f97316; box-shadow: 0 4px 10px rgba(0,0,0,0.1); white-space: nowrap; transform: translate(-50%, -50%); border-style: dashed;">${distance} km</div>`,
+                          iconSize: [0, 0]
+                        })}
+                      />
+                    );
+                  })}
                 </MapContainer>
               </div>
 
@@ -1334,11 +1355,23 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                   <i className="bi bi-geo-alt-fill text-xl"></i>
                 </div>
                 <h3 className="text-xl font-extrabold text-slate-900 mb-6">Tour Route</h3>
-                <div className="space-y-4">
+                <div className="space-y-4 relative">
                    {locations.map((loc, i) => (
-                    <div key={loc.id} className="flex items-center gap-4">
-                      <div className="w-7 h-7 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-black">{i+1}</div>
-                      <p className="text-xs font-bold text-slate-700 truncate">{loc.name}</p>
+                    <div key={loc.id} className="relative">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black ${loc.isStart ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white'}`}>
+                          {i+1}
+                        </div>
+                        <p className="text-xs font-bold text-slate-700 truncate">{loc.name}</p>
+                      </div>
+                      {/* Distance label between stops */}
+                      {i < locations.length - 1 && legDistances[i] !== undefined && (
+                        <div className="ml-[13px] my-2 pl-6 border-l-2 border-dashed border-slate-200 py-1">
+                          <span className="text-[10px] font-black text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full">
+                            ↓ {legDistances[i]} km
+                          </span>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -6,7 +6,8 @@ import {
   getDriverProfile,
   updateDriverProfile,
   getDriverNotifications,
-  markTourEnRoute
+  markTourEnRoute,
+  getApiBaseUrl
 } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import ConfirmationModal from '../components/ConfirmationModal.jsx'
@@ -48,6 +49,7 @@ function StatusBadge({ status }) {
 
 const NAV_ITEMS = [
   { id: 'all',         label: 'Dashboard',   icon: 'bi bi-grid-fill' },
+  { id: 'upcoming',    label: 'Upcoming',    icon: 'bi bi-calendar-event-fill' },
   { id: 'approved',    label: 'Approved',    icon: 'bi bi-check-circle-fill' },
   { id: 'price_sent',  label: 'Negotiating', icon: 'bi bi-arrow-left-right' },
   { id: 'profile',     label: 'My Profile',  icon: 'bi bi-person-circle' },
@@ -185,6 +187,9 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
     if (activeTab === 'approved') {
       return tourRequests.filter(t => ['driver_approved', 'confirmed', 'en_route', 'arrived', 'ongoing'].includes(t.status))
     }
+    if (activeTab === 'upcoming') {
+      return tourRequests.filter(t => t.status === 'confirmed')
+    }
     if (activeTab === 'price_sent') return tourRequests.filter(t => t.status === 'price_sent_by_driver')
     return tourRequests
   }, [activeTab, tourRequests])
@@ -247,7 +252,10 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="flex items-center justify-between bg-white px-8 py-5 shadow-sm border-b border-slate-200">
           <h1 className="text-xl font-bold text-slate-800">
-            {activeTab === 'all' ? 'All Requests' : activeTab === 'approved' ? 'Approved Tours' : activeTab === 'profile' ? 'My Profile' : 'Negotiations'}
+            {activeTab === 'all' ? 'All Requests' : 
+             activeTab === 'approved' ? 'Approved Tours' : 
+             activeTab === 'upcoming' ? 'Upcoming Tours' : 
+             activeTab === 'profile' ? 'My Profile' : 'Negotiations'}
           </h1>
           <div className="flex items-center gap-6">
             <button onClick={loadTourRequests} disabled={loading} className="flex items-center gap-2 text-slate-600 hover:text-orange-500 text-sm font-bold transition-colors">
@@ -316,7 +324,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
               </div>
               <div className="h-10 w-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center text-slate-600 font-bold border border-slate-200 shadow-sm">
                 {profileData?.profile_photo ? (
-                  <img src={`http://127.0.0.1:5001/uploads/drivers/${profileData.profile_photo}`} alt="Avatar" className="h-full w-full object-cover" />
+                  <img src={`${getApiBaseUrl()}/uploads/drivers/${profileData.profile_photo}`} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
                   (userName || 'D').charAt(0).toUpperCase()
                 )}
@@ -348,16 +356,26 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                 ))}
               </div>
 
-              <DashboardChart 
-                data={driverChartData} 
-                title="Weekly Earnings & Trips" 
-                barKey="trips" 
-                lineKey="earnings" 
-              />
+              {activeTab !== 'upcoming' && (
+                <DashboardChart 
+                  data={driverChartData} 
+                  title="Weekly Earnings & Trips" 
+                  barKey="trips" 
+                  lineKey="earnings" 
+                />
+              )}
 
               <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
-                  <h2 className="text-lg font-bold text-slate-900">Recent Tour Requests</h2>
+                  <div className="flex items-center gap-4">
+                    <h2 className="text-lg font-bold text-slate-900">Recent Tour Requests</h2>
+                    <button 
+                      onClick={() => setActiveTab('upcoming')}
+                      className="text-[10px] font-black text-orange-600 bg-orange-50 px-3 py-1 rounded-full hover:bg-orange-100 transition-all uppercase tracking-widest border border-orange-200"
+                    >
+                      View Upcoming →
+                    </button>
+                  </div>
                   <div className="flex items-center gap-2">
                     <span className="h-2 w-2 rounded-full bg-orange-500 animate-pulse"></span>
                     <span className="text-sm font-bold text-slate-500">{filteredTours.length} Available</span>
@@ -500,7 +518,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                           <div key={doc.label} className="space-y-2">
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{doc.label}</p>
                             {doc.img ? (
-                              <img src={`http://127.0.0.1:5001/uploads/drivers/${doc.img}`} alt={doc.label} className="w-full h-32 rounded-2xl object-cover border-2 border-slate-100 shadow-sm hover:scale-105 transition cursor-zoom-in" />
+                              <img src={`${getApiBaseUrl()}/uploads/drivers/${doc.img}`} alt={doc.label} className="w-full h-32 rounded-2xl object-cover border-2 border-slate-100 shadow-sm hover:scale-105 transition cursor-zoom-in" />
                             ) : (
                               <div className="w-full h-32 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-300 border-2 border-dashed border-slate-100"><i className="bi bi-image text-xl"></i></div>
                             )}
@@ -556,7 +574,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                             <label className="text-xs font-bold text-slate-600 ml-1">{doc.label}</label>
                             {doc.current && (
                               <div className="relative group">
-                                <img src={`http://127.0.0.1:5001/uploads/drivers/${doc.current}`} alt="Current" className="w-full h-20 rounded-xl object-cover border border-slate-200 opacity-60 group-hover:opacity-100 transition" />
+                                <img src={`${getApiBaseUrl()}/uploads/drivers/${doc.current}`} alt="Current" className="w-full h-20 rounded-xl object-cover border border-slate-200 opacity-60 group-hover:opacity-100 transition" />
                                 <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition pointer-events-none">
                                   <span className="bg-slate-900/50 text-white text-[10px] font-black px-2 py-1 rounded-full">Current File</span>
                                 </div>
@@ -570,7 +588,8 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
 
                     <div className="space-y-6">
                       <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs border-b pb-2">Vehicle Details</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                        <div className="space-y-2"><label className="text-xs font-bold text-slate-500 ml-1">Type</label><input name="vehicle_type" defaultValue={profileData.vehicle_type} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-blue-500 outline-none transition" /></div>
                         <div className="space-y-2"><label className="text-xs font-bold text-slate-500 ml-1">Brand</label><input name="vehicle_brand" defaultValue={profileData.vehicle_brand} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-blue-500 outline-none transition" /></div>
                         <div className="space-y-2"><label className="text-xs font-bold text-slate-500 ml-1">Plate #</label><input name="vehicle_number" defaultValue={profileData.vehicle_number} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-blue-500 outline-none transition" /></div>
                         <div className="space-y-2"><label className="text-xs font-bold text-slate-500 ml-1">Color</label><input name="vehicle_color" defaultValue={profileData.vehicle_color} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-blue-500 outline-none transition" /></div>

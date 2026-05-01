@@ -315,6 +315,7 @@ def update_driver_profile():
             pass
 
     # Update vehicle fields
+    if "vehicle_type" in data: driver.vehicle_type = data["vehicle_type"]
     if "vehicle_brand" in data: driver.vehicle_brand = data["vehicle_brand"]
     if "vehicle_number" in data: driver.vehicle_number = data["vehicle_number"]
     if "vehicle_color" in data: driver.vehicle_color = data["vehicle_color"]
@@ -332,9 +333,11 @@ def update_driver_profile():
     ]
     for field in file_fields:
         if field in files:
-            new_file = save_upload(files[field])
-            if new_file:
-                setattr(driver, field, new_file)
+            file_obj = files[field]
+            if file_obj and file_obj.filename != "":
+                new_file = save_upload(file_obj)
+                if new_file:
+                    setattr(driver, field, new_file)
 
     db.session.commit()
     return jsonify({"message": "Profile updated successfully"}), 200
