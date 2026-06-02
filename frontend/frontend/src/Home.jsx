@@ -490,18 +490,110 @@ function MapEffect({ locations }) {
   return null
 }
 
+// Image Carousel Component with Auto Animation
+function ImageCarousel() {
+  const [currentImage, setCurrentImage] = useState(0)
+
+  const images = [
+    { src: sigiriyaImg, title: 'Sigiriya Rock Fortress', description: 'Ancient wonder of Sri Lanka' },
+    { src: kandyImg, title: 'Kandy Temple', description: 'Cultural heart of the island' },
+    { src: galleImg, title: 'Galle Fort', description: 'Historic coastal fortress' },
+    { src: mirissaImg, title: 'Mirissa Beach', description: 'Paradise on the south coast' },
+    { src: nineArchImg, title: 'Nine Arch Bridge', description: 'Engineering marvel' },
+    { src: anuradhapuraImg, title: 'Anuradhapura', description: 'Ancient sacred city' },
+  ]
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentImage((prev) => (prev + 1) % images.length)
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [images.length])
+
+  return (
+    <div className="relative w-full h-80 rounded-[2.5rem] overflow-hidden shadow-2xl shadow-slate-900/20 border border-white">
+      <div className="relative w-full h-full">
+        {/* Images Container */}
+        {images.map((image, index) => (
+          <div
+            key={index}
+            className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
+              index === currentImage ? 'opacity-100' : 'opacity-0'
+            }`}
+          >
+            <img
+              src={image.src}
+              alt={image.title}
+              className="w-full h-full object-cover"
+            />
+            {/* Gradient Overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+          </div>
+        ))}
+
+        {/* Content Overlay */}
+        <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
+          <div className="max-w-2xl">
+            <h3 className="text-3xl font-black mb-2 transition-all duration-500">
+              {images[currentImage].title}
+            </h3>
+            <p className="text-sm font-semibold text-white/80 transition-all duration-500">
+              {images[currentImage].description}
+            </p>
+          </div>
+        </div>
+
+        {/* Navigation Dots */}
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 z-10">
+          {images.map((_, index) => (
+            <button
+              key={index}
+              onClick={() => setCurrentImage(index)}
+              className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
+                index === currentImage
+                  ? 'bg-white w-8'
+                  : 'bg-white/40 hover:bg-white/60'
+              }`}
+              aria-label={`Go to image ${index + 1}`}
+            />
+          ))}
+        </div>
+
+        {/* Navigation Arrows */}
+        <button
+          onClick={() => setCurrentImage((prev) => (prev - 1 + images.length) % images.length)}
+          className="absolute left-6 top-1/2 transform -translate-y-1/2 z-10 w-12 h-12 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center transition-all shadow-lg backdrop-blur-md"
+        >
+          <i className="bi bi-chevron-left text-xl"></i>
+        </button>
+        <button
+          onClick={() => setCurrentImage((prev) => (prev + 1) % images.length)}
+          className="absolute right-6 top-1/2 transform -translate-y-1/2 z-10 w-12 h-12 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center transition-all shadow-lg backdrop-blur-md"
+        >
+          <i className="bi bi-chevron-right text-xl"></i>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip, onBookingConfirmed }) {
   useLeafletDefaultIcon()
 
   const listId = useId()
   const vehicleGroupId = useId()
-  const [locations, setLocations] = useState([])
-  const [selectedVehicle, setSelectedVehicle] = useState('')
+  const [locations, setLocations] = useState([]);
+  const [selectedVehicle, setSelectedVehicle] = useState('');
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [currentStep, setCurrentStep] = useState(1) // 1: Locations, 2: Vehicle, 3: Review
   const [estimatedPrice, setEstimatedPrice] = useState(null)
   const [bookingConfirmed, setBookingConfirmed] = useState(false)
+
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
+  const [startTime, setStartTime] = useState("10:00")
+  const [bookingType, setBookingType] = useState('now')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [isSearching, setIsSearching] = useState(false)
@@ -745,11 +837,19 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
         ? legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)
         : 100 // fallback
 
-      // 5. Compute dates
-      const today = new Date()
+      // 5. Compute dates based on booking type
+      let start, timeStr;
+      if (bookingType === 'now') {
+         start = new Date();
+         timeStr = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
+      } else {
+         const parts = startDate.split('-').map(Number)
+         start = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]))
+         timeStr = startTime;
+      }
+      
       const days = estimatedPrice?.days || 1
-      const endDate = new Date(today)
-      endDate.setDate(endDate.getDate() + days)
+      const endDate = new Date(start.getTime() + days * 24 * 60 * 60 * 1000)
       const fmt = (d) => d.toISOString().split('T')[0]
 
       // 6. Build locations payload
@@ -770,7 +870,8 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
           vehicle_id: selectedVehicleObj.id,
           total_distance_km: totalKm,
           total_days: days,
-          start_date: fmt(today),
+          start_date: fmt(start),
+          start_time: timeStr,
           end_date: fmt(endDate),
           locations: locationsPayload,
         }),
@@ -812,55 +913,58 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
   }, [locations, selectedVehicle, estimatedPrice])
 
 
-  // Fetch real road route from OSRM whenever locations change
-  useEffect(() => {
-    const validLocs = locations.filter((l) => !l.name.startsWith('Loading'))
+  // Debounced OSRM routing fetch
+  const fetchRoute = useCallback(() => {
+    const validLocs = locations.filter(l => !l.name.startsWith('Loading'));
     if (validLocs.length < 2) {
-      setRouteCoords([])
-      setLegDistances([])
-      return
+      setRouteCoords([]);
+      setLegDistances([]);
+      return;
     }
-    const coords = validLocs.map((l) => `${l.lng},${l.lat}`).join(';')
-    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
-    let cancelled = false
+    const coords = validLocs.map(l => `${l.lng},${l.lat}`).join(';');
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+    let cancelled = false;
     fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(`OSRM error: ${res.status}`)
-        return res.json()
-      })
-      .then((data) => {
-        if (cancelled) return
-        const route = data?.routes?.[0]
+      .then(res => { if (!res.ok) throw new Error(`OSRM error: ${res.status}`); return res.json(); })
+      .then(data => {
+        if (cancelled) return;
+        const route = data?.routes?.[0];
         if (route && route.geometry?.coordinates) {
-          setRouteCoords(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
-          
-          const totalDistanceKm = route.distance / 1000
-          
-          const legs = route.legs || []
+          setRouteCoords(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]));
+          const totalDistanceKm = route.distance / 1000;
+          const legs = route.legs || [];
           if (legs.length > 0) {
-            setLegDistances(legs.map(leg => +(leg.distance / 1000).toFixed(1)))
+            setLegDistances(legs.map(leg => +(leg.distance / 1000).toFixed(1)));
           } else {
-            setLegDistances([+(totalDistanceKm).toFixed(1)])
+            setLegDistances([+(totalDistanceKm).toFixed(1)]);
           }
         } else {
-          console.warn('No route found in OSRM response', data)
-          throw new Error('No route found')
+          console.warn('No route found in OSRM response', data);
+          throw new Error('No route found');
         }
       })
-      .catch((err) => {
+      .catch(err => {
         if (!cancelled) {
-          console.error('Routing failed:', err, '- falling back to straight lines')
-          setRouteCoords(validLocs.map(l => [l.lat, l.lng]))
-          const fallbackLegs = []
+          console.error('Routing failed:', err, '- falling back to straight lines');
+          setRouteCoords(validLocs.map(l => [l.lat, l.lng]));
+          const fallbackLegs = [];
           for (let i = 0; i < validLocs.length - 1; i++) {
-            const dist = getHaversineDistance(validLocs[i].lat, validLocs[i].lng, validLocs[i+1].lat, validLocs[i+1].lng)
-            fallbackLegs.push(+(dist * 1.2).toFixed(1))
+            const dist = getHaversineDistance(validLocs[i].lat, validLocs[i].lng, validLocs[i+1].lat, validLocs[i+1].lng);
+            fallbackLegs.push(+(dist * 1.2).toFixed(1));
           }
-          setLegDistances(fallbackLegs)
+          setLegDistances(fallbackLegs);
         }
-      })
-    return () => { cancelled = true }
-  }, [locations])
+      });
+    return () => { cancelled = true; };
+  }, [locations]);
+
+  // Debounce effect
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      fetchRoute();
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [fetchRoute]);
 
   const canUndo = locations.length > 0
 
@@ -924,6 +1028,114 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     setLoading(false)
   }
 
+  const mapContentMemo = useMemo(() => (
+    <div className="absolute inset-0 z-0">
+      <div className="map-vignette"></div>
+      <div className="map-glass-border"></div>
+      <MapContainer
+        center={SRI_LANKA_CENTER} zoom={DEFAULT_ZOOM} minZoom={7} maxZoom={18} maxBounds={SRI_LANKA_BOUNDS}
+        maxBoundsViscosity={1.0} scrollWheelZoom={true} zoomControl={false} className="h-full w-full"
+      >
+        <TileLayer 
+          url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png" 
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' 
+        />
+        <MapClickHandler onLocationAdd={addLocation} />
+        <MapEffect locations={locations} />
+        <MapRefSetter onMapRef={setMapRef} />
+        
+        {routeCoords.length >= 2 && (
+          <Polyline positions={routeCoords} pathOptions={{ color: '#f97316', weight: 6, opacity: 0.9, lineJoin: 'round', lineCap: 'round', dashArray: '1', shadowColor: '#f97316', shadowBlur: 10 }} />
+        )}
+
+        {FAMOUS_PLACES.map((place) => (
+          <Marker key={place.id} position={[place.lat, place.lng]} icon={createSuggestionIcon(place.image)}>
+            <Popup className="custom-popup">
+              <div className="flex flex-col">
+                <div className="h-32 w-full overflow-hidden bg-slate-100">
+                  <img src={place.image} alt={place.name} className="w-full h-full object-cover" loading="lazy" />
+                </div>
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-orange-500">{place.province} Province</span>
+                  </div>
+                  <h4 className="font-black text-slate-900 text-sm mb-2">{place.name}</h4>
+                  <p className="text-[10px] font-medium text-slate-500 leading-relaxed mb-4">{place.description}</p>
+                  <button onClick={() => addLocation(place.lat, place.lng)} className="w-full py-2.5 bg-slate-900 text-white rounded-xl text-[10px] font-black hover:bg-orange-600 transition-all shadow-lg flex items-center justify-center gap-2">
+                    <i className="bi bi-plus-circle"></i> ADD TO TOUR
+                  </button>
+                </div>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {locations.map((loc, index) => (
+          <Marker key={loc.id} position={[loc.lat, loc.lng]} icon={loc.isStart ? greenIcon : redIcon}>
+            <Popup className="custom-popup">
+              <div className="p-2 min-w-[180px] font-['Plus_Jakarta_Sans']">
+                <h4 className="font-black text-slate-900 text-sm mb-1">{loc.isStart ? 'Starting Point' : `Stop #${index}`}</h4>
+                <p className="text-[10px] font-bold text-slate-500 leading-relaxed mb-3">{loc.name}</p>
+                <button onClick={() => removeLocation(loc.id)} className="w-full py-2 bg-rose-50 text-rose-600 rounded-lg text-[10px] font-black hover:bg-rose-500 hover:text-white transition-all">
+                  REMOVE STOP
+                </button>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Segment Distances on Map */}
+        {locations.length >= 2 && legDistances.length > 0 && locations.slice(0, -1).map((loc, i) => {
+          const nextLoc = locations[i+1];
+          const distance = legDistances[i];
+          if (!nextLoc || distance === undefined) return null;
+          const midLat = (loc.lat + nextLoc.lat) / 2;
+          const midLng = (loc.lng + nextLoc.lng) / 2;
+          return (
+            <Marker 
+              key={`leg-${i}`} 
+              position={[midLat, midLng]} 
+              interactive={false}
+              icon={L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style="background: white; border: 2px solid #f97316; border-radius: 20px; padding: 4px 10px; font-size: 10px; font-weight: 900; color: #f97316; box-shadow: 0 4px 10px rgba(0,0,0,0.1); white-space: nowrap; transform: translate(-50%, -50%); border-style: dashed;">${distance} km</div>`,
+                iconSize: [0, 0]
+              })}
+            />
+          );
+        })}
+      </MapContainer>
+    </div>
+  ), [locations, routeCoords, legDistances, addLocation, removeLocation, setMapRef]);
+
+  const vehicleOptionsMemo = useMemo(() => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+      {VEHICLE_OPTIONS.map((v) => {
+        const selected = selectedVehicle === v.id
+        return (
+          <button
+            key={v.id} onClick={() => setSelectedVehicle(v.id)}
+            className={`group relative flex flex-col bg-white rounded-[2.5rem] overflow-hidden text-left transition-all duration-500 border-4 ${
+              selected ? 'border-orange-500 shadow-[0_20px_50px_-15px_rgba(249,115,22,0.3)]' : 'border-transparent hover:border-slate-200 shadow-xl shadow-slate-900/5'
+            }`}
+          >
+            <div className="h-48 overflow-hidden bg-slate-50 flex items-center justify-center p-6">
+               <img src={v.image} alt={v.title} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-700" loading="lazy" />
+            </div>
+            <div className="p-8">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xl font-extrabold text-slate-900">{v.title}</h3>
+                {selected && <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-xs">✓</div>}
+              </div>
+              <p className="text-sm text-slate-500 leading-relaxed font-medium line-clamp-2">{v.description}</p>
+            </div>
+            {selected && <div className="absolute top-4 left-4 px-3 py-1 bg-orange-500 text-white text-[9px] font-black uppercase tracking-widest rounded-full">Active Selection</div>}
+          </button>
+        )
+      })}
+    </div>
+  ), [selectedVehicle]);
+
   return (
     <div className="min-h-screen bg-slate-50 font-['Plus_Jakarta_Sans'] overflow-x-hidden">
       
@@ -939,8 +1151,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
           className="absolute inset-0 w-full h-full object-cover"
           autoPlay loop muted playsInline
         >
-          <source src="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4" type="video/mp4" />
-          <div className="absolute inset-0 bg-gradient-to-r from-orange-500 to-sky-600"></div>
+          <source src="/Lighthouse_video_cinematic_drone_202606011337.mp4" type="video/mp4" />
         </video>
         
         <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"></div>
@@ -1040,83 +1251,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
             <div className="relative rounded-[3rem] overflow-hidden shadow-2xl border-8 border-white h-[88vh] bg-slate-100 group">
               
               {/* ── IMMERSIVE MAP ── */}
-              <div className="absolute inset-0 z-0">
-                <div className="map-vignette"></div>
-                <div className="map-glass-border"></div>
-                <MapContainer
-                  center={SRI_LANKA_CENTER} zoom={DEFAULT_ZOOM} minZoom={7} maxZoom={18} maxBounds={SRI_LANKA_BOUNDS}
-                  maxBoundsViscosity={1.0} scrollWheelZoom={true} zoomControl={false} className="h-full w-full"
-                >
-                  <TileLayer 
-                    url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png" 
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' 
-                  />
-                  <MapClickHandler onLocationAdd={addLocation} />
-                  <MapEffect locations={locations} />
-                  <MapRefSetter onMapRef={setMapRef} />
-                  
-                  {routeCoords.length >= 2 && (
-                    <Polyline positions={routeCoords} pathOptions={{ color: '#f97316', weight: 6, opacity: 0.9, lineJoin: 'round', lineCap: 'round', dashArray: '1', shadowColor: '#f97316', shadowBlur: 10 }} />
-                  )}
-
-                  {FAMOUS_PLACES.map((place) => (
-                    <Marker key={place.id} position={[place.lat, place.lng]} icon={createSuggestionIcon(place.image)}>
-                      <Popup className="custom-popup">
-                        <div className="flex flex-col">
-                          <div className="h-32 w-full overflow-hidden bg-slate-100">
-                            <img src={place.image} alt={place.name} className="w-full h-full object-cover" />
-                          </div>
-                          <div className="p-4">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[9px] font-black uppercase tracking-widest text-orange-500">{place.province} Province</span>
-                            </div>
-                            <h4 className="font-black text-slate-900 text-sm mb-2">{place.name}</h4>
-                            <p className="text-[10px] font-medium text-slate-500 leading-relaxed mb-4">{place.description}</p>
-                            <button onClick={() => addLocation(place.lat, place.lng)} className="w-full py-2.5 bg-slate-900 text-white rounded-xl text-[10px] font-black hover:bg-orange-600 transition-all shadow-lg flex items-center justify-center gap-2">
-                              <i className="bi bi-plus-circle"></i> ADD TO TOUR
-                            </button>
-                          </div>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))}
-
-                  {locations.map((loc, index) => (
-                    <Marker key={loc.id} position={[loc.lat, loc.lng]} icon={loc.isStart ? greenIcon : redIcon}>
-                      <Popup className="custom-popup">
-                        <div className="p-2 min-w-[180px] font-['Plus_Jakarta_Sans']">
-                          <h4 className="font-black text-slate-900 text-sm mb-1">{loc.isStart ? 'Starting Point' : `Stop #${index}`}</h4>
-                          <p className="text-[10px] font-bold text-slate-500 leading-relaxed mb-3">{loc.name}</p>
-                          <button onClick={() => removeLocation(loc.id)} className="w-full py-2 bg-rose-50 text-rose-600 rounded-lg text-[10px] font-black hover:bg-rose-500 hover:text-white transition-all">
-                            REMOVE STOP
-                          </button>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))}
-
-                  {/* Segment Distances on Map */}
-                  {locations.length >= 2 && legDistances.length > 0 && locations.slice(0, -1).map((loc, i) => {
-                    const nextLoc = locations[i+1];
-                    const distance = legDistances[i];
-                    if (!nextLoc || distance === undefined) return null;
-                    const midLat = (loc.lat + nextLoc.lat) / 2;
-                    const midLng = (loc.lng + nextLoc.lng) / 2;
-                    return (
-                      <Marker 
-                        key={`leg-${i}`} 
-                        position={[midLat, midLng]} 
-                        interactive={false}
-                        icon={L.divIcon({
-                          className: 'custom-div-icon',
-                          html: `<div style="background: white; border: 2px solid #f97316; border-radius: 20px; padding: 4px 10px; font-size: 10px; font-weight: 900; color: #f97316; box-shadow: 0 4px 10px rgba(0,0,0,0.1); white-space: nowrap; transform: translate(-50%, -50%); border-style: dashed;">${distance} km</div>`,
-                          iconSize: [0, 0]
-                        })}
-                      />
-                    );
-                  })}
-                </MapContainer>
-              </div>
+              {mapContentMemo}
 
               {/* ── FLOATING CONTROLS STACK ── */}
               <div className="absolute top-8 left-8 z-[1000] w-full max-w-[380px] space-y-4 pointer-events-none">
@@ -1255,31 +1390,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                   <p className="text-slate-500 font-medium">Pick a vehicle that fits your group size and comfort preferences.</p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  {VEHICLE_OPTIONS.map((v) => {
-                    const selected = selectedVehicle === v.id
-                    return (
-                      <button
-                        key={v.id} onClick={() => setSelectedVehicle(v.id)}
-                        className={`group relative flex flex-col bg-white rounded-[2.5rem] overflow-hidden text-left transition-all duration-500 border-4 ${
-                          selected ? 'border-orange-500 shadow-[0_20px_50px_-15px_rgba(249,115,22,0.3)]' : 'border-transparent hover:border-slate-200 shadow-xl shadow-slate-900/5'
-                        }`}
-                      >
-                        <div className="h-48 overflow-hidden bg-slate-50 flex items-center justify-center p-6">
-                           <img src={v.image} alt={v.title} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-700" />
-                        </div>
-                        <div className="p-8">
-                          <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-xl font-extrabold text-slate-900">{v.title}</h3>
-                            {selected && <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-xs">✓</div>}
-                          </div>
-                          <p className="text-sm text-slate-500 leading-relaxed font-medium line-clamp-2">{v.description}</p>
-                        </div>
-                        {selected && <div className="absolute top-4 left-4 px-3 py-1 bg-orange-500 text-white text-[9px] font-black uppercase tracking-widest rounded-full">Active Selection</div>}
-                      </button>
-                    )
-                  })}
-                </div>
+                {vehicleOptionsMemo}
               </div>
 
               {/* Summary Side Card */}
@@ -1347,74 +1458,104 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
               <p className="text-slate-500 font-medium max-w-lg mx-auto leading-relaxed">Review your tour carefully. Once confirmed, we'll start searching for the best driver for your route.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
               
-              {/* Card: Locations */}
-              <div className="glass rounded-[2.5rem] p-8 shadow-xl shadow-slate-900/5">
-                <div className="w-12 h-12 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-lg shadow-sky-500/20 mb-6">
-                  <i className="bi bi-geo-alt-fill text-xl"></i>
-                </div>
-                <h3 className="text-xl font-extrabold text-slate-900 mb-6">Tour Route</h3>
-                <div className="space-y-4 relative">
-                   {locations.map((loc, i) => (
-                    <div key={loc.id} className="relative">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black ${loc.isStart ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white'}`}>
+              {/* Card: Tour Route - Expanded */}
+              <div className="lg:col-span-2">
+                <div className="glass rounded-[3rem] p-10 shadow-2xl shadow-slate-900/10 h-full">
+                  <div className="flex items-center gap-4 mb-8">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-400 to-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30">
+                      <i className="bi bi-geo-alt-fill text-2xl"></i>
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-extrabold text-slate-900">Tour Route</h3>
+                      <p className="text-sm text-slate-500 font-medium mt-1">{locations.length} stops • {legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)} km</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3 relative">
+                    <div className="absolute left-6 top-12 bottom-0 w-0.5 bg-gradient-to-b from-blue-300 to-slate-200"></div>
+                    {locations.map((loc, i) => (
+                      <div key={loc.id} className="relative pl-20">
+                        <div className="absolute left-0 top-1.5 w-14 h-14 rounded-full flex items-center justify-center text-lg font-black shadow-lg border-4 border-white" style={{background: loc.isStart ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: 'white'}}>
                           {i+1}
                         </div>
-                        <p className="text-xs font-bold text-slate-700 truncate">{loc.name}</p>
-                      </div>
-                      {/* Distance label between stops */}
-                      {i < locations.length - 1 && legDistances[i] !== undefined && (
-                        <div className="ml-[13px] my-2 pl-6 border-l-2 border-dashed border-slate-200 py-1">
-                          <span className="text-[10px] font-black text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full">
-                            ↓ {legDistances[i]} km
-                          </span>
+                        <div className="bg-gradient-to-r from-slate-50 to-white rounded-2xl p-5 border border-slate-100 hover:border-blue-300 hover:shadow-md transition-all">
+                          <p className="font-bold text-slate-900 text-base">{loc.name}</p>
+                          {i < locations.length - 1 && legDistances[i] !== undefined && (
+                            <p className="text-xs text-slate-500 mt-2 font-semibold">
+                              <i className="bi bi-arrow-down text-orange-500 mr-1"></i>
+                              <span className="text-orange-600 font-black">{legDistances[i]} km</span>
+                            </p>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              {/* Card: Vehicle */}
-              <div className="glass rounded-[2.5rem] p-8 shadow-xl shadow-slate-900/5">
-                <div className="w-12 h-12 rounded-2xl bg-orange-500 text-white flex items-center justify-center shadow-lg shadow-orange-500/20 mb-6">
-                  <i className="bi bi-car-front-fill text-xl"></i>
-                </div>
-                <h3 className="text-xl font-extrabold text-slate-900 mb-4">Vehicle</h3>
-                <div className="bg-slate-50 rounded-3xl p-6 flex flex-col items-center">
-                  <img src={VEHICLE_OPTIONS.find(v => v.id === selectedVehicle)?.image} className="h-24 w-auto object-contain mb-4" alt="Fleet" />
-                  <p className="text-lg font-black text-slate-900 leading-none">{selectedVehicle}</p>
-                </div>
-              </div>
+              {/* Right Column: Estimate & Details */}
+              <div className="space-y-6">
+                {/* Card: Final Estimate */}
+                <div className="glass-dark rounded-[3rem] p-8 shadow-2xl shadow-slate-900/30 text-white h-fit">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30">
+                      <i className="bi bi-wallet2 text-xl"></i>
+                    </div>
+                    <h3 className="text-2xl font-extrabold tracking-tight">Total Price</h3>
+                  </div>
+                  
+                  <div className="bg-white/5 rounded-2xl p-6 mb-6 backdrop-blur-sm border border-white/10">
+                    <div className="mb-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-orange-300 mb-2">USD TOTAL</p>
+                      <p className="text-5xl font-black text-orange-400">${estimatedPrice?.usd}</p>
+                    </div>
+                    <div className="border-t border-white/20 pt-4">
+                      <p className="text-xs font-black uppercase tracking-widest text-white/50 mb-1">LKR TOTAL</p>
+                      <p className="text-xl font-extrabold text-white">රු. {estimatedPrice?.lkr?.toLocaleString()}</p>
+                    </div>
+                  </div>
 
-              {/* Card: Financials */}
-              <div className="glass-dark rounded-[2.5rem] p-8 shadow-2xl shadow-slate-900/20 text-white">
-                <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center mb-6">
-                  <i className="bi bi-wallet2 text-xl text-orange-400"></i>
-                </div>
-                <h3 className="text-xl font-extrabold mb-8 tracking-tight">Final Estimate</h3>
-                <div className="space-y-6">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">USD TOTAL</p>
-                    <p className="text-4xl font-black text-orange-400">${estimatedPrice?.usd}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">LKR TOTAL</p>
-                    <p className="text-lg font-extrabold text-white">රු. {estimatedPrice?.lkr?.toLocaleString()}</p>
-                  </div>
-                  <div className="flex gap-3 pt-4 border-t border-white/10">
-                    <div className="flex-1">
-                       <p className="text-[8px] font-black uppercase text-white/30">DIST</p>
-                       <p className="text-xs font-black">{legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)} km</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-white/10 rounded-xl p-4 border border-white/20 text-center hover:bg-white/15 transition-all">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-white/50 mb-2">Distance</p>
+                      <p className="text-2xl font-black">{legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)}<span className="text-sm text-white/60 ml-1">km</span></p>
                     </div>
-                    <div className="flex-1">
-                       <p className="text-[8px] font-black uppercase text-white/30">DAYS</p>
-                       <p className="text-xs font-black">{estimatedPrice?.days} Days</p>
+                    <div className="bg-white/10 rounded-xl p-4 border border-white/20 text-center hover:bg-white/15 transition-all">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-white/50 mb-2">Duration</p>
+                      <p className="text-2xl font-black">{estimatedPrice?.days}<span className="text-sm text-white/60 ml-1">days</span></p>
                     </div>
                   </div>
+
+                  {/* Vehicle Info Elegant */}
+                  <div className="mt-6 pt-6 border-t border-white/20">
+                    <div className="bg-gradient-to-r from-orange-500/20 to-amber-500/20 rounded-2xl p-5 border border-orange-400/30 backdrop-blur-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/40">
+                          <i className="bi bi-car-front-fill text-white text-lg"></i>
+                        </div>
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-widest text-orange-300/70 mb-0.5">Selected Vehicle</p>
+                          <p className="text-base font-extrabold text-white">{selectedVehicle}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+
+                {/* Schedule Card - if scheduled */}
+                {bookingType === 'schedule' && (
+                  <div className="glass rounded-[2rem] p-6 shadow-xl shadow-slate-900/5">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-lg bg-emerald-500/20 text-emerald-600 flex items-center justify-center">
+                        <i className="bi bi-calendar-event-fill"></i>
+                      </div>
+                      <h4 className="font-extrabold text-slate-900">Scheduled For</h4>
+                    </div>
+                    <p className="text-sm text-slate-700 font-semibold">{startDate}</p>
+                    <p className="text-sm text-slate-700 font-semibold">@ {startTime}</p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1426,15 +1567,54 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                </div>
             )}
 
+            {/* Booking Type Selection */}
+            <div className="glass rounded-[2.5rem] p-8 shadow-xl shadow-slate-900/5 mb-6">
+              <div className="flex items-center gap-4 mb-4">
+                <label className="flex items-center gap-2 text-sm font-black text-slate-700">
+                  <input type="radio" name="bookingType" value="now" checked={bookingType === 'now'} onChange={() => setBookingType('now')} className="form-radio h-4 w-4 text-emerald-600" />
+                  Book Now
+                </label>
+                <label className="flex items-center gap-2 text-sm font-black text-slate-700">
+                  <input type="radio" name="bookingType" value="schedule" checked={bookingType === 'schedule'} onChange={() => setBookingType('schedule')} className="form-radio h-4 w-4 text-emerald-600" />
+                  Schedule Booking
+                </label>
+              </div>
+              {bookingType === 'schedule' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
+                    <input type="date" value={startDate} min={new Date().toISOString().split('T')[0]} max={new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} onChange={(e) => setStartDate(e.target.value)} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Time</label>
+                    <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800" />
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Final Action */}
-            <div className="flex flex-col items-center gap-6">
+            <div className="flex flex-col items-center gap-6 w-full max-w-xl mx-auto">
               {!bookingConfirmed ? (
-                <button
-                  onClick={handleBookTour}
-                  className="px-12 py-6 bg-orange-500 hover:bg-orange-600 text-white rounded-[2rem] font-black text-lg shadow-2xl shadow-orange-500/30 transition-all hover:scale-105 active:scale-95 flex items-center gap-4"
-                >
-                  Confirm & Create Tour <i className="bi bi-shield-check"></i>
-                </button>
+                <div className="flex gap-4 w-full">
+                  <button
+                    onClick={() => {
+                       setBookingType('now');
+                       handleBookTour();
+                    }}
+                    className="flex-1 px-8 py-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[2rem] font-black text-lg shadow-xl shadow-emerald-500/30 transition-all hover:scale-[1.02] active:scale-95 flex flex-col items-center justify-center gap-2"
+                  >
+                    <i className="bi bi-lightning-charge-fill text-2xl"></i>
+                    <span>Book Now</span>
+                  </button>
+                  <button
+                    onClick={() => setShowScheduleModal(true)}
+                    className="flex-1 px-8 py-6 bg-slate-900 hover:bg-slate-800 text-white rounded-[2rem] font-black text-lg shadow-xl shadow-slate-900/30 transition-all hover:scale-[1.02] active:scale-95 flex flex-col items-center justify-center gap-2"
+                  >
+                    <i className="bi bi-calendar-plus-fill text-2xl"></i>
+                    <span>Schedule Tour</span>
+                  </button>
+                </div>
               ) : (
                 <div className="text-center animate-fade-in-up">
                   <div className="w-24 h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center text-5xl mx-auto mb-6 shadow-2xl shadow-emerald-500/30">
@@ -1457,6 +1637,59 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
         )}
 
       </main>
+
+      {/* Schedule Modal */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative">
+            <button 
+              onClick={() => setShowScheduleModal(false)}
+              className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition"
+            >
+              <i className="bi bi-x-lg"></i>
+            </button>
+            <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mb-6">
+              <i className="bi bi-calendar-event-fill text-xl"></i>
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Schedule Tour</h3>
+            <p className="text-sm text-slate-500 mb-6 font-medium">Select a future date and time for your journey.</p>
+            
+            <div className="space-y-4 mb-8">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  min={new Date().toISOString().split('T')[0]}
+                  max={new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Time</label>
+                <input
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800"
+                />
+              </div>
+            </div>
+            
+            <button
+              onClick={() => {
+                setShowScheduleModal(false);
+                setBookingType('schedule');
+                handleBookTour();
+              }}
+              className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black shadow-xl shadow-emerald-500/30 transition-all hover:scale-[1.02] active:scale-95"
+            >
+              Confirm Schedule
+            </button>
+          </div>
+        </div>
+      )}
 
       <Footer minimal={true} />
 

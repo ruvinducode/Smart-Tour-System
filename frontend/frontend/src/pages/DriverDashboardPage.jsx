@@ -410,31 +410,56 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                           </div>
                           <div className="flex items-center gap-6 pt-2">
                             <div className="flex items-center gap-2 text-sm font-bold text-slate-600 bg-slate-100 px-4 py-2 rounded-xl">
-                              <i className="bi bi-calendar-event"></i><span>{tour.start_date || 'N/A'}</span><i className="bi bi-arrow-right mx-1 opacity-40"></i><span>{tour.end_date || 'N/A'}</span>
+                              <i className="bi bi-calendar-event"></i><span>{tour.start_date || 'N/A'}{tour.start_time ? ` @ ${tour.start_time}` : ''}</span><i className="bi bi-arrow-right mx-1 opacity-40"></i><span>{tour.end_date || 'N/A'}</span>
                             </div>
                             <div className="text-lg font-black text-slate-900"><span className="text-sm font-bold text-slate-400 mr-1">Estimated:</span>Rs. {Number(tour.estimated_price || 0).toLocaleString()}</div>
                           </div>
                         </div>
                         <div className="lg:w-72 space-y-3">
                           <button onClick={() => { setSelectedTourId(tour.id); setShowDetailsModal(true) }} className="w-full flex items-center justify-center gap-2 rounded-2xl bg-white border-2 border-slate-200 px-6 py-3 text-sm font-black text-slate-700 hover:border-orange-500 hover:text-orange-600 transition-all shadow-sm"><i className="bi bi-map"></i> View Details</button>
-                          { (tour.status === 'confirmed' || tour.status === 'driver_approved' || tour.status === 'en_route' || tour.status === 'arrived' || tour.status === 'ongoing') && (
-                            <button 
-                              onClick={async () => {
-                                try {
-                                  if (tour.status === 'confirmed' || tour.status === 'driver_approved') {
-                                    await markTourEnRoute(tour.id, token)
+                          { (tour.status === 'confirmed' || tour.status === 'driver_approved' || tour.status === 'en_route' || tour.status === 'arrived' || tour.status === 'ongoing') && (() => {
+                            const localDate = new Date();
+                            const year = localDate.getFullYear();
+                            const month = String(localDate.getMonth() + 1).padStart(2, '0');
+                            const day = String(localDate.getDate()).padStart(2, '0');
+                            const hours = String(localDate.getHours()).padStart(2, '0');
+                            const minutes = String(localDate.getMinutes()).padStart(2, '0');
+                            
+                            const todayStr = `${year}-${month}-${day}`;
+                            const timeStr = `${hours}:${minutes}`;
+                            
+                            const isFutureDate = tour.start_date && todayStr < tour.start_date;
+                            const isFutureTime = tour.start_date && tour.start_time && todayStr === tour.start_date && timeStr < tour.start_time;
+                            const isFuture = isFutureDate || isFutureTime;
+                            
+                            const isStartAction = tour.status === 'confirmed' || tour.status === 'driver_approved';
+                            
+                            return (
+                              <button 
+                                disabled={isStartAction && isFuture}
+                                onClick={async () => {
+                                  try {
+                                    if (tour.status === 'confirmed' || tour.status === 'driver_approved') {
+                                      await markTourEnRoute(tour.id, token)
+                                    }
+                                    setActiveRideTourId(tour.id)
+                                  } catch (err) {
+                                    alert("Failed to start driving: " + err.message)
                                   }
-                                  setActiveRideTourId(tour.id)
-                                } catch (err) {
-                                  alert("Failed to start driving: " + err.message)
-                                }
-                              }} 
-                              className="w-full flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-6 py-3 text-sm font-black text-white hover:bg-orange-600 transition shadow-lg shadow-orange-500/30"
-                            >
-                              <i className="bi bi-cursor-fill"></i> 
-                              {tour.status === 'confirmed' || tour.status === 'driver_approved' ? 'Start Driving' : 'Continue Driving'}
-                            </button>
-                          )}
+                                }} 
+                                className={`w-full flex items-center justify-center gap-2 rounded-2xl px-6 py-3 text-sm font-black transition-all ${
+                                  (isStartAction && isFuture)
+                                    ? 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'
+                                    : 'bg-orange-500 text-white hover:bg-orange-600 shadow-lg shadow-orange-500/30'
+                                }`}
+                              >
+                                <i className={isStartAction && isFuture ? "bi bi-calendar-x" : "bi bi-cursor-fill"}></i> 
+                                {isStartAction && isFuture 
+                                  ? `Locked until ${tour.start_time ? tour.start_time : 'today'}`
+                                  : isStartAction ? 'Start Driving' : 'Continue Driving'}
+                              </button>
+                            );
+                          })()}
                           { (tour.status === 'planned' || tour.status === 'price_sent_by_driver') && (
                             <div className="space-y-3">
                               {tour.status !== 'price_sent_by_driver' && (

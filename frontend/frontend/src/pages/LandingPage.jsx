@@ -202,7 +202,7 @@ export default function LandingPage({
           </motion.div>
 
           <div className="hidden md:flex items-center gap-8">
-            {['hero', 'destinations', 'tours', 'about'].map((item) => (
+            {['destinations', 'tours', 'about'].map((item) => (
               <button 
                 key={item}
                 onClick={() => item === 'about' ? onOpenAbout() : scrollToSection(item)}
@@ -211,12 +211,6 @@ export default function LandingPage({
                 {item}
               </button>
             ))}
-            <button 
-              onClick={onOpenDriverLogin}
-              className="text-white/80 hover:text-white transition-colors text-sm font-bold uppercase tracking-widest"
-            >
-              Driver Portal
-            </button>
             <button 
               onClick={onOpenUserLogin}
               className="bg-amber-500 text-emerald-950 px-6 py-2.5 rounded-full font-bold shadow-xl hover:bg-amber-400 transition-all hover:scale-105"

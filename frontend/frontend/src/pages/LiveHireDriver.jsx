@@ -159,6 +159,18 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
   
   const latestLocRef = useRef(null)
 
+  // Schedule lock: prevent all actions if tour start_date/time is in the future
+  const isScheduleLocked = (() => {
+    if (!tour?.start_date) return false
+    const now = new Date()
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+    
+    const isFutureDate = todayStr < tour.start_date;
+    const isFutureTime = tour.start_time && todayStr === tour.start_date && timeStr < tour.start_time;
+    return isFutureDate || isFutureTime;
+  })()
+
   useEffect(() => {
     const loadTour = async () => {
       try {
@@ -483,6 +495,21 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
             </div>
 
             <div className="pt-4">
+              {/* Schedule Lock Banner */}
+              {isScheduleLocked && (
+                <div className="mb-4 p-5 rounded-[2rem] bg-amber-50 border-2 border-amber-200 flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-500/20 flex-shrink-0">
+                    <AlertCircle size={24} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black text-amber-800 uppercase tracking-widest">Scheduled Tour</p>
+                    <p className="text-sm font-bold text-amber-700 mt-1">
+                      This tour is locked until <span className="font-black text-amber-900">{tour?.start_date}{tour?.start_time ? ` @ ${tour.start_time}` : ''}</span>. Actions will be available on the scheduled date.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-3 gap-3 mb-4">
                 {[
                   { label: 'Start', icon: Navigation, status: 'Ready to Start', color: 'bg-emerald-900', action: markTourEnRoute, next: 'Heading to Pickup' },
@@ -491,11 +518,12 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
                 ].map((btn, i) => (
                   <motion.button 
                     key={i}
-                    whileHover={rideStatus === btn.status ? { scale: 1.05 } : {}}
-                    whileTap={rideStatus === btn.status ? { scale: 0.95 } : {}}
-                    disabled={rideStatus !== btn.status}
+                    whileHover={rideStatus === btn.status && !isScheduleLocked ? { scale: 1.05 } : {}}
+                    whileTap={rideStatus === btn.status && !isScheduleLocked ? { scale: 0.95 } : {}}
+                    disabled={rideStatus !== btn.status || isScheduleLocked}
                     onClick={async (e) => {
                       e.stopPropagation();
+                      if (isScheduleLocked) return;
                       try {
                         await btn.action(tourId, token)
                         setRideStatus(btn.next)
@@ -503,9 +531,11 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
                       } catch (err) { alert(err.message) }
                     }}
                     className={`flex flex-col items-center justify-center py-6 rounded-[2rem] gap-2 transition-all border ${
-                      rideStatus === btn.status 
-                      ? `${btn.color} text-white shadow-xl border-transparent` 
-                      : 'bg-slate-100 border-slate-200 text-slate-300'
+                      isScheduleLocked
+                      ? 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed opacity-50'
+                      : rideStatus === btn.status 
+                        ? `${btn.color} text-white shadow-xl border-transparent` 
+                        : 'bg-slate-100 border-slate-200 text-slate-300'
                     }`}
                   >
                     <btn.icon size={24} />

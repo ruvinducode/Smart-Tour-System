@@ -365,6 +365,17 @@ export async function cancelTour(tourId, reason, token) {
   return data
 }
 
+export async function deleteTour(tourId, token) {
+  const res = await fetch(apiUrl(`/tour/${tourId}`), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+
 export async function getDriverNotifications(token) {
   const res = await fetch(apiUrl('/driver/notifications'), {
     headers: { Authorization: `Bearer ${token}` },

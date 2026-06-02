@@ -130,6 +130,7 @@ class TourPlan(db.Model):
     vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"))
 
     start_date = db.Column(db.Date)
+    start_time = db.Column(db.String(10), nullable=True)
     end_date = db.Column(db.Date)
 
     total_distance_km = db.Column(db.Float)

@@ -24,9 +24,10 @@ import {
   XCircle,
   ExternalLink,
   MessageSquare,
-  Menu
+  Menu,
+  Trash2
 } from 'lucide-react'
-import { getUserNotifications, getUserTours, cancelTour } from '../services/api.js'
+import { getUserNotifications, getUserTours, cancelTour, deleteTour, acceptDriverPrice, rejectDriverPrice, getApiBaseUrl, replyToDriver } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import LiveTrackingPage from './LiveTrackingPage.jsx'
 import LiveTrackingPanel from '../components/LiveTrackingPanel.jsx'
@@ -111,6 +112,90 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
 
+  // ── New Dashboard & Deletion States ──
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false)
+  const [tourIdToDelete, setTourIdToDelete] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+  const [activeSubTab, setActiveSubTab] = useState('active')
+
+  // Account Settings States
+  const [settingsName, setSettingsName] = useState(userName || '')
+  const [settingsPhone, setSettingsPhone] = useState('+94 77 123 4567')
+  const [settingsCountry, setSettingsCountry] = useState('Sri Lanka')
+  const [emailNotifs, setEmailNotifs] = useState(true)
+  const [smsNotifs, setSmsNotifs] = useState(false)
+  const [settingsSaved, setSettingsSaved] = useState(false)
+
+  useEffect(() => {
+    if (userName) setSettingsName(userName)
+  }, [userName])
+
+  const handleDeleteConfirm = async () => {
+    if (!tourIdToDelete) return
+    setDeleting(true)
+    try {
+      await deleteTour(tourIdToDelete, token)
+      setShowDeleteConfirmModal(false)
+      setTourIdToDelete(null)
+      loadDashboardData()
+    } catch (err) {
+      alert(err.message || 'Failed to delete tour')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const [negotiationLoading, setNegotiationLoading] = useState(false)
+
+  const handleAcceptOffer = async (tourId) => {
+    setNegotiationLoading(true)
+    try {
+      await acceptDriverPrice(tourId, token)
+      alert('Price offer accepted successfully!')
+      loadDashboardData()
+    } catch (err) {
+      alert(err.message || 'Failed to accept price offer')
+    } finally {
+      setNegotiationLoading(false)
+    }
+  }
+
+  const handleRejectOffer = async (tourId) => {
+    setNegotiationLoading(true)
+    try {
+      await rejectDriverPrice(tourId, token)
+      alert('Price offer rejected.')
+      loadDashboardData()
+    } catch (err) {
+      alert(err.message || 'Failed to reject price offer')
+    } finally {
+      setNegotiationLoading(false)
+    }
+  }
+
+  const [negotiationReply, setNegotiationReply] = useState('')
+
+  const getDriverImageUrl = (path) => path ? `${getApiBaseUrl()}/uploads/drivers/${path}` : null
+
+  const handleSendReply = async (tourId) => {
+    if (!negotiationReply.trim()) return
+    setNegotiationLoading(true)
+    try {
+      await replyToDriver(tourId, negotiationReply, token)
+      alert('Reply sent to driver successfully!')
+      setNegotiationReply('')
+      loadDashboardData()
+    } catch (err) {
+      alert(err.message || 'Failed to send reply')
+    } finally {
+      setNegotiationLoading(false)
+    }
+  }
+
+
+
+
   const loadDashboardData = useCallback(async () => {
     setLoading(true)
     try {
@@ -158,14 +243,21 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
   }, [loadDashboardData])
 
   const upcomingTours = useMemo(() => 
-    tours.filter(t => t.status !== 'completed' && t.status !== 'cancelled'), 
+    tours.filter(t => t.status !== 'completed' && t.status !== 'cancelled' && t.status !== 'rejected'), 
     [tours]
   )
 
   const pastTours = useMemo(() => 
-    tours.filter(t => t.status === 'completed' || t.status === 'cancelled'), 
+    tours.filter(t => t.status === 'completed' || t.status === 'cancelled' || t.status === 'rejected'), 
     [tours]
   )
+
+  const negotiationTours = useMemo(() => 
+    tours.filter(t => t.status === 'price_sent_by_driver'), 
+    [tours]
+  )
+
+
 
   const stats = useMemo(() => ({
     totalTrips: tours.length,
@@ -214,11 +306,11 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
       onClick={() => setActiveTab(id)}
       className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all duration-300 group ${
         active 
-        ? 'bg-green-600 text-white shadow-lg shadow-green-600/20' 
-        : 'text-slate-500 hover:bg-slate-50 hover:text-green-600'
+        ? 'bg-orange-500 text-white shadow-lg shadow-blue-600/20' 
+        : 'text-white hover:bg-slate-50 hover:text-orange-500'
       }`}
     >
-      <Icon size={18} className={active ? 'text-white' : 'group-hover:scale-110 transition-transform'} />
+      <Icon size={18} className={active ? 'text-white' : 'text-white group-hover:scale-110 transition-transform'} />
       <span className="text-sm font-bold tracking-tight">{label}</span>
       {active && (
         <motion.div 
@@ -232,15 +324,15 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
   return (
     <div className="flex min-h-screen bg-white font-['Plus_Jakarta_Sans',sans-serif]">
       {/* ── Sidebar ── */}
-      <aside className="hidden lg:flex w-72 bg-white border-r border-slate-100 flex-col fixed h-screen overflow-y-auto scrollbar-hide z-50">
+      <aside className="hidden lg:flex w-72 bg-slate-900 border-r border-slate-800 flex-col fixed h-screen overflow-y-auto scrollbar-hide z-50">
         <div className="p-8">
           <div className="flex items-center gap-3 mb-12">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-green-600 to-green-700 flex items-center justify-center shadow-lg shadow-green-600/20">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-blue-600/20">
               <Compass className="text-white" size={24} />
             </div>
             <div>
-              <h1 className="text-xl font-extrabold tracking-tight leading-none text-slate-900">SMART<span className="text-orange-500">TOUR</span></h1>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">Tourism Dashboard</p>
+              <h1 className="text-xl font-extrabold tracking-tight leading-none text-white">AIR B & C</h1>
+              <p className="text-[10px] font-bold text-white uppercase tracking-[0.2em] mt-1">Tourism Dashboard</p>
             </div>
           </div>
 
@@ -286,7 +378,10 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
         {/* ── Top Header ── */}
         <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-50 px-8 py-5 flex items-center justify-between">
           <div className="flex items-center gap-6">
-            <button className="lg:hidden p-2 text-slate-600">
+            <button 
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="lg:hidden p-2 text-slate-600 hover:bg-slate-50 rounded-xl transition-all"
+            >
               <Menu size={20} />
             </button>
             <div className="relative hidden md:block">
@@ -294,14 +389,14 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
               <input 
                 type="text" 
                 placeholder="Search your journeys..." 
-                className="bg-slate-50 border-none rounded-2xl pl-12 pr-6 py-3 text-sm font-medium w-80 focus:ring-2 focus:ring-green-500/20 transition-all outline-none"
+                className="bg-slate-50 border-none rounded-2xl pl-12 pr-6 py-3 text-sm font-medium w-80 focus:ring-2 focus:ring-orange-500/20 transition-all outline-none"
               />
             </div>
           </div>
 
           <div className="flex items-center gap-6">
             <div className="hidden sm:flex items-center gap-4 px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
-               <div className="h-9 w-9 rounded-xl bg-green-600 text-white flex items-center justify-center font-black text-sm shadow-md shadow-green-600/20">
+               <div className="h-9 w-9 rounded-xl bg-orange-500 text-white flex items-center justify-center font-black text-sm shadow-md shadow-blue-600/20">
                  {userName?.[0] || 'U'}
                </div>
                <div className="leading-tight">
@@ -311,7 +406,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
             </div>
             <button 
               onClick={() => setActiveTab('notifications')}
-              className="h-12 w-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-50 hover:border-green-100 transition-all relative group"
+              className="h-12 w-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-600 hover:bg-slate-50 hover:border-orange-100 transition-all relative group"
             >
               <Bell size={20} className="group-hover:rotate-12 transition-transform" />
               {notifications.length > 0 && (
@@ -336,7 +431,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                   </div>
                   <button 
                     onClick={onGoToPlanner}
-                    className="bg-green-600 text-white px-8 py-4 rounded-[2rem] font-black text-sm flex items-center gap-3 hover:bg-green-700 hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-green-600/30"
+                    className="bg-orange-500 text-white px-8 py-4 rounded-[2rem] font-black text-sm flex items-center gap-3 hover:bg-orange-600 hover:scale-105 active:scale-95 transition-all shadow-2xl shadow-blue-600/30"
                   >
                     <Plus size={20} />
                     PLAN NEW TRIP
@@ -344,17 +439,19 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                 </div>
               </motion.div>
 
+
               {/* Stats Grid */}
               <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+
                 {[
-                  { label: 'Total Trips', value: stats.totalTrips, icon: MapIcon, color: 'green' },
+                  { label: 'Total Trips', value: stats.totalTrips, icon: MapIcon, color: 'blue' },
                   { label: 'Distance', value: `${stats.totalDistance} km`, icon: Navigation, color: 'orange' },
-                  { label: 'Spending', value: `Rs. ${stats.totalSpent.toLocaleString()}`, icon: CreditCard, color: 'green' },
+                  { label: 'Spending', value: `Rs. ${stats.totalSpent.toLocaleString()}`, icon: CreditCard, color: 'blue' },
                   { label: 'Rewards', value: '450 pts', icon: Star, color: 'orange' },
                 ].map((stat, i) => (
                   <motion.div key={i} variants={itemVariants} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_50px_rgba(34,197,94,0.08)] transition-all group">
                     <div className={`h-14 w-14 rounded-2xl flex items-center justify-center mb-6 transition-transform group-hover:scale-110 ${
-                      stat.color === 'green' ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'
+                      stat.color === 'blue' ? 'bg-blue-50 text-orange-500' : 'bg-orange-50 text-orange-600'
                     }`}>
                       <stat.icon size={28} />
                     </div>
@@ -389,11 +486,11 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                     ) : upcomingTours.length === 0 ? (
                       <div className="bg-slate-50/50 border-2 border-dashed border-slate-200 rounded-[3rem] p-20 text-center group">
                         <div className="h-28 w-28 bg-white rounded-[2rem] shadow-xl flex items-center justify-center mx-auto mb-8 group-hover:rotate-12 transition-transform duration-500">
-                          <Compass className="text-green-600" size={48} />
+                          <Compass className="text-orange-500" size={48} />
                         </div>
                         <h4 className="text-2xl font-black text-slate-900 mb-3">No active trips</h4>
                         <p className="text-slate-500 max-w-sm mx-auto mb-10 font-bold leading-relaxed">Ready for a new adventure? Explore Sri Lanka's hidden gems now.</p>
-                        <button onClick={onGoToPlanner} className="bg-slate-900 text-white px-12 py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest hover:bg-green-600 transition-all shadow-xl active:scale-95">
+                        <button onClick={onGoToPlanner} className="bg-slate-900 text-white px-12 py-5 rounded-[2rem] font-black text-sm uppercase tracking-widest hover:bg-orange-500 transition-all shadow-xl active:scale-95">
                           Discover Destinations
                         </button>
                       </div>
@@ -408,10 +505,10 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ delay: idx * 0.1 }}
                               className={`bg-white rounded-[3rem] border transition-all duration-500 p-8 relative overflow-hidden ${
-                                isLive ? 'border-green-200 shadow-[0_20px_60px_rgba(34,197,94,0.1)]' : 'border-slate-100 shadow-[0_10px_40px_rgba(0,0,0,0.02)]'
+                                isLive ? 'border-blue-200 shadow-[0_20px_60px_rgba(34,197,94,0.1)]' : 'border-slate-100 shadow-[0_10px_40px_rgba(0,0,0,0.02)]'
                               }`}
                             >
-                              <div className="absolute top-0 right-0 p-12 opacity-[0.03] pointer-events-none text-green-600">
+                              <div className="absolute top-0 right-0 p-12 opacity-[0.03] pointer-events-none text-orange-500">
                                 <MapIcon size={240} />
                               </div>
 
@@ -419,7 +516,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                                 <div className="flex flex-wrap justify-between items-start gap-8 mb-10">
                                   <div className="flex items-center gap-6">
                                     <div className={`h-20 w-20 rounded-[2rem] flex items-center justify-center shadow-lg ${
-                                      isLive ? 'bg-green-600 text-white shadow-green-600/20' : 'bg-slate-100 text-slate-400'
+                                      isLive ? 'bg-orange-500 text-white shadow-blue-600/20' : 'bg-slate-100 text-slate-400'
                                     }`}>
                                       <Navigation size={40} className={isLive ? 'animate-pulse' : ''} />
                                     </div>
@@ -427,7 +524,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                                       <div className="flex items-center gap-3 mb-2">
                                         <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">Expedition #{tour.id}</span>
                                         <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                                          tour.status === 'ongoing' ? 'bg-green-500 text-white' :
+                                          tour.status === 'ongoing' ? 'bg-blue-500 text-white' :
                                           tour.status === 'driver_approved' ? 'bg-orange-500 text-white' :
                                           'bg-slate-100 text-slate-500'
                                         }`}>
@@ -465,8 +562,17 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                                     <ExternalLink size={18} />
                                     Full Details
                                   </button>
+                                  {tour.status === 'planned' && (
+                                    <button 
+                                      onClick={() => { setTourIdToDelete(tour.id); setShowDeleteConfirmModal(true); }}
+                                      className="flex-1 py-5 bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 border border-rose-100 shadow-sm"
+                                    >
+                                      <Trash2 size={18} />
+                                      Delete Trip
+                                    </button>
+                                  )}
                                   {isLive ? (
-                                    <button onClick={() => { setLiveTrackingTourId(tour.id); setLiveTrackingTour(tour); setLiveTrackingMode('full') }} className="flex-[1.5] py-5 bg-green-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-xl shadow-green-600/20 flex items-center justify-center gap-3">
+                                    <button onClick={() => { setLiveTrackingTourId(tour.id); setLiveTrackingTour(tour); setLiveTrackingMode('full') }} className="flex-[1.5] py-5 bg-orange-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-xl shadow-blue-600/20 flex items-center justify-center gap-3">
                                       <Navigation size={18} />
                                       Track Live Journey
                                     </button>
@@ -502,17 +608,17 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                           <div>
                             <div className="flex justify-between text-xs font-black uppercase tracking-widest mb-3">
                               <span className="text-slate-500">Island Mastery</span>
-                              <span className="text-green-400">45% Completed</span>
+                              <span className="text-blue-400">45% Completed</span>
                             </div>
                             <div className="h-3 bg-slate-800 rounded-full overflow-hidden p-0.5">
-                              <motion.div initial={{ width: 0 }} animate={{ width: '45%' }} transition={{ duration: 1.5 }} className="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full shadow-[0_0_15px_rgba(34,197,94,0.5)]" />
+                              <motion.div initial={{ width: 0 }} animate={{ width: '45%' }} transition={{ duration: 1.5 }} className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full shadow-[0_0_15px_rgba(34,197,94,0.5)]" />
                             </div>
                           </div>
                         </div>
                       </div>
                       <div className="flex justify-center">
                         <div className="relative">
-                          <div className="absolute inset-0 bg-green-500 blur-[80px] opacity-20"></div>
+                          <div className="absolute inset-0 bg-blue-500 blur-[80px] opacity-20"></div>
                           <motion.div animate={{ y: [0, -15, 0] }} transition={{ duration: 4, repeat: Infinity }} className="bg-slate-800/80 backdrop-blur-2xl border border-slate-700 p-8 rounded-[2.5rem] relative z-10 text-center border-t-white/10">
                              <Star className="text-orange-400 mx-auto mb-6" size={48} fill="currentColor" />
                              <p className="text-3xl font-black mb-1">Voyager Pro</p>
@@ -533,14 +639,14 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                     <h3 className="text-lg font-black text-slate-900 mb-8">Shortcuts</h3>
                     <div className="grid grid-cols-2 gap-6">
                       {[
-                        { label: 'New Stop', icon: MapPin, color: 'green' },
+                        { label: 'New Stop', icon: MapPin, color: 'blue' },
                         { label: 'Inbox', icon: MessageSquare, color: 'orange' },
-                        { label: 'Billing', icon: CreditCard, color: 'green' },
+                        { label: 'Billing', icon: CreditCard, color: 'blue' },
                         { label: 'Help', icon: AlertCircle, color: 'orange' },
                       ].map((action, i) => (
                         <button key={i} className="flex flex-col items-center gap-4 p-6 rounded-3xl hover:bg-slate-50 transition-all group">
                           <div className={`h-16 w-16 rounded-[1.5rem] flex items-center justify-center transition-all group-hover:scale-110 shadow-sm ${
-                            action.color === 'green' ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'
+                            action.color === 'blue' ? 'bg-blue-50 text-orange-500' : 'bg-orange-50 text-orange-600'
                           }`}>
                             <action.icon size={28} />
                           </div>
@@ -569,12 +675,12 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                             <motion.div 
                               key={note.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.05 }}
                               className={`group p-6 rounded-[2rem] border transition-all hover:bg-slate-50 ${
-                                isNew ? 'bg-green-50/30 border-green-100' : 'bg-white border-slate-50'
+                                isNew ? 'bg-blue-50/30 border-blue-100' : 'bg-white border-slate-50'
                               }`}
                             >
                               <div className="flex gap-5">
                                 <div className={`h-12 w-12 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm ${
-                                  isNew ? 'bg-green-600 text-white' : 'bg-slate-100 text-slate-400'
+                                  isNew ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-400'
                                 }`}>
                                   <Bell size={20} />
                                 </div>
@@ -587,7 +693,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                                       if (match) { setSelectedTourId(match[1]); setShowDetailsModal(true); }
                                       else { setActiveTab('trips'); }
                                     }}
-                                    className="text-[10px] font-black text-green-600 uppercase tracking-[0.2em] hover:text-orange-600 transition-colors flex items-center gap-1"
+                                    className="text-[10px] font-black text-orange-500 uppercase tracking-[0.2em] hover:text-orange-600 transition-colors flex items-center gap-1"
                                   >
                                     View Journey <ChevronRight size={12} />
                                   </button>
@@ -609,7 +715,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                <h2 className="text-4xl font-black text-slate-900 tracking-tight mb-12">Notifications</h2>
                {notifications.map((note, idx) => (
                  <motion.div key={note.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex gap-6">
-                    <div className="h-14 w-14 rounded-2xl bg-green-50 text-green-600 flex items-center justify-center flex-shrink-0">
+                    <div className="h-14 w-14 rounded-2xl bg-blue-50 text-orange-500 flex items-center justify-center flex-shrink-0">
                        <Bell size={24} />
                     </div>
                     <div>
@@ -618,7 +724,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                        <button onClick={() => {
                          const match = note.message?.match(/#(\d+)/) || note.subject?.match(/#(\d+)/);
                          if (match) { setSelectedTourId(match[1]); setShowDetailsModal(true); }
-                       }} className="bg-green-600 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-orange-500 transition-all shadow-lg shadow-green-600/20">
+                       }} className="bg-orange-500 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-orange-500 transition-all shadow-lg shadow-blue-600/20">
                          Review Details
                        </button>
                     </div>
@@ -628,36 +734,548 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
             </div>
           )}
 
+          {activeTab === 'saved' && (
+            <div className="space-y-12">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <h2 className="text-4xl font-black text-slate-900 tracking-tight">Travel Bucket</h2>
+                  <p className="text-slate-500 font-bold mt-2">Discover and plan your next destination in Sri Lanka.</p>
+                </div>
+                <button onClick={onGoToPlanner} className="bg-orange-500 text-white px-8 py-4 rounded-[2rem] font-black text-sm flex items-center gap-3 hover:bg-green-700 transition-all shadow-xl shadow-blue-600/20">
+                  <Plus size={18} /> Plan Custom Trip
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {[
+                  {
+                    name: 'Sigiriya Lion Rock',
+                    desc: 'Ancient palace fortress towering 200m above the jungle, rich with murals and gardens.',
+                    tag: 'Heritage',
+                    rating: '4.9',
+                    img: '/travel_bucket/sigiriya_lion_rock_1780037149392.png'
+                  },
+                  {
+                    name: 'Ella Nine Arch',
+                    desc: 'Scenic mountain village surrounded by lush tea plantations, waterfalls, and iconic train bridges.',
+                    tag: 'Adventure',
+                    rating: '4.8',
+                    img: '/travel_bucket/ella_nine_arch_1780037300229.png'
+                  },
+                  {
+                    name: 'Galle Dutch Fort',
+                    desc: 'Coastal UNESCO World Heritage site blending colonial history with modern ocean-side vibes.',
+                    tag: 'Coastal',
+                    rating: '4.7',
+                    img: '/travel_bucket/galle_dutch_fort_1780037451501.png'
+                  },
+                  {
+                    name: 'Yala Safari',
+                    desc: "Coastal national park boasting one of the world's highest leopard density populations.",
+                    tag: 'Wildlife',
+                    rating: '4.8',
+                    img: '/travel_bucket/ella_nine_arch_1780037300229.png'
+                  },
+                  {
+                    name: 'Kandy Temple',
+                    desc: 'Sacred Temple of the Tooth Relic, surrounded by misty hills and the scenic Kandy Lake.',
+                    tag: 'Culture',
+                    rating: '4.6',
+                    img: '/travel_bucket/sigiriya_lion_rock_1780037149392.png'
+                  },
+                  {
+                    name: 'Mirissa Beach',
+                    desc: 'Golden sands and palm-fringed bays, famous for whale watching and vibrant sunset surfing.',
+                    tag: 'Relaxation',
+                    rating: '4.7',
+                    img: '/travel_bucket/galle_dutch_fort_1780037451501.png'
+                  }
+                ].map((item, idx) => (
+                  <motion.div 
+                    key={idx} 
+                    initial={{ opacity: 0, y: 20 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    transition={{ delay: idx * 0.05 }} 
+                    className="bg-white rounded-[3rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all overflow-hidden flex flex-col justify-between group relative"
+                  >
+                    <div className="w-full h-72 bg-gradient-to-br from-slate-200 to-slate-300 overflow-hidden">
+                      <img src={item.img} alt={item.name} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="p-8 flex flex-col justify-between flex-1">
+                      <div>
+                        <div className="flex justify-between items-center mb-6">
+                          <span className="px-3.5 py-1 bg-blue-50 text-blue-700 text-[10px] font-black uppercase tracking-widest rounded-full">{item.tag}</span>
+                          <div className="flex items-center gap-1 bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-xs font-black">
+                            <Star size={12} fill="currentColor" /> {item.rating}
+                          </div>
+                        </div>
+                        <h4 className="text-2xl font-black text-slate-900 mt-4 mb-2 group-hover:text-orange-500 transition-colors">{item.name}</h4>
+                        <p className="text-slate-500 font-medium text-sm leading-relaxed mb-8">{item.desc}</p>
+                      </div>
+                      <button onClick={onGoToPlanner} className="w-full py-4 bg-orange-500 text-white hover:bg-black hover:text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border border-orange-600">
+                        Create Trip <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'payments' && (
+            <div className="space-y-12">
+              <div>
+                <h2 className="text-4xl font-black text-slate-900 tracking-tight">Payments</h2>
+                <p className="text-slate-500 font-bold mt-2">Manage your cards and review your transaction billing logs.</p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Visa card mock */}
+                <div className="lg:col-span-1 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 p-8 rounded-[3rem] text-white flex flex-col justify-between h-64 shadow-xl shadow-slate-900/10 border border-slate-800 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(34,197,94,0.15),transparent_60%)]"></div>
+                  <div className="flex justify-between items-start z-10">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">Primary Card</p>
+                      <h4 className="text-lg font-black tracking-tight mt-1">Smart Tour Pay</h4>
+                    </div>
+                    <span className="text-xs font-black text-slate-400 italic">VISA</span>
+                  </div>
+                  
+                  <div className="my-auto z-10">
+                    <p className="text-xl font-mono tracking-[0.2em] font-medium">•••• •••• •••• 4567</p>
+                  </div>
+
+                  <div className="flex justify-between items-end z-10">
+                    <div>
+                      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Card Holder</p>
+                      <p className="text-xs font-black uppercase tracking-tight mt-0.5">{userName || 'Active Explorer'}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Expires</p>
+                      <p className="text-xs font-black mt-0.5">09/29</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Account Plan Info */}
+                <div className="bg-white border border-slate-100 p-8 rounded-[3rem] shadow-sm flex flex-col justify-between">
+                  <div>
+                    <span className="px-3.5 py-1 bg-orange-50 text-orange-600 text-[10px] font-black uppercase tracking-widest rounded-full">Standard Tier</span>
+                    <h3 className="text-2xl font-black text-slate-900 mt-4 mb-2">Ceylon Explorer</h3>
+                    <p className="text-slate-500 text-sm font-medium leading-relaxed">No active subscription plan. You are billed per trip based on driver estimates.</p>
+                  </div>
+                  <div className="pt-6 border-t border-slate-50 flex items-center justify-between">
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-wider">Upgrade plan today</p>
+                    <button className="text-xs font-black text-orange-500 uppercase tracking-widest flex items-center gap-1 hover:text-orange-500 transition-colors">
+                      Plans <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Spending summary */}
+                <div className="bg-white border border-slate-100 p-8 rounded-[3rem] shadow-sm flex flex-col justify-between">
+                  <div>
+                    <span className="px-3.5 py-1 bg-blue-50 text-orange-500 text-[10px] font-black uppercase tracking-widest rounded-full">Total Billings</span>
+                    <h3 className="text-3xl font-black text-slate-900 mt-4 mb-2">Rs. {stats.totalSpent.toLocaleString()}</h3>
+                    <p className="text-slate-500 text-sm font-medium leading-relaxed">Accumulated expenditure across all planned, completed and ongoing expeditions.</p>
+                  </div>
+                  <div className="pt-6 border-t border-slate-50">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Trips Booked: {stats.totalTrips}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Transaction List */}
+              <div className="bg-white border border-slate-100 rounded-[3rem] shadow-sm p-10 overflow-hidden">
+                <h3 className="text-lg font-black text-slate-900 mb-8">Billing Logs</h3>
+                
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-wider">Expedition ID</th>
+                        <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-wider">Date</th>
+                        <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-wider">Distance</th>
+                        <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-wider">Status</th>
+                        <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-wider text-right">Fare Paid</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {tours.map((tour) => (
+                        <tr key={tour.id} className="group">
+                          <td className="py-4.5 text-sm font-black text-slate-900">#EXP-{tour.id}</td>
+                          <td className="py-4.5 text-sm font-medium text-slate-500">{tour.start_date || 'Planned'}</td>
+                          <td className="py-4.5 text-sm font-bold text-slate-700">{tour.total_distance_km} km</td>
+                          <td className="py-4.5">
+                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                              tour.status === 'completed' ? 'bg-blue-50 text-green-700' :
+                              tour.status === 'cancelled' ? 'bg-rose-50 text-rose-700' :
+                              'bg-amber-50 text-amber-700'
+                            }`}>
+                              {tour.status}
+                            </span>
+                          </td>
+                          <td className="py-4.5 text-sm font-black text-slate-900 text-right">
+                            Rs. {Number(tour.driver_price || tour.estimated_price).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                      {tours.length === 0 && (
+                        <tr>
+                          <td colSpan="5" className="py-12 text-center text-slate-400 font-bold uppercase tracking-widest text-xs">
+                            No billing transactions found.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="max-w-3xl mx-auto space-y-12">
+              <div>
+                <h2 className="text-4xl font-black text-slate-900 tracking-tight">Account Settings</h2>
+                <p className="text-slate-500 font-bold mt-2">Manage your personal details and system preference controls.</p>
+              </div>
+
+              {settingsSaved && (
+                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-2xl flex items-center gap-3">
+                  <CheckCircle2 size={18} />
+                  <span className="text-sm font-bold">Profile updates saved successfully!</span>
+                </motion.div>
+              )}
+
+              <div className="bg-white border border-slate-100 rounded-[3rem] shadow-sm p-10 space-y-8">
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2 border-b border-slate-50 pb-4">
+                  <User size={18} className="text-orange-500" /> Personal Profile
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Full Name</label>
+                    <input 
+                      type="text" 
+                      value={settingsName}
+                      onChange={(e) => setSettingsName(e.target.value)}
+                      className="w-full bg-slate-50 border-none rounded-2xl px-5 py-3.5 text-sm font-bold text-slate-950 focus:ring-2 focus:ring-orange-500/20 transition-all outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Email Address</label>
+                    <input 
+                      type="email" 
+                      value={token ? JSON.parse(atob(token.split('.')[1])).sub || 'user@gmail.com' : 'user@gmail.com'} 
+                      disabled
+                      className="w-full bg-slate-50/50 border-none rounded-2xl px-5 py-3.5 text-sm font-bold text-slate-400 cursor-not-allowed outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Phone Number</label>
+                    <input 
+                      type="text" 
+                      value={settingsPhone}
+                      onChange={(e) => setSettingsPhone(e.target.value)}
+                      className="w-full bg-slate-50 border-none rounded-2xl px-5 py-3.5 text-sm font-bold text-slate-950 focus:ring-2 focus:ring-orange-500/20 transition-all outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Home Country / Origin</label>
+                    <input 
+                      type="text" 
+                      value={settingsCountry}
+                      onChange={(e) => setSettingsCountry(e.target.value)}
+                      className="w-full bg-slate-50 border-none rounded-2xl px-5 py-3.5 text-sm font-bold text-slate-950 focus:ring-2 focus:ring-orange-500/20 transition-all outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-100 rounded-[3rem] shadow-sm p-10 space-y-8">
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2 border-b border-slate-50 pb-4">
+                  <Bell size={18} className="text-orange-500" /> Notifications Settings
+                </h3>
+
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-black text-slate-900">Email Notifications</h4>
+                      <p className="text-slate-500 text-xs font-medium">Receive weekly travel reports, trip receipts, and recommendations.</p>
+                    </div>
+                    <button 
+                      onClick={() => setEmailNotifs(!emailNotifs)}
+                      className={`w-14 h-8 rounded-full transition-all duration-300 relative p-1 ${
+                        emailNotifs ? 'bg-orange-500' : 'bg-slate-200'
+                      }`}
+                    >
+                      <div className={`h-6 w-6 rounded-full bg-white transition-all shadow-sm ${
+                        emailNotifs ? 'translate-x-6' : 'translate-x-0'
+                      }`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-black text-slate-900">SMS Driver Alerts</h4>
+                      <p className="text-slate-500 text-xs font-medium">Receive instant mobile text alerts when a driver accepts your trip bids.</p>
+                    </div>
+                    <button 
+                      onClick={() => setSmsNotifs(!smsNotifs)}
+                      className={`w-14 h-8 rounded-full transition-all duration-300 relative p-1 ${
+                        smsNotifs ? 'bg-orange-500' : 'bg-slate-200'
+                      }`}
+                    >
+                      <div className={`h-6 w-6 rounded-full bg-white transition-all shadow-sm ${
+                        smsNotifs ? 'translate-x-6' : 'translate-x-0'
+                      }`} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-4">
+                <button className="px-8 py-4 bg-slate-50 text-slate-900 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-100 transition-all border border-slate-200">
+                  Cancel Changes
+                </button>
+                <button 
+                  onClick={() => {
+                    setSettingsSaved(true);
+                    setTimeout(() => setSettingsSaved(false), 4000);
+                  }}
+                  className="px-10 py-4 bg-orange-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg shadow-blue-600/20"
+                >
+                  Save Profile Settings
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'trips' && (
              <div className="space-y-12">
-               <h2 className="text-4xl font-black text-slate-900 tracking-tight">Your Journeys</h2>
-               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {tours.map((tour, idx) => (
-                    <motion.div key={tour.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.05 }} className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all group">
-                       <div className="flex justify-between items-start mb-6">
-                          <div className={`h-16 w-16 rounded-[1.5rem] flex items-center justify-center ${tour.status === 'completed' ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'}`}>
-                             {tour.status === 'completed' ? <CheckCircle2 size={32} /> : <MapPin size={32} />}
-                          </div>
-                          <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${tour.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                             {tour.status}
-                          </span>
-                       </div>
-                       <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">{tour.start_date}</p>
-                       <h4 className="text-2xl font-black text-slate-900 mb-6 group-hover:text-green-600 transition-colors">{tour.total_distance_km} km Expedition</h4>
-                       <div className="flex items-center justify-between pt-6 border-t border-slate-50">
-                          <p className="text-lg font-black text-slate-900">Rs. {Number(tour.driver_price || tour.estimated_price).toLocaleString()}</p>
-                          <button onClick={() => { setSelectedTourId(tour.id); setShowDetailsModal(true) }} className="text-[10px] font-black text-green-600 uppercase tracking-widest flex items-center gap-1 group-hover:text-orange-500 transition-colors">
-                             Details <ChevronRight size={14} />
-                          </button>
-                       </div>
-                    </motion.div>
-                  ))}
+               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                 <div>
+                   <h2 className="text-4xl font-black text-slate-900 tracking-tight">Your Journeys</h2>
+                   <p className="text-slate-500 font-bold mt-2">View active tour tracking and review past travel history logs.</p>
+                 </div>
+                 <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
+                   <button 
+                     onClick={() => setActiveSubTab('active')}
+                     className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                       activeSubTab === 'active' 
+                       ? 'bg-white text-slate-900 shadow-sm' 
+                       : 'text-slate-400 hover:text-slate-900'
+                     }`}
+                   >
+                     Active ({upcomingTours.length})
+                   </button>
+                   <button 
+                     onClick={() => setActiveSubTab('past')}
+                     className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                       activeSubTab === 'past' 
+                       ? 'bg-white text-slate-900 shadow-sm' 
+                       : 'text-slate-400 hover:text-slate-900'
+                     }`}
+                   >
+                     Past ({pastTours.length})
+                   </button>
+                 </div>
                </div>
+
+               {activeSubTab === 'active' ? (
+                 upcomingTours.length === 0 ? (
+                   <div className="bg-slate-50/50 border-2 border-dashed border-slate-200 rounded-[3rem] p-20 text-center">
+                     <Compass className="text-orange-500 mx-auto mb-6" size={48} />
+                     <h4 className="text-xl font-black text-slate-900 mb-2">No active journeys found</h4>
+                     <p className="text-slate-500 text-sm font-bold max-w-sm mx-auto mb-8">Ready to explore Sri Lanka? Start planning your custom itinerary route now.</p>
+                     <button onClick={onGoToPlanner} className="bg-slate-900 text-white px-10 py-4.5 rounded-[2rem] font-black text-xs uppercase tracking-widest hover:bg-orange-500 transition-all shadow-md">
+                       Discover Destinations
+                     </button>
+                   </div>
+                 ) : (
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                     {upcomingTours.map((tour, idx) => {
+                       const isLive = ['en_route', 'arrived', 'ongoing', 'confirmed', 'driver_approved'].includes(tour.status)
+                       return (
+                         <motion.div key={tour.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.05 }} className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all group flex flex-col justify-between">
+                            <div>
+                              <div className="flex justify-between items-start mb-6">
+                                 <div className="h-14 w-14 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                                    <Navigation size={28} className={isLive ? 'animate-pulse' : ''} />
+                                 </div>
+                                 <span className="px-3.5 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-amber-50 text-amber-700">
+                                    {tour.status.replace(/_/g, ' ')}
+                                 </span>
+                              </div>
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{tour.start_date || 'Date Pending'}</p>
+                              <h4 className="text-2xl font-black text-slate-900 mb-6 group-hover:text-orange-500 transition-colors">{tour.total_distance_km} km Journey</h4>
+                            </div>
+                            
+                            <div className="pt-6 border-t border-slate-50 flex items-center justify-between">
+                               <div className="leading-none">
+                                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Est. Price</p>
+                                  <p className="text-lg font-black text-slate-900">Rs. {Number(tour.driver_price || tour.estimated_price).toLocaleString()}</p>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <button onClick={() => { setSelectedTourId(tour.id); setShowDetailsModal(true) }} className="text-[10px] font-black text-orange-500 uppercase tracking-widest flex items-center gap-1 group-hover:text-orange-500 transition-colors">
+                                     Details <ChevronRight size={14} />
+                                  </button>
+                                  {tour.status === 'planned' && (
+                                    <button 
+                                      onClick={() => { setTourIdToDelete(tour.id); setShowDeleteConfirmModal(true); }}
+                                      className="h-10 w-10 bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white rounded-xl flex items-center justify-center transition-all shadow-sm"
+                                      title="Delete planned trip"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  )}
+                                </div>
+                            </div>
+                         </motion.div>
+                       )
+                     })}
+                   </div>
+                 )
+               ) : (
+                 pastTours.length === 0 ? (
+                   <div className="bg-slate-50/50 border-2 border-dashed border-slate-200 rounded-[3rem] p-20 text-center">
+                     <CheckCircle2 className="text-slate-300 mx-auto mb-6" size={48} />
+                     <h4 className="text-xl font-black text-slate-900 mb-2">No past expeditions found</h4>
+                     <p className="text-slate-500 text-sm font-bold max-w-sm mx-auto">Your completed or cancelled journeys will appear here once archived.</p>
+                   </div>
+                 ) : (
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                     {pastTours.map((tour, idx) => (
+                       <motion.div key={tour.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.05 }} className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all group flex flex-col justify-between relative overflow-hidden">
+                          <div>
+                            <div className="flex justify-between items-start mb-6">
+                               <div className={`h-14 w-14 rounded-2xl flex items-center justify-center ${
+                                 tour.status === 'completed' ? 'bg-blue-50 text-orange-500' : 'bg-rose-50 text-rose-600'
+                               }`}>
+                                  {tour.status === 'completed' ? <CheckCircle2 size={28} /> : <XCircle size={28} />}
+                               </div>
+                               <span className={`px-3.5 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                                 tour.status === 'completed' ? 'bg-blue-50 text-blue-700' : 'bg-rose-50 text-rose-700'
+                               }`}>
+                                  {tour.status}
+                               </span>
+                            </div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{tour.start_date}</p>
+                            <h4 className="text-2xl font-black text-slate-900 mb-6 group-hover:text-orange-500 transition-colors">{tour.total_distance_km} km Journey</h4>
+                          </div>
+
+                          <div className="pt-6 border-t border-slate-50 flex items-center justify-between">
+                             <div className="leading-none">
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Fare Paid</p>
+                                <p className="text-lg font-black text-slate-900">Rs. {Number(tour.driver_price || tour.estimated_price).toLocaleString()}</p>
+                             </div>
+                             
+                             <div className="flex items-center gap-4">
+                               <button 
+                                 onClick={() => { setSelectedTourId(tour.id); setShowDetailsModal(true) }}
+                                 className="text-[10px] font-black text-slate-600 uppercase tracking-widest hover:text-orange-500 transition-colors flex items-center gap-0.5"
+                               >
+                                 Details <ChevronRight size={12} />
+                               </button>
+                               <button 
+                                 onClick={() => { setTourIdToDelete(tour.id); setShowDeleteConfirmModal(true); }}
+                                 className="h-10 w-10 bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white rounded-xl flex items-center justify-center transition-all shadow-sm"
+                                 title="Delete trip history"
+                               >
+                                 <Trash2 size={16} />
+                               </button>
+                             </div>
+                          </div>
+                       </motion.div>
+                     ))}
+                   </div>
+                 )
+               )}
              </div>
           )}
         </div>
         <Footer minimal={true} />
       </main>
+
+      {/* ── Mobile Sidebar Drawer ── */}
+      <AnimatePresence>
+        {isMobileSidebarOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden flex">
+            {/* Backdrop */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => setIsMobileSidebarOpen(false)}
+            />
+            {/* Drawer */}
+            <motion.aside 
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="w-72 bg-white flex flex-col h-full relative z-10 p-8 shadow-2xl overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-12">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-blue-600/20">
+                    <Compass className="text-white" size={24} />
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-extrabold tracking-tight leading-none text-slate-900">SMART<span className="text-orange-500">TOUR</span></h1>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mt-1">Tourism Dashboard</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsMobileSidebarOpen(false)} className="text-slate-400 hover:text-slate-900 p-1">
+                  <XCircle size={20} />
+                </button>
+              </div>
+
+              <nav className="space-y-1.5">
+                {[
+                  { icon: LayoutDashboard, label: 'Overview', id: 'overview' },
+                  { icon: MapIcon, label: 'My Trips', id: 'trips' },
+                  { icon: Bell, label: 'Notifications', id: 'notifications' },
+                  { icon: Star, label: 'Travel Bucket', id: 'saved' },
+                  { icon: CreditCard, label: 'Payments', id: 'payments' },
+                  { icon: Settings, label: 'Account', id: 'settings' }
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveTab(item.id)
+                      setIsMobileSidebarOpen(false)
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl transition-all duration-300 group ${
+                      activeTab === item.id 
+                      ? 'bg-orange-500 text-white shadow-lg shadow-blue-600/20' 
+                      : 'text-slate-500 hover:bg-slate-50 hover:text-orange-500'
+                    }`}
+                  >
+                    <item.icon size={18} className={activeTab === item.id ? 'text-white' : 'group-hover:scale-110 transition-transform'} />
+                    <span className="text-sm font-bold tracking-tight">{item.label}</span>
+                  </button>
+                ))}
+              </nav>
+
+              <div className="mt-auto pt-8">
+                <button 
+                  onClick={onLogout}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-all font-bold text-sm"
+                >
+                  <LogOut size={18} />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </motion.aside>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ── Live Tracking & Modals ── */}
       {liveTrackingMode === 'panel' && liveTrackingTourId && (
@@ -671,6 +1289,216 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
       <AnimatePresence>
         {showCancelModal && (
           <CancellationModal isOpen={showCancelModal} onClose={() => setShowCancelModal(false)} onConfirm={handleCancelConfirm} loading={cancelling} />
+        )}
+      </AnimatePresence>
+
+      {/* ── Price Negotiation Interruption Modal ── */}
+      <AnimatePresence>
+        {negotiationTours.length > 0 && (
+          <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+            {/* Blurred Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-950/70 backdrop-blur-md"
+            />
+
+            {/* Iterating over all offers – show one at a time (first) */}
+            {(() => {
+              const tour = negotiationTours[0]
+              const driverImg = getDriverImageUrl(tour.driver_image)
+              const savings = tour.estimated_price - (tour.driver_price || 0)
+
+              return (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.92, y: 30 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.92, y: 30 }}
+                  transition={{ type: 'spring', damping: 22, stiffness: 250 }}
+                  className="relative z-10 w-full max-w-lg"
+                >
+                  {/* Glow ring */}
+                  <div className="absolute -inset-1 rounded-[3.5rem] bg-gradient-to-br from-orange-400 via-amber-300 to-orange-500 opacity-60 blur-xl animate-pulse pointer-events-none" />
+
+                  <div className="relative bg-white rounded-[3rem] overflow-hidden shadow-2xl">
+
+                    {/* Top banner */}
+                    <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-8 pt-8 pb-6 text-white text-center relative overflow-hidden">
+                      <div className="absolute inset-0 opacity-10">
+                        <div className="absolute top-2 right-4 text-[120px] font-black leading-none select-none">₹</div>
+                      </div>
+                      {/* Pulsing alert badge */}
+                      <div className="flex items-center justify-center gap-2 mb-4">
+                        <span className="flex h-2.5 w-2.5 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
+                        </span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-100">Price Negotiation Alert</span>
+                      </div>
+
+                      {/* Driver Avatar */}
+                      <div className="relative inline-block mb-4">
+                        {driverImg ? (
+                          <img
+                            src={driverImg}
+                            alt={tour.driver_name}
+                            className="h-24 w-24 rounded-2xl object-cover border-4 border-white/30 shadow-xl mx-auto"
+                            onError={(e) => {
+                              e.target.style.display = 'none'
+                              e.target.nextSibling.style.display = 'flex'
+                            }}
+                          />
+                        ) : null}
+                        <div
+                          style={{ display: driverImg ? 'none' : 'flex' }}
+                          className="h-24 w-24 rounded-2xl bg-white/20 text-white text-4xl font-black border-4 border-white/30 shadow-xl mx-auto items-center justify-center"
+                        >
+                          {tour.driver_name?.[0]?.toUpperCase() || 'D'}
+                        </div>
+                        <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[9px] font-black px-3 py-0.5 rounded-full uppercase tracking-widest shadow">
+                          Approved Driver
+                        </span>
+                      </div>
+
+                      <h3 className="text-xl font-black mt-3 tracking-tight">
+                        {tour.driver_name || 'Your Driver'} sent a fare offer
+                      </h3>
+                      <p className="text-orange-100 text-sm font-medium mt-1">
+                        {tour.total_distance_km} km &bull; {tour.total_days} day{tour.total_days !== 1 ? 's' : ''}
+                        {tour.vehicle_number ? ` · ${tour.vehicle_number}` : ''}
+                      </p>
+                    </div>
+
+                    {/* Price Comparison */}
+                    <div className="px-8 py-6 bg-slate-50 flex items-center justify-center gap-6">
+                      <div className="text-center">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Your Estimate</p>
+                        <p className="text-2xl font-black text-slate-400 line-through">
+                          Rs. {(tour.estimated_price || 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-center">
+                        <div className="h-px w-12 bg-slate-300" />
+                        <span className="text-[9px] text-slate-400 font-black uppercase my-1">vs</span>
+                        <div className="h-px w-12 bg-slate-300" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest mb-1">Driver's Offer</p>
+                        <p className="text-3xl font-black text-slate-900">
+                          Rs. {(tour.driver_price || 0).toLocaleString()}
+                        </p>
+                        {savings !== 0 && (
+                          <p className={`text-[10px] font-black mt-1 ${savings > 0 ? 'text-orange-500' : 'text-rose-500'}`}>
+                            {savings > 0 ? `Rs. ${savings.toLocaleString()} less than estimate` : `Rs. ${Math.abs(savings).toLocaleString()} above estimate`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Reply / Counter area */}
+                    <div className="px-8 py-5 border-t border-slate-100">
+                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                        Send a counter message (optional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={negotiationReply}
+                        onChange={(e) => setNegotiationReply(e.target.value)}
+                        placeholder="e.g. Can you do Rs. 18,000?"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-medium text-slate-900 resize-none focus:outline-none focus:ring-2 focus:ring-orange-400/30 placeholder:text-slate-400 transition-all"
+                      />
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="px-8 pb-8 space-y-3">
+                      {/* Send reply if typed */}
+                      {negotiationReply.trim() && (
+                        <button
+                          onClick={() => handleSendReply(tour.id)}
+                          disabled={negotiationLoading}
+                          className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-md"
+                        >
+                          <MessageSquare size={15} />
+                          Send Counter Message
+                        </button>
+                      )}
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={() => handleAcceptOffer(tour.id)}
+                          disabled={negotiationLoading}
+                          className="py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/25 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          <CheckCircle2 size={15} />
+                          {negotiationLoading ? 'Please wait…' : 'Accept Offer'}
+                        </button>
+                        <button
+                          onClick={() => handleRejectOffer(tour.id)}
+                          disabled={negotiationLoading}
+                          className="py-4 bg-white border-2 border-rose-200 hover:bg-rose-600 hover:border-rose-600 text-rose-600 hover:text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          <XCircle size={15} />
+                          Reject
+                        </button>
+                      </div>
+
+                      {negotiationTours.length > 1 && (
+                        <p className="text-center text-[10px] text-slate-400 font-bold pt-1">
+                          +{negotiationTours.length - 1} more driver offer{negotiationTours.length - 1 !== 1 ? 's' : ''} waiting
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )
+            })()}
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showDeleteConfirmModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => setShowDeleteConfirmModal(false)}
+            />
+            {/* Content */}
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-[2.5rem] p-10 max-w-md w-full relative z-10 border border-slate-100 shadow-2xl text-center"
+            >
+              <div className="h-16 w-16 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-2xl font-black text-slate-900 mb-2">Delete Journey History?</h3>
+              <p className="text-slate-500 font-bold mb-8 text-sm leading-relaxed">
+                Are you sure you want to delete this trip record? This will permanently remove the journey details and history. This action cannot be undone.
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setShowDeleteConfirmModal(false)}
+                  className="flex-1 py-4 bg-slate-100 text-slate-900 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleDeleteConfirm}
+                  className="flex-1 py-4 bg-rose-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-rose-700 transition-all shadow-lg shadow-rose-600/20"
+                  disabled={deleting}
+                >
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

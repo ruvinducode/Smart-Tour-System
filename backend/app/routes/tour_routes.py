@@ -114,8 +114,9 @@ def create_tour():
     guest_id = data.get("guest_id")   # optional
     locations = data.get("locations")  # optional
 
-    # DATE HANDLING
+    # DATE & TIME HANDLING
     start_date_str = data.get("start_date")
+    start_time_str = data.get("start_time")
     end_date_str = data.get("end_date")
 
     start_date = None
@@ -132,6 +133,14 @@ def create_tour():
             end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
         except ValueError:
             return jsonify({"message": "Invalid end_date format (YYYY-MM-DD required)"}), 400
+
+    if start_date:
+        from datetime import date, timedelta
+        today = date.today()
+        if start_date < today:
+            return jsonify({"message": "Start date cannot be in the past"}), 400
+        if start_date > today + timedelta(days=60):
+            return jsonify({"message": "Tours can only be scheduled up to 2 months in advance"}), 400
 
     # VALIDATION
     if vehicle_id is None or total_distance_km is None or total_days is None:
@@ -158,6 +167,7 @@ def create_tour():
         guest_id=guest_id,
         vehicle_id=vehicle_id,
         start_date=start_date,
+        start_time=start_time_str,
         end_date=end_date,
         total_distance_km=total_distance_km,
         total_days=total_days,
@@ -284,6 +294,7 @@ def get_tour_details(tour_id):
             "id": tour.id,
             "status": tour.status,
             "start_date": tour.start_date.isoformat() if tour.start_date else None,
+            "start_time": tour.start_time,
             "end_date": tour.end_date.isoformat() if tour.end_date else None,
             "total_distance_km": tour.total_distance_km,
             "actual_distance_km": tour.actual_distance_km,
@@ -560,6 +571,10 @@ def mark_en_route(tour_id):
     if not tour or not booking:
         return jsonify({"message": "Tour or assignment not found"}), 404
         
+    from datetime import date
+    if tour.start_date and date.today() < tour.start_date:
+        return jsonify({"message": f"This tour is scheduled for {tour.start_date.isoformat()} and cannot be started yet."}), 400
+        
     tour.status = 'en_route'
     booking.status = 'en_route'
     
@@ -586,6 +601,10 @@ def mark_arrived(tour_id):
     if not tour or not booking:
         return jsonify({"message": "Tour or assignment not found"}), 404
         
+    from datetime import date
+    if tour.start_date and date.today() < tour.start_date:
+        return jsonify({"message": f"This tour is scheduled for {tour.start_date.isoformat()} and cannot be started yet."}), 400
+        
     tour.status = 'arrived'
     booking.status = 'arrived'
     
@@ -611,6 +630,10 @@ def mark_ongoing(tour_id):
     
     if not tour or not booking:
         return jsonify({"message": "Tour or assignment not found"}), 404
+        
+    from datetime import date
+    if tour.start_date and date.today() < tour.start_date:
+        return jsonify({"message": f"This tour is scheduled for {tour.start_date.isoformat()} and cannot be started yet."}), 400
         
     tour.status = 'ongoing'
     booking.status = 'ongoing'
@@ -897,3 +920,47 @@ def get_all_feedbacks():
         return jsonify(results), 200
     except Exception as e:
         return jsonify({"message": str(e)}), 500
+
+
+# =========================
+# DELETE TOUR (PROTECTED)
+# =========================
+@tour_bp.route("/<int:tour_id>", methods=["DELETE"])
+@jwt_required()
+def delete_tour(tour_id):
+    try:
+        raw_id = get_jwt_identity()
+        user_id = int(raw_id) if raw_id is not None else None
+
+        tour = TourPlan.query.get(tour_id)
+        if not tour:
+            return jsonify({"message": "Tour not found"}), 404
+
+        # Security check: verify this tour belongs to the user
+        if tour.user_id != user_id:
+            return jsonify({"message": "Unauthorized to delete this tour"}), 403
+
+        # Check status: only completed or cancelled tours can be deleted
+        if tour.status not in ["completed", "cancelled", "rejected", "planned"]:
+            return jsonify({"message": "Cannot delete active or ongoing tours"}), 400
+
+        # Before deleting TourPlan, we must delete associated records to avoid foreign key errors.
+        # Associated records: Location, Booking, Notification, Feedback.
+        from app.models import Location, Booking, Notification, Feedback
+        Location.query.filter_by(tour_id=tour_id).delete()
+        Booking.query.filter_by(tour_id=tour_id).delete()
+        Notification.query.filter_by(tour_id=tour_id).delete()
+        Feedback.query.filter_by(tour_id=tour_id).delete()
+
+        # Now delete the tour itself
+        db.session.delete(tour)
+        db.session.commit()
+
+        return jsonify({"message": "Tour deleted successfully"}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({"message": f"Error deleting tour: {str(e)}"}), 500
+
