@@ -4,16 +4,10 @@ from werkzeug.security import generate_password_hash
 
 app = create_app()
 
+from app.services.finance_service import VEHICLE_PRICING_SEEDS
+
 # (type, base_fare, price_per_km, price_per_day, max_passengers)
-VEHICLE_SEEDS = [
-    ("Mini car", 800, 45, 4500, 3),
-    ("Car", 1000, 50, 5000, 4),
-    ("Mini van", 1200, 60, 6500, 6),
-    ("Van", 1500, 70, 8000, 8),
-    ("SUV", 1300, 65, 7000, 5),
-    ("Mini bus", 1800, 85, 11000, 15),
-    ("Bus", 2000, 90, 12000, 20),
-]
+VEHICLE_SEEDS = VEHICLE_PRICING_SEEDS
 
 with app.app_context():
 

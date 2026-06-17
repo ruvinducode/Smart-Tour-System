@@ -1,22 +1,45 @@
 import React from 'react';
 import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg';
 
-const Footer = ({ minimal = false }) => {
-  const currentYear = new Date().getFullYear();
+const PORTAL_LABELS = {
+  admin: 'Admin Console',
+  driver: 'Driver Console',
+  customer: 'Customer Portal',
+  booking: 'Tour Booking',
+};
 
-  if (minimal) {
+const Footer = ({ minimal = false, variant, portal }) => {
+  const currentYear = new Date().getFullYear();
+  const isDashboard = variant === 'dashboard' || minimal;
+
+  if (isDashboard) {
+    const portalLabel = portal ? PORTAL_LABELS[portal] : null;
+
     return (
-      <footer className="bg-white border-t border-slate-100 py-6 px-8 mt-auto">
-        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-3">
-            <img src={appLogo} alt="Logo" className="h-6 w-6 object-cover rounded-lg" />
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">
-              Powered by <span className="text-orange-500">Air B&C</span>
-            </p>
+      <footer className="shrink-0 mt-auto border-t border-slate-200/80 bg-slate-50/80 px-4 sm:px-6 lg:px-8 py-2.5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <img src={appLogo} alt="Air B&C" className="h-5 w-5 rounded-md object-cover shrink-0" />
+            <span className="text-xs font-bold text-slate-700 whitespace-nowrap">Air B&C</span>
+            {portalLabel && (
+              <>
+                <span className="text-slate-300 text-xs">·</span>
+                <span className="text-[11px] font-semibold text-slate-500 truncate">{portalLabel}</span>
+              </>
+            )}
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-            Developed by <span className="text-slate-900">IR Mate Pvt</span> &copy; {currentYear}
-          </p>
+
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] text-slate-400">
+            <span>
+              Powered by <span className="font-semibold text-orange-500">Air B&C</span>
+            </span>
+            <span className="hidden sm:inline text-slate-300">·</span>
+            <span>
+              Developed by <span className="font-semibold text-slate-600">IR Mate Pvt</span>
+            </span>
+            <span className="hidden sm:inline text-slate-300">·</span>
+            <span className="font-medium">&copy; {currentYear}</span>
+          </div>
         </div>
       </footer>
     );

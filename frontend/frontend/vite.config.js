@@ -7,6 +7,26 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
+      '/tour': {
+        target: 'http://127.0.0.1:5001',
+        changeOrigin: true,
+      },
+      '/vehicles-test': {
+        target: 'http://127.0.0.1:5001',
+        changeOrigin: true,
+      },
+      '/seed-all-vehicles': {
+        target: 'http://127.0.0.1:5001',
+        changeOrigin: true,
+      },
+      '/register': { target: 'http://127.0.0.1:5001', changeOrigin: true },
+      '/login': { target: 'http://127.0.0.1:5001', changeOrigin: true },
+      '/account-role': { target: 'http://127.0.0.1:5001', changeOrigin: true },
+      '/driver': { target: 'http://127.0.0.1:5001', changeOrigin: true },
+      '/admin': { target: 'http://127.0.0.1:5001', changeOrigin: true },
+      '/notifications': { target: 'http://127.0.0.1:5001', changeOrigin: true },
+      '/booking': { target: 'http://127.0.0.1:5001', changeOrigin: true },
+      '/uploads': { target: 'http://127.0.0.1:5001', changeOrigin: true },
       '/osrm': {
         target: 'https://routing.openstreetmap.de/routed-car',
         changeOrigin: true,

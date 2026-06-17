@@ -12,10 +12,10 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#6366f1'
 
 const DashboardPieChart = ({ data, title }) => {
   return (
-    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
+    <div className="chart-wrapper bg-white p-6 rounded-3xl shadow-sm border border-slate-100 h-full">
       <h3 className="text-lg font-black text-slate-900 mb-6 tracking-tight">{title}</h3>
-      <div className="h-[300px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="w-full">
+        <ResponsiveContainer width="100%" height={300} minWidth={1}>
           <PieChart>
             <Pie
               data={data}

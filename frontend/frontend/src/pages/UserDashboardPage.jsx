@@ -27,22 +27,20 @@ import {
   Menu,
   Trash2
 } from 'lucide-react'
-import { getUserNotifications, getUserTours, cancelTour, deleteTour, acceptDriverPrice, rejectDriverPrice, getApiBaseUrl, replyToDriver } from '../services/api.js'
+import { getUserNotifications, getUserTours, cancelTour, deleteTour, acceptDriverPrice, rejectDriverPrice, getApiBaseUrl, replyToDriver, markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import LiveTrackingPage from './LiveTrackingPage.jsx'
 import LiveTrackingPanel from '../components/LiveTrackingPanel.jsx'
 import CancellationModal from '../components/CancellationModal.jsx'
 import DashboardChart from '../components/DashboardChart.jsx'
+import DashboardStatCard from '../components/DashboardStatCard.jsx'
 import Footer from '../components/Footer.jsx'
-
-const userChartData = [
-  { name: 'Jan', spending: 12000, trips: 2 },
-  { name: 'Feb', spending: 8500, trips: 1 },
-  { name: 'Mar', spending: 25000, trips: 4 },
-  { name: 'Apr', spending: 18000, trips: 3 },
-  { name: 'May', spending: 15000, trips: 2 },
-  { name: 'Jun', spending: 32000, trips: 5 },
-];
+import { buildLast7DaysChart, computeUserAnalytics, formatCurrency } from '../utils/dashboardAnalytics.js'
+import {
+  canUserStartLiveTracking,
+  formatTourSchedule,
+  isUserAwaitingScheduleStart,
+} from '../utils/tourSchedule.js'
 
 // --- Professional Design Tokens ---
 const THEME = {
@@ -126,10 +124,16 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
   const [emailNotifs, setEmailNotifs] = useState(true)
   const [smsNotifs, setSmsNotifs] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
+  const [scheduleTick, setScheduleTick] = useState(0)
 
   useEffect(() => {
     if (userName) setSettingsName(userName)
   }, [userName])
+
+  useEffect(() => {
+    const interval = setInterval(() => setScheduleTick((t) => t + 1), 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleDeleteConfirm = async () => {
     if (!tourIdToDelete) return
@@ -144,6 +148,35 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
     } finally {
       setDeleting(false)
     }
+  }
+
+  // ── Notification Handlers ──
+  const handleMarkNotifRead = async (id) => {
+    try {
+      await markNotificationRead(id, token)
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, status: 'read' } : n))
+    } catch { /* silent */ }
+  }
+
+  const handleMarkAllNotifRead = async () => {
+    try {
+      await markAllNotificationsRead(token)
+      setNotifications(prev => prev.map(n => ({ ...n, status: 'read' })))
+    } catch { /* silent */ }
+  }
+
+  const handleDismissNotif = async (id) => {
+    try {
+      await deleteNotification(id, token)
+      setNotifications(prev => prev.filter(n => n.id !== id))
+    } catch { /* silent */ }
+  }
+
+  const handleClearAllNotifs = async () => {
+    try {
+      await clearAllNotifications(token)
+      setNotifications([])
+    } catch { /* silent */ }
   }
 
   const [negotiationLoading, setNegotiationLoading] = useState(false)
@@ -196,8 +229,8 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
 
 
 
-  const loadDashboardData = useCallback(async () => {
-    setLoading(true)
+  const loadDashboardData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const [tourData, notifData] = await Promise.all([
         getUserTours(token),
@@ -208,8 +241,8 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
       setNotifications(Array.isArray(notifData) ? notifData : [])
 
       const activeStatuses = ['driver_approved', 'confirmed', 'en_route', 'arrived', 'ongoing']
-      const activeTour = toursArr.find(t => activeStatuses.includes(t.status))
-      
+      const activeTour = toursArr.find((t) => activeStatuses.includes(t.status) && canUserStartLiveTracking(t))
+
       if (activeTour && !liveTrackingTourId) {
         setLiveTrackingTourId(activeTour.id)
         setLiveTrackingTour(activeTour)
@@ -217,11 +250,15 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
       }
 
       if (liveTrackingTourId) {
-        const trackedTour = toursArr.find(t => t.id === liveTrackingTourId)
-        if (trackedTour && (trackedTour.status === 'completed' || trackedTour.status === 'cancelled')) {
+        const trackedTour = toursArr.find((t) => t.id === liveTrackingTourId)
+        if (!trackedTour || !canUserStartLiveTracking(trackedTour)) {
+          setLiveTrackingMode(null)
+          setLiveTrackingTourId(null)
+          setLiveTrackingTour(null)
+        } else if (trackedTour.status === 'completed' || trackedTour.status === 'cancelled') {
           setLiveTrackingMode('full')
           setLiveTrackingTour(trackedTour)
-        } else if (trackedTour) {
+        } else {
           setLiveTrackingTour(trackedTour)
         }
       }
@@ -231,14 +268,14 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
         onLogout()
       }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [token, onLogout, liveTrackingTourId])
 
   useEffect(() => { loadDashboardData() }, [loadDashboardData])
 
   useEffect(() => {
-    const id = setInterval(loadDashboardData, 15000)
+    const id = setInterval(() => loadDashboardData(true), 2000)
     return () => clearInterval(id)
   }, [loadDashboardData])
 
@@ -259,14 +296,14 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
 
 
 
-  const stats = useMemo(() => ({
-    totalTrips: tours.length,
-    completedTrips: tours.filter(t => t.status === 'completed').length,
-    totalSpent: tours.reduce((sum, t) => sum + (Number(t.driver_price || t.estimated_price) || 0), 0),
-    totalDistance: tours.reduce((sum, t) => sum + (Number(t.total_distance_km) || 0), 0),
-  }), [tours])
+  const stats = useMemo(() => computeUserAnalytics(tours), [tours])
+  const weeklyChart = useMemo(() => buildLast7DaysChart(tours), [tours])
+  const scheduledUpcomingTour = useMemo(
+    () => tours.find((t) => isUserAwaitingScheduleStart(t)),
+    [tours, scheduleTick]
+  )
 
-  if (liveTrackingMode === 'full' && liveTrackingTourId) {
+  if (liveTrackingMode === 'full' && liveTrackingTourId && canUserStartLiveTracking(liveTrackingTour)) {
     return (
       <LiveTrackingPage
         tourId={liveTrackingTourId}
@@ -322,7 +359,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
   )
 
   return (
-    <div className="flex min-h-screen bg-white font-['Plus_Jakarta_Sans',sans-serif]">
+    <div className="flex min-h-screen bg-gradient-to-br from-slate-50 via-white to-orange-50/20 font-['Plus_Jakarta_Sans',sans-serif]">
       {/* ── Sidebar ── */}
       <aside className="hidden lg:flex w-72 bg-slate-900 border-r border-slate-800 flex-col fixed h-screen overflow-y-auto scrollbar-hide z-50">
         <div className="p-8">
@@ -374,9 +411,9 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
       </aside>
 
       {/* ── Main Content ── */}
-      <main className="flex-1 lg:ml-72 min-h-screen pb-20">
+      <main className="flex-1 lg:ml-72 min-h-screen flex flex-col overflow-hidden">
         {/* ── Top Header ── */}
-        <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-50 px-8 py-5 flex items-center justify-between">
+        <header className="sticky top-0 z-40 shrink-0 bg-white/80 backdrop-blur-xl border-b border-slate-50 px-8 py-5 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <button 
               onClick={() => setIsMobileSidebarOpen(true)}
@@ -416,7 +453,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
           </div>
         </header>
 
-        <div className="p-8 md:p-12 max-w-7xl mx-auto">
+        <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-8 md:p-12 max-w-7xl mx-auto w-full">
           {/* ── Tab Views ── */}
           {activeTab === 'overview' && (
             <div className="space-y-12">
@@ -441,32 +478,36 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
 
 
               {/* Stats Grid */}
-              <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-
-                {[
-                  { label: 'Total Trips', value: stats.totalTrips, icon: MapIcon, color: 'blue' },
-                  { label: 'Distance', value: `${stats.totalDistance} km`, icon: Navigation, color: 'orange' },
-                  { label: 'Spending', value: `Rs. ${stats.totalSpent.toLocaleString()}`, icon: CreditCard, color: 'blue' },
-                  { label: 'Rewards', value: '450 pts', icon: Star, color: 'orange' },
-                ].map((stat, i) => (
-                  <motion.div key={i} variants={itemVariants} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_20px_50px_rgba(34,197,94,0.08)] transition-all group">
-                    <div className={`h-14 w-14 rounded-2xl flex items-center justify-center mb-6 transition-transform group-hover:scale-110 ${
-                      stat.color === 'blue' ? 'bg-blue-50 text-orange-500' : 'bg-orange-50 text-orange-600'
-                    }`}>
-                      <stat.icon size={28} />
-                    </div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{stat.label}</p>
-                    <p className="text-3xl font-black text-slate-900">{stat.value}</p>
-                  </motion.div>
-                ))}
+              <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                <DashboardStatCard label="Total Trips" value={stats.totalTrips} icon={<MapIcon size={22} />} accent="blue" sub={`${stats.completedTrips} completed`} />
+                <DashboardStatCard label="Active Now" value={stats.activeTrips} icon={<Navigation size={22} />} accent="emerald" sub="Ongoing journeys" />
+                <DashboardStatCard label="Total Spent" value={formatCurrency(stats.totalSpent)} icon={<CreditCard size={22} />} accent="orange" sub="Lifetime travel spend" />
+                <DashboardStatCard label="Distance" value={`${stats.totalDistance} km`} icon={<TrendingUp size={22} />} accent="violet" sub={`${stats.negotiations} open offers`} />
               </motion.div>
 
-              <DashboardChart 
-                data={userChartData} 
-                title="Spending & Travel Activity" 
-                barKey="trips" 
-                lineKey="spending" 
+              <DashboardChart
+                data={weeklyChart}
+                title="Spending & Travel Activity (Last 7 Days)"
+                barKey="trips"
+                lineKey="spending"
               />
+
+              {scheduledUpcomingTour && (
+                <div className="rounded-[2rem] border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 p-6 flex flex-col sm:flex-row sm:items-center gap-4 shadow-sm">
+                  <div className="h-12 w-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                    <Calendar size={22} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700 mb-1">Scheduled Tour</p>
+                    <p className="text-base font-black text-slate-900">
+                      Live tracking starts on <span className="text-amber-700">{formatTourSchedule(scheduledUpcomingTour)}</span>
+                    </p>
+                    <p className="text-sm text-slate-600 mt-1 font-medium">
+                      Your driver is confirmed. Tracking unlocks automatically on the scheduled start date.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
                 {/* Main Column */}
@@ -497,14 +538,16 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                     ) : (
                       <div className="space-y-8">
                         {upcomingTours.map((tour, idx) => {
-                          const isLive = ['en_route', 'arrived', 'ongoing', 'confirmed', 'driver_approved'].includes(tour.status)
+                          const canTrack = canUserStartLiveTracking(tour)
+                          const awaitingSchedule = isUserAwaitingScheduleStart(tour)
+                          const isLive = canTrack
                           return (
                             <motion.div
                               key={tour.id}
                               initial={{ opacity: 0, x: -20 }}
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ delay: idx * 0.1 }}
-                              className={`bg-white rounded-[3rem] border transition-all duration-500 p-8 relative overflow-hidden ${
+                              className={`bg-white rounded-3xl md:rounded-[3rem] border transition-all duration-500 p-6 md:p-8 relative overflow-hidden ${
                                 isLive ? 'border-blue-200 shadow-[0_20px_60px_rgba(34,197,94,0.1)]' : 'border-slate-100 shadow-[0_10px_40px_rgba(0,0,0,0.02)]'
                               }`}
                             >
@@ -571,11 +614,16 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                                       Delete Trip
                                     </button>
                                   )}
-                                  {isLive ? (
+                                  {canTrack ? (
                                     <button onClick={() => { setLiveTrackingTourId(tour.id); setLiveTrackingTour(tour); setLiveTrackingMode('full') }} className="flex-[1.5] py-5 bg-orange-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-xl shadow-blue-600/20 flex items-center justify-center gap-3">
                                       <Navigation size={18} />
                                       Track Live Journey
                                     </button>
+                                  ) : awaitingSchedule ? (
+                                    <div className="flex-[1.5] py-5 px-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl text-xs font-bold flex items-center justify-center gap-3 text-center">
+                                      <Calendar size={18} className="shrink-0" />
+                                      Live tracking starts {formatTourSchedule(tour)}
+                                    </div>
                                   ) : (
                                     <button disabled className="flex-[1.5] py-5 bg-slate-50 text-slate-300 rounded-2xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-3 cursor-not-allowed">
                                       <Clock size={18} />
@@ -657,46 +705,75 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                   </section>
 
                   <section className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
-                    <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center justify-between mb-6">
                       <h3 className="text-lg font-black text-slate-900">Activity</h3>
-                      {notifications.length > 0 && <span className="px-3 py-1 bg-orange-100 text-orange-600 text-[10px] font-black rounded-full uppercase tracking-tighter">{notifications.length} New</span>}
+                      <div className="flex items-center gap-2">
+                        {notifications.filter(n => n.status !== 'read').length > 0 && (
+                          <span className="px-3 py-1 bg-orange-100 text-orange-600 text-[10px] font-black rounded-full uppercase tracking-tighter">
+                            {notifications.filter(n => n.status !== 'read').length} Unread
+                          </span>
+                        )}
+                        {notifications.length > 0 && (
+                          <button
+                            onClick={handleClearAllNotifs}
+                            className="text-[10px] font-bold text-rose-500 hover:text-rose-600 transition"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
                     </div>
                     
-                    <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 scrollbar-hide">
+                    <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 scrollbar-hide">
                       {notifications.length === 0 ? (
                         <div className="py-16 text-center">
                           <Bell className="text-slate-200 mx-auto mb-6" size={48} />
                           <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No recent alerts</p>
                         </div>
                       ) : (
-                        notifications.map((note, idx) => {
-                          const isNew = idx < 2;
+                        notifications.slice(0, 5).map((note, idx) => {
+                          const isUnread = note.status !== 'read'
                           return (
                             <motion.div 
                               key={note.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.05 }}
-                              className={`group p-6 rounded-[2rem] border transition-all hover:bg-slate-50 ${
-                                isNew ? 'bg-blue-50/30 border-blue-100' : 'bg-white border-slate-50'
+                              className={`group p-5 rounded-[1.5rem] border transition-all ${
+                                isUnread ? 'bg-orange-50/40 border-orange-100 hover:bg-orange-50' : 'bg-white border-slate-50 hover:bg-slate-50'
                               }`}
                             >
-                              <div className="flex gap-5">
-                                <div className={`h-12 w-12 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-sm ${
-                                  isNew ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-400'
+                              <div className="flex gap-4">
+                                <div className={`h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm ${
+                                  isUnread ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-400'
                                 }`}>
-                                  <Bell size={20} />
+                                  <Bell size={18} />
                                 </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-black text-slate-900 mb-1.5 leading-tight">{note.subject}</p>
-                                  <p className="text-[12px] text-slate-500 leading-relaxed line-clamp-2 mb-4 font-medium">{note.message}</p>
-                                  <button
-                                    onClick={() => {
-                                      const match = note.message?.match(/#(\d+)/) || note.subject?.match(/#(\d+)/);
-                                      if (match) { setSelectedTourId(match[1]); setShowDetailsModal(true); }
-                                      else { setActiveTab('trips'); }
-                                    }}
-                                    className="text-[10px] font-black text-orange-500 uppercase tracking-[0.2em] hover:text-orange-600 transition-colors flex items-center gap-1"
-                                  >
-                                    View Journey <ChevronRight size={12} />
-                                  </button>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className={`text-sm leading-tight mb-1 ${
+                                      isUnread ? 'font-black text-slate-900' : 'font-semibold text-slate-600'
+                                    }`}>{note.subject}</p>
+                                    {isUnread && <div className="h-2 w-2 rounded-full bg-orange-500 flex-shrink-0 mt-1"></div>}
+                                  </div>
+                                  <p className={`text-[11px] leading-relaxed line-clamp-2 mb-3 ${
+                                    isUnread ? 'text-slate-600 font-medium' : 'text-slate-400'
+                                  }`}>{note.message}</p>
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      onClick={() => {
+                                        if (isUnread) handleMarkNotifRead(note.id)
+                                        if (note.tour_id) { setSelectedTourId(note.tour_id); setShowDetailsModal(true) }
+                                        else setActiveTab('trips')
+                                      }}
+                                      className="text-[10px] font-black text-orange-500 uppercase tracking-[0.2em] hover:text-orange-600 transition-colors flex items-center gap-1"
+                                    >
+                                      View Journey <ChevronRight size={12} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDismissNotif(note.id)}
+                                      className="text-[10px] text-slate-300 hover:text-rose-500 transition opacity-0 group-hover:opacity-100"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </motion.div>
@@ -710,29 +787,128 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
             </div>
           )}
 
-          {activeTab === 'notifications' && (
-            <div className="max-w-3xl mx-auto space-y-8">
-               <h2 className="text-4xl font-black text-slate-900 tracking-tight mb-12">Notifications</h2>
-               {notifications.map((note, idx) => (
-                 <motion.div key={note.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex gap-6">
-                    <div className="h-14 w-14 rounded-2xl bg-blue-50 text-orange-500 flex items-center justify-center flex-shrink-0">
-                       <Bell size={24} />
+          {activeTab === 'notifications' && (() => {
+            const unreadCount = notifications.filter(n => n.status !== 'read').length
+            return (
+              <div className="max-w-3xl mx-auto space-y-6">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-4xl font-black text-slate-900 tracking-tight">Notifications</h2>
+                    <p className="text-slate-400 font-bold mt-2 text-sm">
+                      {unreadCount > 0 ? <span className="text-orange-500">{unreadCount} unread</span> : 'All caught up'} · {notifications.length} total
+                    </p>
+                  </div>
+                  {notifications.length > 0 && (
+                    <div className="flex items-center gap-2 pt-1">
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={handleMarkAllNotifRead}
+                          className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 border border-slate-200 bg-slate-50 hover:bg-slate-100 px-4 py-2 rounded-xl transition"
+                        >
+                          <CheckCircle2 size={14} /> Mark All Read
+                        </button>
+                      )}
+                      <button
+                        onClick={handleClearAllNotifs}
+                        className="inline-flex items-center gap-2 text-xs font-bold text-rose-600 border border-rose-100 bg-rose-50 hover:bg-rose-100 px-4 py-2 rounded-xl transition"
+                      >
+                        <Trash2 size={14} /> Clear Inbox
+                      </button>
                     </div>
-                    <div>
-                       <h4 className="text-xl font-black text-slate-900 mb-2">{note.subject}</h4>
-                       <p className="text-slate-500 font-bold mb-6 leading-relaxed">{note.message}</p>
-                       <button onClick={() => {
-                         const match = note.message?.match(/#(\d+)/) || note.subject?.match(/#(\d+)/);
-                         if (match) { setSelectedTourId(match[1]); setShowDetailsModal(true); }
-                       }} className="bg-orange-500 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-orange-500 transition-all shadow-lg shadow-blue-600/20">
-                         Review Details
-                       </button>
+                  )}
+                </div>
+
+                {/* Notification cards */}
+                {notifications.length === 0 ? (
+                  <div className="py-20 text-center">
+                    <div className="h-24 w-24 bg-slate-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
+                      <Bell className="text-slate-200" size={40} />
                     </div>
-                 </motion.div>
-               ))}
-               {notifications.length === 0 && <div className="text-center py-20 text-slate-400 font-black uppercase tracking-widest">No notifications to display.</div>}
-            </div>
-          )}
+                    <p className="text-slate-400 font-black uppercase tracking-widest text-sm">No notifications to display.</p>
+                    <p className="text-slate-300 text-xs mt-2">System updates and tour alerts will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {notifications.map((note, idx) => {
+                      const isUnread = note.status !== 'read'
+                      return (
+                        <motion.div
+                          key={note.id}
+                          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.04 }}
+                          className={`group relative bg-white rounded-[2.5rem] border shadow-sm transition-all flex gap-6 p-8 ${
+                            isUnread
+                              ? 'border-orange-200 bg-orange-50/30 shadow-orange-100/50'
+                              : 'border-slate-100'
+                          }`}
+                        >
+                          {/* Unread accent bar */}
+                          {isUnread && <div className="absolute left-0 top-6 bottom-6 w-1 rounded-full bg-orange-500"></div>}
+
+                          {/* Icon */}
+                          <div className={`h-14 w-14 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                            isUnread ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25' : 'bg-slate-100 text-slate-400'
+                          }`}>
+                            <Bell size={24} />
+                          </div>
+
+                          {/* Body */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-4 mb-2">
+                              <h4 className={`text-lg leading-tight ${
+                                isUnread ? 'font-black text-slate-900' : 'font-bold text-slate-600'
+                              }`}>{note.subject}</h4>
+                              {isUnread && (
+                                <span className="flex-shrink-0 h-2.5 w-2.5 rounded-full bg-orange-500 mt-2"></span>
+                              )}
+                            </div>
+                            <p className={`mb-6 leading-relaxed ${
+                              isUnread ? 'text-slate-600 font-bold text-sm' : 'text-slate-400 font-medium text-sm'
+                            }`}>{note.message}</p>
+                            <div className="flex items-center gap-4">
+                              <button
+                                onClick={() => {
+                                  if (isUnread) handleMarkNotifRead(note.id)
+                                  if (note.tour_id) { setSelectedTourId(note.tour_id); setShowDetailsModal(true) }
+                                  else {
+                                    const match = note.message?.match(/#(\d+)/) || note.subject?.match(/#(\d+)/)
+                                    if (match) { setSelectedTourId(match[1]); setShowDetailsModal(true) }
+                                  }
+                                }}
+                                className="bg-orange-500 text-white px-6 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 flex items-center gap-2"
+                              >
+                                <ExternalLink size={14} /> Review Details
+                              </button>
+                              {isUnread && (
+                                <button
+                                  onClick={() => handleMarkNotifRead(note.id)}
+                                  className="text-xs font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1.5 transition"
+                                >
+                                  <CheckCircle2 size={14} /> Mark as Read
+                                </button>
+                              )}
+                              <span className="ml-auto text-[10px] text-slate-300 font-medium">
+                                {note.created_at ? new Date(note.created_at).toLocaleString() : ''}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Dismiss button */}
+                          <button
+                            onClick={() => handleDismissNotif(note.id)}
+                            className="flex-shrink-0 h-9 w-9 rounded-xl flex items-center justify-center text-slate-200 hover:bg-rose-50 hover:text-rose-500 transition opacity-0 group-hover:opacity-100 self-start mt-1"
+                            title="Dismiss"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </motion.div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {activeTab === 'saved' && (
             <div className="space-y-12">
@@ -1099,7 +1275,9 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                  ) : (
                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                      {upcomingTours.map((tour, idx) => {
-                       const isLive = ['en_route', 'arrived', 'ongoing', 'confirmed', 'driver_approved'].includes(tour.status)
+                       const canTrack = canUserStartLiveTracking(tour)
+                       const awaitingSchedule = isUserAwaitingScheduleStart(tour)
+                       const isLive = canTrack
                        return (
                          <motion.div key={tour.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.05 }} className="bg-white p-8 rounded-[3rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all group flex flex-col justify-between">
                             <div>
@@ -1112,7 +1290,13 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                                  </span>
                               </div>
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{tour.start_date || 'Date Pending'}</p>
-                              <h4 className="text-2xl font-black text-slate-900 mb-6 group-hover:text-orange-500 transition-colors">{tour.total_distance_km} km Journey</h4>
+                              <h4 className="text-2xl font-black text-slate-900 mb-2 group-hover:text-orange-500 transition-colors">{tour.total_distance_km} km Journey</h4>
+                              {awaitingSchedule && (
+                                <p className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-3 py-1 inline-flex items-center gap-1.5 mb-4">
+                                  <Calendar size={12} />
+                                  Tracking from {formatTourSchedule(tour)}
+                                </p>
+                              )}
                             </div>
                             
                             <div className="pt-6 border-t border-slate-50 flex items-center justify-between">
@@ -1121,6 +1305,14 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
                                   <p className="text-lg font-black text-slate-900">Rs. {Number(tour.driver_price || tour.estimated_price).toLocaleString()}</p>
                                 </div>
                                 <div className="flex items-center gap-4">
+                                  {canTrack && (
+                                    <button
+                                      onClick={() => { setLiveTrackingTourId(tour.id); setLiveTrackingTour(tour); setLiveTrackingMode('full') }}
+                                      className="text-[10px] font-black text-white bg-orange-500 hover:bg-orange-600 uppercase tracking-widest px-4 py-2 rounded-xl transition-colors"
+                                    >
+                                      Track Live
+                                    </button>
+                                  )}
                                   <button onClick={() => { setSelectedTourId(tour.id); setShowDetailsModal(true) }} className="text-[10px] font-black text-orange-500 uppercase tracking-widest flex items-center gap-1 group-hover:text-orange-500 transition-colors">
                                      Details <ChevronRight size={14} />
                                   </button>
@@ -1198,7 +1390,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
              </div>
           )}
         </div>
-        <Footer minimal={true} />
+        <Footer variant="dashboard" portal="customer" />
       </main>
 
       {/* ── Mobile Sidebar Drawer ── */}
@@ -1278,7 +1470,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
       </AnimatePresence>
 
       {/* ── Live Tracking & Modals ── */}
-      {liveTrackingMode === 'panel' && liveTrackingTourId && (
+      {liveTrackingMode === 'panel' && liveTrackingTourId && canUserStartLiveTracking(liveTrackingTour) && (
         <LiveTrackingPanel
           tourId={liveTrackingTourId} token={token} userLat={liveTrackingTour?.pickup_lat} userLng={liveTrackingTour?.pickup_lng}
           driverName={liveTrackingTour?.driver_name} driverImg={liveTrackingTour?.driver_image} vehicleImg={liveTrackingTour?.vehicle_image} vehicleNumber={liveTrackingTour?.vehicle_number}

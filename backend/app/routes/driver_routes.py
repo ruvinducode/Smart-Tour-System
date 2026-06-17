@@ -12,7 +12,13 @@ from flask_jwt_extended import (
 )
 
 from app import db
-from app.models import Driver, TourPlan, User, Notification, Booking, Vehicle
+from app.models import Driver, TourPlan, User, Notification, Booking, Vehicle, Location, DriverPayment
+from app.services.vehicle_matching_service import normalize_vehicle_type, vehicle_ids_for_type
+from app.services.notification_service import (
+    get_notifications_for_driver,
+    notify_driver_pending_tours,
+)
+from app.services.finance_service import enrich_driver_payment
 
 driver_bp = Blueprint("driver_bp", __name__)
 
@@ -84,7 +90,7 @@ def register_driver():
     home_district   = form.get("home_district", "").strip() or None
     home_address    = form.get("home_address", "").strip() or None
     license_number  = form.get("license_number", "").strip() or None
-    vehicle_type    = form.get("vehicle_type", "").strip() or None
+    vehicle_type    = normalize_vehicle_type(form.get("vehicle_type", "").strip() or None)
     vehicle_brand   = form.get("vehicle_brand", "").strip() or None
     vehicle_number  = form.get("vehicle_number", "").strip() or None
     vehicle_color   = form.get("vehicle_color", "").strip() or None
@@ -315,7 +321,8 @@ def update_driver_profile():
             pass
 
     # Update vehicle fields
-    if "vehicle_type" in data: driver.vehicle_type = data["vehicle_type"]
+    if "vehicle_type" in data:
+        driver.vehicle_type = normalize_vehicle_type(data["vehicle_type"])
     if "vehicle_brand" in data: driver.vehicle_brand = data["vehicle_brand"]
     if "vehicle_number" in data: driver.vehicle_number = data["vehicle_number"]
     if "vehicle_color" in data: driver.vehicle_color = data["vehicle_color"]
@@ -389,12 +396,6 @@ def get_pending_drivers():
             "created_at": str(d.created_at) if d.created_at else None,
         })
 
-    return jsonify(result), 200
-
-
-# =========================
-# GET APPROVED DRIVERS (ADMIN PROTECTED)
-# =========================
     return jsonify(result), 200
 
 
@@ -497,6 +498,9 @@ def approve_driver(driver_id):
     driver.is_approved = True
     db.session.commit()
 
+    notify_driver_pending_tours(driver)
+    db.session.commit()
+
     return jsonify({"message": "Driver approved successfully"}), 200
 
 
@@ -539,6 +543,64 @@ def deactivate_driver(driver_id):
 
 
 # =========================
+# UPDATE DRIVER (ADMIN PROTECTED)
+# =========================
+@driver_bp.route("/admin/driver/<int:driver_id>", methods=["PUT"])
+@jwt_required()
+def admin_update_driver(driver_id):
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"message": "Unauthorized"}), 403
+
+    driver = Driver.query.get(driver_id)
+    if not driver:
+        return jsonify({"message": "Driver not found"}), 404
+
+    data = request.get_json() or {}
+    if "name" in data:
+        driver.full_name = data["name"].strip()
+    if "email" in data:
+        email = (data["email"] or "").strip().lower() or None
+        if email:
+            existing = Driver.query.filter(Driver.email == email, Driver.id != driver_id).first()
+            if existing:
+                return jsonify({"message": "Email already in use"}), 409
+        driver.email = email
+    if "phone" in data:
+        driver.phone = data["phone"].strip()
+    if "vehicle" in data:
+        driver.vehicle_type = normalize_vehicle_type(data["vehicle"].strip())
+    if "vehicle_number" in data:
+        driver.vehicle_number = data["vehicle_number"].strip() or None
+    if "capacity" in data:
+        driver.capacity = int(data["capacity"]) if data["capacity"] not in (None, "") else None
+    if "is_approved" in data:
+        was_approved = driver.is_approved
+        driver.is_approved = bool(data["is_approved"])
+        if driver.is_approved and not was_approved:
+            notify_driver_pending_tours(driver)
+
+    if "is_available" in data:
+        driver.is_available = bool(data["is_available"])
+
+    db.session.commit()
+    return jsonify({
+        "message": "Driver updated successfully",
+        "driver": {
+            "id": driver.id,
+            "name": driver.full_name,
+            "email": driver.email,
+            "phone": driver.phone,
+            "vehicle": driver.vehicle_type,
+            "vehicle_number": driver.vehicle_number,
+            "capacity": driver.capacity,
+            "is_approved": driver.is_approved,
+            "is_available": driver.is_available,
+        },
+    }), 200
+
+
+# =========================
 # GET ALL TOUR PLANS (ADMIN PROTECTED)
 # =========================
 @driver_bp.route("/admin/tour-plans", methods=["GET"])
@@ -551,10 +613,20 @@ def get_tour_plans():
     if claims.get("role") != "admin":
         return jsonify({"message": "Unauthorized"}), 403
 
-    tours = TourPlan.query.all()
+    tours = TourPlan.query.order_by(TourPlan.created_at.desc()).all()
 
     result = []
     for t in tours:
+        user = User.query.get(t.user_id) if t.user_id else None
+        booking = Booking.query.filter_by(tour_id=t.id).first()
+        driver = Driver.query.get(booking.driver_id) if booking and booking.driver_id else None
+        vehicle = Vehicle.query.get(t.vehicle_id) if t.vehicle_id else None
+        first_loc = (
+            Location.query.filter_by(tour_id=t.id)
+            .order_by(Location.order_index.asc())
+            .first()
+        )
+
         result.append({
             "id": t.id,
             "user_id": t.user_id,
@@ -562,11 +634,27 @@ def get_tour_plans():
             "vehicle_id": t.vehicle_id,
             "start_date": str(t.start_date) if t.start_date else None,
             "end_date": str(t.end_date) if t.end_date else None,
+            "start_time": t.start_time,
             "total_distance_km": t.total_distance_km,
             "total_days": t.total_days,
             "estimated_price": t.estimated_price,
             "status": t.status,
             "created_at": str(t.created_at) if t.created_at else None,
+            "user_name": user.full_name if user else None,
+            "user_email": user.email if user else None,
+            "driver_id": driver.id if driver else None,
+            "driver_name": driver.full_name if driver else None,
+            "driver_phone": driver.phone if driver else None,
+            "vehicle_type": vehicle.type if vehicle else (driver.vehicle_type if driver else None),
+            "vehicle_number": driver.vehicle_number if driver else None,
+            "booking_status": booking.status if booking else None,
+            "total_price": booking.total_price if booking else None,
+            "driver_lat": t.driver_lat,
+            "driver_lng": t.driver_lng,
+            "last_location_update": t.last_location_update.isoformat() if t.last_location_update else None,
+            "pickup_name": first_loc.place_name if first_loc else None,
+            "pickup_lat": first_loc.latitude if first_loc else None,
+            "pickup_lng": first_loc.longitude if first_loc else None,
         })
 
     return jsonify(result), 200
@@ -585,19 +673,35 @@ def get_driver_tour_requests():
         return jsonify({"message": "Unauthorized"}), 403
 
     driver_id = get_jwt_identity()
-    driver = Driver.query.get(driver_id)
+    try:
+        driver_id_int = int(driver_id)
+    except (TypeError, ValueError):
+        return jsonify({"message": "Invalid driver identity"}), 401
+
+    driver = Driver.query.get(driver_id_int)
     if not driver:
         return jsonify({"message": "Driver not found"}), 404
 
-    # 🔥 Filter tours by the driver's vehicle type and ensure they are NOT cancelled
-    tours = TourPlan.query.join(Vehicle).filter(
-        Vehicle.type == driver.vehicle_type,
-        TourPlan.status != 'cancelled'
-    ).order_by(TourPlan.created_at.desc()).all()
+    matching_vehicle_ids = vehicle_ids_for_type(driver.vehicle_type)
+    if not matching_vehicle_ids:
+        return jsonify([]), 200
+
+    from sqlalchemy import or_
+    tours = (
+        TourPlan.query.outerjoin(Booking, Booking.tour_id == TourPlan.id)
+        .filter(
+            TourPlan.vehicle_id.in_(matching_vehicle_ids),
+            TourPlan.status != "cancelled",
+            or_(Booking.id.is_(None), Booking.driver_id == driver_id_int),
+        )
+        .order_by(TourPlan.created_at.desc())
+        .all()
+    )
 
     result = []
     for t in tours:
         user = User.query.get(t.user_id) if t.user_id else None
+        booking = Booking.query.filter_by(tour_id=t.id).first()
         result.append({
             "id": t.id,
             "user_id": t.user_id,
@@ -606,9 +710,11 @@ def get_driver_tour_requests():
             "vehicle_id": t.vehicle_id,
             "start_date": str(t.start_date) if t.start_date else None,
             "end_date": str(t.end_date) if t.end_date else None,
+            "start_time": t.start_time,
             "total_distance_km": t.total_distance_km,
             "total_days": t.total_days,
             "estimated_price": t.estimated_price,
+            "driver_price": booking.total_price if booking else None,
             "status": t.status,
             "created_at": str(t.created_at) if t.created_at else None,
         })
@@ -778,12 +884,16 @@ def get_driver_notifications():
         return jsonify({"message": "Unauthorized"}), 403
 
     driver_id = get_jwt_identity()
-    driver = Driver.query.get(driver_id)
+    try:
+        driver_id_int = int(driver_id)
+    except (TypeError, ValueError):
+        return jsonify({"message": "Invalid driver identity"}), 401
+
+    driver = Driver.query.get(driver_id_int)
     if not driver:
         return jsonify({"message": "Driver not found"}), 404
 
-    # Get notifications for this driver's email
-    notes = Notification.query.filter_by(recipient_email=driver.email).order_by(Notification.created_at.desc()).all()
+    notes = get_notifications_for_driver(driver)
 
     result = []
     for n in notes:
@@ -797,3 +907,30 @@ def get_driver_notifications():
         })
 
     return jsonify(result), 200
+
+
+# =========================
+# DRIVER: GET MY PAYMENTS
+# =========================
+@driver_bp.route("/driver/payments", methods=["GET"])
+@jwt_required()
+def get_my_driver_payments():
+    claims = get_jwt()
+    if claims.get("role") != "driver":
+        return jsonify({"message": "Unauthorized"}), 403
+
+    try:
+        driver_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"message": "Invalid driver identity"}), 401
+
+    driver = Driver.query.get(driver_id)
+    if not driver:
+        return jsonify({"message": "Driver not found"}), 404
+
+    payments = (
+        DriverPayment.query.filter_by(driver_id=driver_id)
+        .order_by(DriverPayment.created_at.desc())
+        .all()
+    )
+    return jsonify([enrich_driver_payment(p) for p in payments]), 200

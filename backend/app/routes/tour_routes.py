@@ -1,91 +1,87 @@
+from datetime import datetime, date, timedelta
+
 from flask import Blueprint, request, jsonify
 from app import db
 from app.models import TourPlan, Vehicle, Location, Booking, User, Notification, Driver
-from app.services.sms_service import send_sms_notification
-
-from datetime import datetime
-import math
 
 # JWT IMPORTS
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from flask import current_app as app
+from app.services.tour_pricing_service import (
+    build_tour_estimate,
+    parse_date,
+    serialize_vehicle,
+)
 
 tour_bp = Blueprint("tour_bp", __name__)
-def haversine(lat1, lon1, lat2, lon2):
-    # Radius of the Earth in km
-    R = 6371.0
-    
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    
-    a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    
-    distance = R * c
-    return distance
+
+
+def _resolve_vehicle(data):
+    """Look up vehicle by id or type name."""
+    vehicle_id = data.get("vehicle_id")
+    vehicle_type = data.get("vehicle_type")
+
+    if vehicle_id is not None:
+        return Vehicle.query.get(vehicle_id)
+    if vehicle_type:
+        return Vehicle.query.filter_by(type=vehicle_type).first()
+    return None
+
+
+def _validate_start_date_window(start_date: date):
+    """Ensure start date is within the allowed booking window."""
+    today = date.today()
+    if start_date < today:
+        raise ValueError("Start date cannot be in the past")
+    if start_date > today + timedelta(days=60):
+        raise ValueError("Tours can only be scheduled up to 2 months in advance")
+
+def _is_tour_schedule_locked(tour):
+    """Return True if the tour cannot be started yet (future scheduled date only)."""
+    from datetime import date
+
+    if not tour.start_date:
+        return False
+    if tour.status in ('en_route', 'arrived', 'ongoing', 'completed', 'cancelled'):
+        return False
+
+    return date.today() < tour.start_date
 
 # =========================
 # CALCULATE TOUR (PUBLIC)
 # =========================
 @tour_bp.route("/calculate", methods=["POST"])
 def calculate_tour():
-
+    """Public estimate endpoint — backend is the single source of truth for pricing."""
     data = request.get_json()
     if not data:
         return jsonify({"message": "No input data"}), 400
 
     locations = data.get("locations")
-    vehicle_type = data.get("vehicle_type")
+    start_date_str = data.get("start_date")
+    end_date_str = data.get("end_date")
 
-    if not locations or not vehicle_type:
-        return jsonify({"message": "Missing data"}), 400
+    if not locations:
+        return jsonify({"message": "locations are required"}), 400
+    if not start_date_str or not end_date_str:
+        return jsonify({"message": "start_date and end_date are required"}), 400
 
-    # Accept real road distance from frontend (computed via BRouter)
-    # Fall back to haversine sum if not provided
-    total_distance_km = data.get("total_distance_km")
-    if total_distance_km and total_distance_km > 0:
-        total_distance = float(total_distance_km)
-    else:
-        # Fallback: sum haversine distances between consecutive stops
-        total_distance = 0.0
-        for i in range(len(locations) - 1):
-            lat1 = locations[i].get("latitude", 0)
-            lon1 = locations[i].get("longitude", 0)
-            lat2 = locations[i+1].get("latitude", 0)
-            lon2 = locations[i+1].get("longitude", 0)
-            total_distance += haversine(lat1, lon1, lat2, lon2)
-        total_distance = round(total_distance * 1.25, 1)  # road penalty factor
-
-    # ── Practical days calculation ──────────────────────────────────────────────
-    # Assumptions (Sri Lanka tourism context):
-    #   • Max comfortable driving per day: 300 km  (6 hrs at ~50 km/h)
-    #   • Each stop after the start needs ~0.5 day for sightseeing
-    #   • Minimum 1 full day for any trip
-    # Formula: driving_days + sightseeing_days, rounded up to nearest whole day
-    num_locations = len(locations)
-    driving_days = total_distance / 300
-    sightseeing_days = (num_locations - 1) * 0.5   # each stop after pickup
-    total_days = max(1, math.ceil(driving_days + sightseeing_days))
-
-    vehicle = Vehicle.query.filter_by(type=vehicle_type).first()
-
+    vehicle = _resolve_vehicle(data)
     if not vehicle:
         return jsonify({"message": "Vehicle not found"}), 404
 
-    base_fare = vehicle.base_fare or 0
-    price_per_km = vehicle.price_per_km or 0
-    price_per_day = vehicle.price_per_day or 0
+    try:
+        estimate = build_tour_estimate(
+            vehicle=vehicle,
+            locations=locations,
+            start_date=start_date_str,
+            end_date=end_date_str,
+            total_distance_km=data.get("total_distance_km"),
+        )
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
 
-    total_price = (
-        (total_distance * price_per_km) +
-        (total_days * price_per_day)
-    )
-
-    return jsonify({
-        "total_distance_km": total_distance,
-        "total_days": total_days,
-        "estimated_price": total_price
-    }), 200
+    return jsonify(estimate), 200
 
 
 # =========================
@@ -107,59 +103,41 @@ def create_tour():
     except (TypeError, ValueError):
         return jsonify({"message": "Invalid user identity in token"}), 401
 
-    vehicle_id = data.get("vehicle_id")
-    total_distance_km = data.get("total_distance_km")
-    total_days = data.get("total_days")
-
     guest_id = data.get("guest_id")   # optional
     locations = data.get("locations")  # optional
 
-    # DATE & TIME HANDLING
     start_date_str = data.get("start_date")
     start_time_str = data.get("start_time")
     end_date_str = data.get("end_date")
 
-    start_date = None
-    end_date = None
+    if not start_date_str or not end_date_str:
+        return jsonify({"message": "start_date and end_date are required"}), 400
+    if not locations:
+        return jsonify({"message": "locations are required"}), 400
 
-    if start_date_str:
-        try:
-            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-        except ValueError:
-            return jsonify({"message": "Invalid start_date format (YYYY-MM-DD required)"}), 400
-
-    if end_date_str:
-        try:
-            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
-        except ValueError:
-            return jsonify({"message": "Invalid end_date format (YYYY-MM-DD required)"}), 400
-
-    if start_date:
-        from datetime import date, timedelta
-        today = date.today()
-        if start_date < today:
-            return jsonify({"message": "Start date cannot be in the past"}), 400
-        if start_date > today + timedelta(days=60):
-            return jsonify({"message": "Tours can only be scheduled up to 2 months in advance"}), 400
-
-    # VALIDATION
-    if vehicle_id is None or total_distance_km is None or total_days is None:
-        return jsonify({"message": "Missing required fields"}), 400
-
-    vehicle = Vehicle.query.get(vehicle_id)
-
+    vehicle = _resolve_vehicle(data)
     if not vehicle:
-        return jsonify({"message": "Vehicle not found"}), 404
+        return jsonify({"message": "Vehicle not found. Provide vehicle_id or vehicle_type."}), 404
 
-    base_fare = vehicle.base_fare or 0
-    price_per_km = vehicle.price_per_km or 0
-    price_per_day = vehicle.price_per_day or 0
+    vehicle_id = vehicle.id
 
-    # PRICE CALCULATION
-    total_price = (
-        (total_distance_km * price_per_km) +
-        (total_days * price_per_day)
-    )
+    try:
+        start_date = parse_date(start_date_str, "start_date")
+        end_date = parse_date(end_date_str, "end_date")
+        _validate_start_date_window(start_date)
+        estimate = build_tour_estimate(
+            vehicle=vehicle,
+            locations=locations,
+            start_date=start_date,
+            end_date=end_date,
+            total_distance_km=data.get("total_distance_km"),
+        )
+    except ValueError as exc:
+        return jsonify({"message": str(exc)}), 400
+
+    total_distance_km = estimate["total_distance_km"]
+    total_days = estimate["total_days"]
+    total_price = estimate["estimated_price"]
 
     # CREATE TOUR (user_id from JWT)
     new_tour = TourPlan(
@@ -195,28 +173,10 @@ def create_tour():
         db.session.commit()
 
     # =========================
-    # NOTIFY DRIVERS (via SMS & DB)
+    # NOTIFY DRIVERS (DB + optional SMS)
     # =========================
-    from app.models import Driver
-    # Find all approved drivers with the matching vehicle type
-    matching_drivers = Driver.query.filter_by(vehicle_type=vehicle.type, is_approved=True).all()
-    
-    for driver in matching_drivers:
-        # DB Notification
-        note = Notification(
-            recipient_email=driver.email,
-            subject="New Tour Request",
-            message=f"A new tour request matching your vehicle ({vehicle.type}) is available. Distance: {total_distance_km}km.",
-            status="sent",
-            tour_id=new_tour.id
-        )
-        db.session.add(note)
-        
-        # SMS Notification
-        if driver.phone:
-            sms_msg = f"Smart Tour: New trip request! {total_distance_km}km in a {vehicle.type}. Check your dashboard to approve or bid."
-            send_sms_notification(driver.phone, sms_msg)
-            
+    from app.services.notification_service import notify_drivers_new_tour
+    notify_drivers_new_tour(new_tour, vehicle.type, total_distance_km)
     db.session.commit()
 
     return jsonify({
@@ -225,7 +185,10 @@ def create_tour():
             "id": new_tour.id,
             "total_distance_km": total_distance_km,
             "total_days": total_days,
-            "estimated_price": total_price
+            "estimated_price": total_price,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "vehicle": serialize_vehicle(vehicle),
         }
     }), 201
 
@@ -352,6 +315,9 @@ def accept_driver_price(tour_id):
         # Update both TourPlan.status and Booking.status to 'confirmed'
         tour.status = "confirmed"
         booking.status = "confirmed"
+
+        from app.services.finance_service import upsert_payment_records_for_booking
+        upsert_payment_records_for_booking(booking)
 
         user = User.query.get(user_id) if user_id else None
         user_name = user.full_name if user else "User"
@@ -570,9 +536,8 @@ def mark_en_route(tour_id):
     
     if not tour or not booking:
         return jsonify({"message": "Tour or assignment not found"}), 404
-        
-    from datetime import date
-    if tour.start_date and date.today() < tour.start_date:
+
+    if _is_tour_schedule_locked(tour):
         return jsonify({"message": f"This tour is scheduled for {tour.start_date.isoformat()} and cannot be started yet."}), 400
         
     tour.status = 'en_route'
@@ -600,9 +565,8 @@ def mark_arrived(tour_id):
     
     if not tour or not booking:
         return jsonify({"message": "Tour or assignment not found"}), 404
-        
-    from datetime import date
-    if tour.start_date and date.today() < tour.start_date:
+
+    if _is_tour_schedule_locked(tour):
         return jsonify({"message": f"This tour is scheduled for {tour.start_date.isoformat()} and cannot be started yet."}), 400
         
     tour.status = 'arrived'
@@ -630,9 +594,8 @@ def mark_ongoing(tour_id):
     
     if not tour or not booking:
         return jsonify({"message": "Tour or assignment not found"}), 404
-        
-    from datetime import date
-    if tour.start_date and date.today() < tour.start_date:
+
+    if _is_tour_schedule_locked(tour):
         return jsonify({"message": f"This tour is scheduled for {tour.start_date.isoformat()} and cannot be started yet."}), 400
         
     tour.status = 'ongoing'
@@ -677,6 +640,13 @@ def mark_completed(tour_id):
     tour.status = 'completed'
     booking.status = 'completed'
     booking.total_price = final_price
+
+    from app.services.finance_service import (
+        upsert_payment_records_for_booking,
+        sync_income_transactions_for_booking,
+    )
+    upsert_payment_records_for_booking(booking, final_price)
+    sync_income_transactions_for_booking(booking)
     
     if driver:
         driver.is_available = True
@@ -709,24 +679,27 @@ def mark_completed(tour_id):
 @tour_bp.route('/<int:tour_id>/location', methods=['GET']) # ⬅️ CHANGED TO tour_bp
 @jwt_required()
 def get_driver_location(tour_id):
+    claims = get_jwt()
     current_user_id = get_jwt_identity()
     tour = TourPlan.query.get(tour_id)
 
     if not tour:
         return jsonify({"message": "Tour not found"}), 404
-        
-    # Security: Ensure the person asking is the user who booked it
-    if str(tour.user_id) != str(current_user_id):
+
+    is_admin = claims.get("role") == "admin"
+    is_owner = str(tour.user_id) == str(current_user_id)
+
+    if not is_admin and not is_owner:
         return jsonify({"message": "Unauthorized"}), 403
 
-    # If the driver hasn't sent a location yet
     if not tour.driver_lat or not tour.driver_lng:
         return jsonify({"message": "Driver location not available yet"}), 404
 
     return jsonify({
         "latitude": tour.driver_lat,
         "longitude": tour.driver_lng,
-        "last_update": tour.last_location_update.isoformat()
+        "last_update": tour.last_location_update.isoformat() if tour.last_location_update else None,
+        "status": tour.status,
     }), 200
 
 # 3. USER CANCELS TOUR
@@ -929,6 +902,8 @@ def get_all_feedbacks():
 @jwt_required()
 def delete_tour(tour_id):
     try:
+        claims = get_jwt()
+        is_admin = claims.get("role") == "admin"
         raw_id = get_jwt_identity()
         user_id = int(raw_id) if raw_id is not None else None
 
@@ -936,13 +911,16 @@ def delete_tour(tour_id):
         if not tour:
             return jsonify({"message": "Tour not found"}), 404
 
-        # Security check: verify this tour belongs to the user
-        if tour.user_id != user_id:
-            return jsonify({"message": "Unauthorized to delete this tour"}), 403
-
-        # Check status: only completed or cancelled tours can be deleted
-        if tour.status not in ["completed", "cancelled", "rejected", "planned"]:
-            return jsonify({"message": "Cannot delete active or ongoing tours"}), 400
+        if is_admin:
+            if tour.status not in ["completed", "cancelled", "rejected"]:
+                return jsonify({
+                    "message": "Admin can only delete completed, cancelled, or rejected tours",
+                }), 400
+        else:
+            if tour.user_id != user_id:
+                return jsonify({"message": "Unauthorized to delete this tour"}), 403
+            if tour.status not in ["completed", "cancelled", "rejected", "planned"]:
+                return jsonify({"message": "Cannot delete active or ongoing tours"}), 400
 
         # Before deleting TourPlan, we must delete associated records to avoid foreign key errors.
         # Associated records: Location, Booking, Notification, Feedback.

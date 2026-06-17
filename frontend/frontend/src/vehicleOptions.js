@@ -28,7 +28,7 @@ export const VEHICLE_OPTIONS = [
     id: 'SUV',
     title: 'SUV',
     description: 'Open-air feel and rugged capability for scenic routes and uneven terrain.',
-    image: '/images/suv.png',
+    image: '/images/SUV.png',
   },
   {
     id: 'Mini bus',

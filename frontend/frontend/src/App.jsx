@@ -42,6 +42,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [estimate, setEstimate] = useState(null)
+  const [selectedDestForTrip, setSelectedDestForTrip] = useState(null) // destination pre-fill for plan-trip page
 
   const { loggedIn, userName, userRole, token, persistSession, logout } = useAuth()
 
@@ -95,6 +96,10 @@ export default function App() {
   const handleBackToHome = useCallback(() => setActivePage('home'), [])
   const handleOpenPlanTrip = useCallback(() => setActivePage('plan-trip'), [])
   const handleViewDashboard = useCallback(() => setActivePage('dashboard'), [])
+  const handlePlanTripWithDest = useCallback((dest) => {
+    setSelectedDestForTrip(dest)
+    setActivePage('plan-trip')
+  }, [])
 
   const handleLogout = useCallback(() => {
     logout()
@@ -195,7 +200,13 @@ export default function App() {
           latitude: 6.9 + i * 0.02,
           longitude: 79.9 + i * 0.02,
         }))
-        const data = await calculateTourEstimate({ locations, vehicle_type: vehicleType })
+        const today = new Date().toISOString().split('T')[0]
+        const data = await calculateTourEstimate({
+          locations,
+          vehicle_type: vehicleType,
+          start_date: today,
+          end_date: today,
+        })
         setEstimate(data)
         setInfo('Estimate received.')
       } catch (err) {
@@ -252,7 +263,8 @@ export default function App() {
           <HomePage
             onStartTour={handleStartTour}
             onGoToPlanTrip={handleOpenPlanTrip}
-            onViewDashboard={handleViewDashboard} // Passed down to let HomePage trigger the dashboard
+            onPlanTripWithDest={handlePlanTripWithDest}
+            onViewDashboard={handleViewDashboard}
             userName={userName}
             token={token}
             onLogout={handleLogout}
@@ -273,6 +285,7 @@ export default function App() {
           onBackToHome={handleBackToHome}
           onGoToPlanTrip={handleOpenPlanTrip}
           onBookingConfirmed={(data) => setFindingDriverData(data)}
+          initialDestination={selectedDestForTrip}
         />
       )
     }

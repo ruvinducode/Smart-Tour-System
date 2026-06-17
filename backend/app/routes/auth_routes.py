@@ -190,6 +190,80 @@ def get_all_users():
 
 
 # =========================
+# ADMIN: UPDATE USER
+# =========================
+@auth_bp.route("/admin/users/<int:user_id>", methods=["PUT"])
+@jwt_required()
+def update_user(user_id):
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"message": "Unauthorized"}), 403
+
+    user = User.query.get(user_id)
+    if not user or user.role == "admin":
+        return jsonify({"message": "User not found"}), 404
+
+    data = request.get_json() or {}
+    if "name" in data:
+        user.full_name = data["name"].strip()
+    if "email" in data:
+        email = data["email"].strip().lower()
+        existing = User.query.filter(User.email == email, User.id != user_id).first()
+        if existing:
+            return jsonify({"message": "Email already in use"}), 409
+        user.email = email
+    if "phone" in data:
+        user.phone = data["phone"].strip() or None
+    if "country" in data:
+        user.country = data["country"].strip() or None
+    if "is_active" in data:
+        user.is_active = bool(data["is_active"])
+
+    db.session.commit()
+    return jsonify({
+        "message": "User updated successfully",
+        "user": {
+            "id": user.id,
+            "name": user.full_name,
+            "email": user.email,
+            "phone": user.phone,
+            "country": user.country,
+            "is_active": user.is_active,
+            "created_at": str(user.created_at) if user.created_at else None,
+        },
+    }), 200
+
+
+# =========================
+# ADMIN: DELETE USER
+# =========================
+@auth_bp.route("/admin/users/<int:user_id>", methods=["DELETE"])
+@jwt_required()
+def delete_user(user_id):
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"message": "Unauthorized"}), 403
+
+    user = User.query.get(user_id)
+    if not user or user.role == "admin":
+        return jsonify({"message": "User not found"}), 404
+
+    from app.models import TourPlan
+    active_tours = TourPlan.query.filter(
+        TourPlan.user_id == user_id,
+        TourPlan.status.notin_(["completed", "cancelled"]),
+    ).count()
+    if active_tours > 0:
+        return jsonify({
+            "message": f"Cannot delete user with {active_tours} active tour(s). Deactivate instead.",
+        }), 409
+
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"message": "User deleted successfully"}), 200
+
+
+# =========================
 # ADMIN NOTIFICATIONS
 # =========================
 @auth_bp.route("/notifications/admin", methods=["GET"])
@@ -222,3 +296,121 @@ def get_admin_notifications():
         }
         for n in notifications
     ]), 200
+
+
+from sqlalchemy import func, or_
+
+
+def _caller_notification_filter():
+    """Return a SQLAlchemy filter for notifications owned by the JWT caller."""
+    claims = get_jwt()
+    role = claims.get("role", "user")
+    raw_id = get_jwt_identity()
+
+    try:
+        uid = int(raw_id)
+    except (TypeError, ValueError):
+        return None
+
+    if role == "driver":
+        from app.models import Driver
+        driver = Driver.query.get(uid)
+        if not driver:
+            return None
+        clauses = [Notification.recipient_driver_id == uid]
+        if driver.email:
+            clauses.append(func.lower(Notification.recipient_email) == driver.email.strip().lower())
+        return or_(*clauses)
+
+    entity = User.query.get(uid)
+    if not entity or not entity.email:
+        return None
+    return func.lower(Notification.recipient_email) == entity.email.strip().lower()
+
+
+def _resolve_email():
+    """Return the email of the authenticated caller (user, admin, or driver)."""
+    claims = get_jwt()
+    role = claims.get("role", "user")
+    raw_id = get_jwt_identity()
+
+    try:
+        uid = int(raw_id)
+    except (TypeError, ValueError):
+        return None
+
+    if role == "driver":
+        from app.models import Driver
+        entity = Driver.query.get(uid)
+    else:
+        entity = User.query.get(uid)
+
+    return entity.email if entity else None
+
+
+# =========================
+# MARK ONE NOTIFICATION AS READ
+# =========================
+@auth_bp.route("/notifications/<int:notif_id>/read", methods=["PUT"])
+@jwt_required()
+def mark_notification_read(notif_id):
+    owner_filter = _caller_notification_filter()
+    if owner_filter is None:
+        return jsonify({"message": "Unauthorized"}), 403
+
+    notif = Notification.query.filter(Notification.id == notif_id).filter(owner_filter).first()
+    if not notif:
+        return jsonify({"message": "Notification not found"}), 404
+
+    notif.status = "read"
+    db.session.commit()
+    return jsonify({"message": "Notification marked as read"}), 200
+
+
+# =========================
+# MARK ALL NOTIFICATIONS AS READ
+# =========================
+@auth_bp.route("/notifications/read-all", methods=["PUT"])
+@jwt_required()
+def mark_all_notifications_read():
+    owner_filter = _caller_notification_filter()
+    if owner_filter is None:
+        return jsonify({"message": "Unauthorized"}), 403
+
+    Notification.query.filter(owner_filter).filter(Notification.status != "read").update({"status": "read"})
+    db.session.commit()
+    return jsonify({"message": "All notifications marked as read"}), 200
+
+
+# =========================
+# DELETE ONE NOTIFICATION
+# =========================
+@auth_bp.route("/notifications/<int:notif_id>", methods=["DELETE"])
+@jwt_required()
+def delete_notification(notif_id):
+    owner_filter = _caller_notification_filter()
+    if owner_filter is None:
+        return jsonify({"message": "Unauthorized"}), 403
+
+    notif = Notification.query.filter(Notification.id == notif_id).filter(owner_filter).first()
+    if not notif:
+        return jsonify({"message": "Notification not found"}), 404
+
+    db.session.delete(notif)
+    db.session.commit()
+    return jsonify({"message": "Notification deleted"}), 200
+
+
+# =========================
+# CLEAR ALL NOTIFICATIONS
+# =========================
+@auth_bp.route("/notifications/clear-all", methods=["DELETE"])
+@jwt_required()
+def clear_all_notifications():
+    owner_filter = _caller_notification_filter()
+    if owner_filter is None:
+        return jsonify({"message": "Unauthorized"}), 403
+
+    Notification.query.filter(owner_filter).delete()
+    db.session.commit()
+    return jsonify({"message": "All notifications cleared"}), 200

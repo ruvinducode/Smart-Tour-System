@@ -322,8 +322,8 @@ export default function FindingDriverPage({
               {[
                 { icon: 'bi-car-front-fill', label: 'Vehicle', val: bookingDetails.vehicle || 'Standard' },
                 { icon: 'bi-calendar-date', label: 'Duration', val: `${bookingDetails.days || 1} Days` },
-                { icon: 'bi-currency-dollar', label: 'USD', val: `$${bookingDetails.usd || 0}` },
-                { icon: 'bi-cash-stack', label: 'LKR', val: `රු.${(bookingDetails.lkr || 0).toLocaleString()}` },
+                { icon: 'bi-geo-alt', label: 'Distance', val: `${bookingDetails.distance || 0} km` },
+                { icon: 'bi-cash-stack', label: 'Estimated', val: `Rs. ${Number(bookingDetails.lkr || 0).toLocaleString()}` },
               ].map((item, i) => (
                 <div key={i} className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col gap-1">
                   <div className="flex items-center gap-2 text-slate-400">

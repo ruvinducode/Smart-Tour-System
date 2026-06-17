@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { 
   approveDriver, 
   getAdminNotifications, 
@@ -8,39 +8,45 @@ import {
   getAllUsers,
   getAllDrivers,
   rejectDriver,
-  deactivateDriver
+  deactivateDriver,
+  updateUser,
+  deleteUser,
+  updateDriverByAdmin,
+  deleteTour,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+  clearAllNotifications,
 } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import DriverDetailsModal from '../components/DriverDetailsModal.jsx'
 import ConfirmationModal from '../components/ConfirmationModal.jsx'
+import AdminEditUserModal from '../components/admin/AdminEditUserModal.jsx'
+import AdminEditDriverModal from '../components/admin/AdminEditDriverModal.jsx'
+import {
+  AdminSectionHeader,
+  AdminEmptyState,
+  AdminUserCard,
+  AdminDriverCard,
+  filterBySearch,
+} from '../components/admin/AdminDirectoryCards.jsx'
+import {
+  AdminTourCard,
+  filterToursBySearch,
+} from '../components/admin/AdminTourCards.jsx'
+import AdminTourTrackingModal from '../components/admin/AdminTourTrackingModal.jsx'
+import FinanceAdminPage from './FinanceAdminPage.jsx'
 import DashboardChart from '../components/DashboardChart.jsx'
 import DashboardPieChart from '../components/DashboardPieChart.jsx'
+import DashboardStatCard from '../components/DashboardStatCard.jsx'
 import Footer from '../components/Footer.jsx'
+import {
+  buildLast7DaysChart,
+  buildStatusDistribution,
+  computeAdminAnalytics,
+  formatCurrency,
+} from '../utils/dashboardAnalytics.js'
 import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
-
-const adminChartData = [
-  { name: 'Mon', bookings: 12, revenue: 4500 },
-  { name: 'Tue', bookings: 19, revenue: 5200 },
-  { name: 'Wed', bookings: 15, revenue: 4800 },
-  { name: 'Thu', bookings: 22, revenue: 6100 },
-  { name: 'Fri', bookings: 30, revenue: 8500 },
-  { name: 'Sat', bookings: 45, revenue: 12000 },
-  { name: 'Sun', bookings: 38, revenue: 9500 },
-];
-
-const vehicleDistributionData = [
-  { name: 'Cars', value: 45 },
-  { name: 'Vans', value: 25 },
-  { name: 'Tuk Tuks', value: 20 },
-  { name: 'Luxury Bus', value: 10 },
-];
-
-const tourStatusDistributionData = [
-  { name: 'Completed', value: 42 },
-  { name: 'Confirmed', value: 28 },
-  { name: 'Planned', value: 18 },
-  { name: 'Cancelled', value: 12 },
-];
 
 const tourStatusStyle = {
   planned:              { label: 'Planned',      bg: 'bg-blue-100',    text: 'text-blue-800'   },
@@ -66,6 +72,7 @@ const NAV_ITEMS = [
   { id: 'registered_drivers', icon: 'bi bi-truck-front-fill',    label: 'Drivers List'    },
   { id: 'pending',            icon: 'bi bi-person-plus-fill',     label: 'Pending Drivers'  },
   { id: 'tours',              icon: 'bi bi-map-fill',            label: 'Tour Requests'    },
+  { id: 'finance',            icon: 'bi bi-currency-dollar',     label: 'Finance'          },
   { id: 'notifications',      icon: 'bi bi-bell-fill',           label: 'Notifications'    },
 ]
 
@@ -96,15 +103,25 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
   })
 
   const [sidebarOpen, setSidebarOpen]       = useState(true)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [userSearch, setUserSearch] = useState('')
+  const [driverSearch, setDriverSearch] = useState('')
+  const [pendingSearch, setPendingSearch] = useState('')
+  const [tourSearch, setTourSearch] = useState('')
+  const [trackingTour, setTrackingTour] = useState(null)
+  const [editingUser, setEditingUser] = useState(null)
+  const [editingDriver, setEditingDriver] = useState(null)
+  const [savingEntity, setSavingEntity] = useState(false)
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (silent = false) => {
     if (!token) {
       setError('No authentication token found. Please sign in again.')
       setLoading(false)
       return
     }
 
-    setError(''); setInfo(''); setLoading(true)
+    setError(''); setInfo('')
+    if (!silent) setLoading(true)
     try {
       const results = await Promise.allSettled([
         getPendingDrivers(token),
@@ -121,7 +138,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
       const isUnauthorized = results.some(r => r.status === 'rejected' && r.reason?.message?.includes('401'))
       if (isUnauthorized) {
         setError('Your session has expired. Please sign out and sign in again to continue.')
-        setLoading(false)
+        if (!silent) setLoading(false)
         return
       }
 
@@ -136,13 +153,18 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         setError('Could not load any dashboard data. Please check your connection or backend status.')
       }
     } catch (err) {
-      setError(err.message || 'Could not load data')
+      if (!silent) setError(err.message || 'Could not load data')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [token])
 
   useEffect(() => { loadData() }, [loadData])
+
+  useEffect(() => {
+    const id = setInterval(() => loadData(true), 2000)
+    return () => clearInterval(id)
+  }, [loadData])
 
   const handleApprove = async (driverId) => {
     setConfirmState({
@@ -213,14 +235,126 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
     })
   }
 
-  const confirmed  = tourPlans.filter(t => t.status === 'confirmed').length
-  const negotiating = tourPlans.filter(t => t.status === 'price_sent_by_driver').length
+  const handleSaveUser = async (userId, form) => {
+    setSavingEntity(true)
+    try {
+      await updateUser(userId, {
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        country: form.country,
+        is_active: form.is_active,
+      }, token)
+      setInfo('User updated successfully.')
+      setEditingUser(null)
+      loadData()
+    } catch (err) {
+      setError(err.message || 'Could not update user')
+    } finally {
+      setSavingEntity(false)
+    }
+  }
+
+  const handleDeleteUser = (user) => {
+    setConfirmState({
+      isOpen: true,
+      title: 'Delete User?',
+      message: `Permanently delete ${user.name}? This cannot be undone if they have no active tours.`,
+      type: 'danger',
+      onConfirm: async () => {
+        setApprovingId(user.id)
+        try {
+          await deleteUser(user.id, token)
+          setInfo('User deleted successfully.')
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+          loadData()
+        } catch (err) {
+          setError(err.message || 'Could not delete user')
+          setConfirmState(prev => ({ ...prev, isOpen: false }))
+        } finally {
+          setApprovingId(null)
+        }
+      },
+    })
+  }
+
+  const handleSaveDriver = async (driverId, form) => {
+    setSavingEntity(true)
+    try {
+      await updateDriverByAdmin(driverId, form, token)
+      setInfo('Driver updated successfully.')
+      setEditingDriver(null)
+      loadData()
+    } catch (err) {
+      setError(err.message || 'Could not update driver')
+    } finally {
+      setSavingEntity(false)
+    }
+  }
+
+  const handleDeleteTour = (tour) => {
+    setConfirmState({
+      isOpen: true,
+      title: 'Delete Tour Request?',
+      message: `Permanently delete Tour #${tour.id} (${tour.status})? This cannot be undone.`,
+      type: 'danger',
+      onConfirm: async () => {
+        setApprovingId(tour.id)
+        try {
+          await deleteTour(tour.id, token)
+          setInfo(`Tour #${tour.id} deleted successfully.`)
+          setConfirmState((prev) => ({ ...prev, isOpen: false }))
+          loadData()
+        } catch (err) {
+          setError(err.message || 'Could not delete tour')
+          setConfirmState((prev) => ({ ...prev, isOpen: false }))
+        } finally {
+          setApprovingId(null)
+        }
+      },
+    })
+  }
+
+  const filteredUsers = useMemo(
+    () => filterBySearch(users, userSearch, ['name', 'email', 'phone', 'country']),
+    [users, userSearch],
+  )
+  const filteredDrivers = useMemo(
+    () => filterBySearch(allDrivers, driverSearch, ['name', 'email', 'phone', 'vehicle', 'vehicle_number', 'nic_number']),
+    [allDrivers, driverSearch],
+  )
+  const filteredPending = useMemo(
+    () => filterBySearch(pendingDrivers, pendingSearch, ['name', 'email', 'phone', 'vehicle', 'nic_number', 'home_district']),
+    [pendingDrivers, pendingSearch],
+  )
+  const filteredTours = useMemo(
+    () => filterToursBySearch(tourPlans, tourSearch),
+    [tourPlans, tourSearch],
+  )
+
+  const analytics = useMemo(
+    () => computeAdminAnalytics(tourPlans, users, allDrivers, pendingDrivers, approvedDrivers),
+    [tourPlans, users, allDrivers, pendingDrivers, approvedDrivers]
+  )
+  const weeklyChart = useMemo(() => buildLast7DaysChart(tourPlans), [tourPlans])
+  const statusChart = useMemo(() => buildStatusDistribution(tourPlans), [tourPlans])
+
+  const confirmed  = analytics.confirmed
+  const negotiating = analytics.negotiating
 
   return (
-    <div className="flex min-h-screen bg-slate-50 font-sans text-slate-900">
-      {/* ── Sidebar ── */}
+    <div className="flex min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-blue-50/20 font-sans text-slate-900 relative">
+      {/* Mobile Sidebar Backdrop */}
+      {mobileSidebarOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm lg:hidden"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* ── Desktop Sidebar ── */}
       <aside
-        className={`flex flex-col justify-between bg-slate-900 border-r border-slate-800 transition-all duration-300 ${
+        className={`hidden lg:flex flex-col justify-between bg-slate-900 border-r border-slate-800 transition-all duration-300 ${
           sidebarOpen ? 'w-64' : 'w-20'
         } min-h-screen`}
       >
@@ -276,18 +410,66 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         </div>
       </aside>
 
+      {/* ── Mobile Sidebar Drawer ── */}
+      <aside className={`fixed top-0 left-0 h-full z-50 flex flex-col justify-between bg-slate-900 border-r border-slate-800 w-72 transition-all duration-300 lg:hidden ${
+        mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      }`}>
+        <div>
+          <div className="flex items-center gap-4 px-6 py-6 border-b border-slate-800">
+            <div className="h-14 w-14 flex-shrink-0 rounded-xl overflow-hidden border border-slate-700 shadow-lg shadow-orange-500/10">
+              <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
+            </div>
+            <span className="text-lg font-bold text-white tracking-tight">Air B&C ADMIN</span>
+          </div>
+          <nav className="mt-6 px-3 space-y-2">
+            {NAV_ITEMS.map(item => (
+              <button
+                key={item.id}
+                onClick={() => { setActiveTab(item.id); setMobileSidebarOpen(false); }}
+                className={`w-full flex items-center gap-4 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-200 ${
+                  activeTab === item.id
+                    ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20'
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <i className={`${item.icon} text-lg flex-shrink-0`}></i>
+                <span>{item.label}</span>
+                {item.id === 'pending' && pendingDrivers.length > 0 && (
+                  <span className="ml-auto bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">{pendingDrivers.length}</span>
+                )}
+              </button>
+            ))}
+          </nav>
+        </div>
+        <div className="px-3 pb-8">
+          <button onClick={onLogout} className="w-full flex items-center gap-4 rounded-xl px-4 py-3 text-sm font-semibold text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition">
+            <i className="bi bi-box-arrow-left text-lg"></i>
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </aside>
+
       {/* ── Main ── */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col min-h-screen min-w-0 overflow-hidden">
 
         {/* Top bar */}
-        <header className="flex items-center justify-between bg-white px-6 py-3.5 shadow-sm border-b border-slate-100">
-          <div>
-            <p className="text-base font-bold text-slate-800">{userName || 'Administrator'}</p>
-            <p className="text-xs text-slate-400">Super Administrator</p>
+        <header className="shrink-0 flex items-center justify-between bg-white/80 backdrop-blur-xl px-4 sm:px-6 py-3.5 shadow-sm border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            {/* Mobile hamburger */}
+            <button 
+              onClick={() => setMobileSidebarOpen(true)}
+              className="lg:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-all"
+            >
+              <i className="bi bi-list text-xl"></i>
+            </button>
+            <div>
+              <p className="text-base font-bold text-slate-800">{userName || 'Administrator'}</p>
+              <p className="text-xs text-slate-400 hidden sm:block">Super Administrator</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={loadData}
+              onClick={() => loadData()}
               disabled={loading}
               className="text-slate-500 hover:text-[#1a2e6f] text-sm font-semibold border border-slate-200 rounded-full px-4 py-1.5 transition hover:border-[#1a2e6f]"
             >
@@ -306,7 +488,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         </header>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+        <div className="flex-1 overflow-y-auto min-h-0 px-4 sm:px-6 pt-4 sm:pt-6 pb-6 space-y-6">
 
           {/* Alerts */}
           {error && (
@@ -328,7 +510,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                     </button>
                   ) : (
                     <button
-                      onClick={loadData}
+                      onClick={() => loadData()}
                       className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-800 px-6 py-2 text-sm font-bold text-white hover:bg-slate-900 transition"
                     >
                       <i className="bi bi-arrow-clockwise"></i>
@@ -349,85 +531,73 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
           {/* ── OVERVIEW ── */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
+              {/* Revenue hero */}
+              <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#1a2e6f] via-[#243b88] to-indigo-900 p-6 sm:p-8 text-white shadow-2xl">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,rgba(249,115,22,0.25),transparent_55%)]" />
+                <div className="relative grid grid-cols-1 lg:grid-cols-3 gap-6 items-end">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200/80 mb-2">Platform Revenue</p>
+                    <p className="text-4xl sm:text-5xl font-black">{formatCurrency(analytics.totalRevenue)}</p>
+                    <p className="text-sm text-blue-100/70 mt-2">{analytics.completedTours} completed bookings</p>
+                  </div>
+                  <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {[
+                      { label: 'Pipeline', value: formatCurrency(analytics.pipelineRevenue) },
+                      { label: 'Avg Booking', value: formatCurrency(analytics.avgBookingValue) },
+                      { label: 'Active Tours', value: analytics.activeTours },
+                    ].map((item) => (
+                      <div key={item.label} className="rounded-2xl bg-white/10 border border-white/10 px-4 py-3 backdrop-blur-sm">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-blue-200/60">{item.label}</p>
+                        <p className="text-xl font-black mt-1">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               {/* Stat cards */}
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                {[
-                  { label: 'Total Users',      value: '—',                      icon: '👤', color: 'from-blue-50 to-white',    accent: 'text-[#1a2e6f]' },
-                  { label: 'Active Drivers',   value: approvedDrivers.length,   icon: '🚗', color: 'from-emerald-50 to-white', accent: 'text-emerald-700' },
-                  { label: 'Pending Drivers',  value: pendingDrivers.length,    icon: '⏳', color: 'from-amber-50 to-white',   accent: 'text-amber-700'  },
-                  { label: 'Tour Requests',    value: tourPlans.length,         icon: '📋', color: 'from-violet-50 to-white',  accent: 'text-violet-700' },
-                ].map(s => (
-                  <div key={s.label} className={`rounded-2xl bg-gradient-to-br ${s.color} border border-slate-200 p-5 shadow-sm`}>
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{s.label}</p>
-                      <span className="text-xl">{s.icon}</span>
-                    </div>
-                    <p className={`text-3xl font-black ${s.accent}`}>{s.value}</p>
-                  </div>
-                ))}
+                <DashboardStatCard label="Total Users" value={analytics.totalUsers} icon="bi-people-fill" accent="blue" sub="Registered travelers" />
+                <DashboardStatCard label="Active Drivers" value={analytics.activeDrivers} icon="bi-truck-front-fill" accent="emerald" sub={`${analytics.totalDrivers} total drivers`} />
+                <DashboardStatCard label="Pending Drivers" value={analytics.pendingDrivers} icon="bi-hourglass-split" accent="orange" sub="Awaiting approval" />
+                <DashboardStatCard label="Tour Requests" value={analytics.totalTours} icon="bi-map-fill" accent="violet" sub={`${analytics.confirmed} confirmed`} />
               </div>
 
               {/* Analytics Charts */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
-                  <DashboardChart 
-                    data={adminChartData} 
-                    title="Weekly Booking Analytics" 
-                    barKey="bookings" 
-                    lineKey="revenue" 
+                  <DashboardChart
+                    data={weeklyChart}
+                    title="Bookings & Revenue (Last 7 Days)"
+                    barKey="bookings"
+                    lineKey="revenue"
                   />
                 </div>
                 <div>
-                  <DashboardPieChart 
-                    data={vehicleDistributionData} 
-                    title="Vehicle Fleet Mix" 
-                  />
+                  {statusChart.length > 0 ? (
+                    <DashboardPieChart data={statusChart} title="Tour Status Distribution" />
+                  ) : (
+                    <div className="bg-white rounded-3xl border border-slate-100 p-8 h-full flex items-center justify-center text-slate-400 text-sm font-bold">
+                      No tour data yet
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Analytics Charts Row 2 */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div>
-                   <DashboardPieChart 
-                    data={tourStatusDistributionData} 
-                    title="Tour Status Share" 
-                  />
-                </div>
-                <div className="lg:col-span-2">
-                   {/* Trip Statistics + Quick Actions */}
-                   <div className="grid gap-6 h-full">
-                    <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden h-full">
-                      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                        <h3 className="text-base font-bold text-slate-800">Operational Statistics</h3>
-                        <span className="rounded-full bg-[#1a2e6f] text-white text-xs font-bold px-3 py-1">Real-time</span>
-                      </div>
-                      <div className="grid grid-cols-2 divide-x divide-slate-100 h-full">
-                        <div className="divide-y divide-slate-100">
-                          {[
-                            { label: 'Total Tours',    value: tourPlans.length,                                    color: 'text-[#1a2e6f]' },
-                            { label: 'Confirmed',      value: confirmed,                                           color: 'text-emerald-600' },
-                          ].map(row => (
-                            <div key={row.label} className="flex items-center justify-between px-6 py-6">
-                              <p className="text-sm text-slate-600 font-medium">{row.label}</p>
-                              <p className={`text-xl font-black ${row.color}`}>{row.value}</p>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="divide-y divide-slate-100">
-                          {[
-                            { label: 'Negotiating',    value: negotiating,                                         color: 'text-amber-600' },
-                            { label: 'Pending Approval', value: pendingDrivers.length,                             color: 'text-rose-600' },
-                          ].map(row => (
-                            <div key={row.label} className="flex items-center justify-between px-6 py-6">
-                              <p className="text-sm text-slate-600 font-medium">{row.label}</p>
-                              <p className={`text-xl font-black ${row.color}`}>{row.value}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                   </div>
-                </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                {[
+                  { label: 'Total Tours', value: analytics.totalTours, color: 'text-[#1a2e6f]' },
+                  { label: 'Completed', value: analytics.completedTours, color: 'text-emerald-600' },
+                  { label: 'Confirmed', value: confirmed, color: 'text-teal-600' },
+                  { label: 'Negotiating', value: negotiating, color: 'text-amber-600' },
+                  { label: 'Active Now', value: analytics.activeTours, color: 'text-orange-600' },
+                  { label: 'Pending Drivers', value: analytics.pendingDrivers, color: 'text-rose-600' },
+                ].map((row) => (
+                  <div key={row.label} className="rounded-2xl bg-white border border-slate-200 shadow-sm px-5 py-5 hover:shadow-md transition-shadow">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{row.label}</p>
+                    <p className={`text-2xl font-black ${row.color}`}>{row.value}</p>
+                  </div>
+                ))}
               </div>
 
                 {/* Quick Actions + System Status */}
@@ -464,53 +634,34 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
 
           {/* ── REGISTERED USERS ── */}
           {activeTab === 'registered_users' && (
-            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                <h2 className="text-base font-bold text-slate-800">Registered Users</h2>
-                <span className="rounded-full bg-sky-100 text-sky-700 text-xs font-bold px-3 py-1">{users.length} Total</span>
-              </div>
+            <div>
+              <AdminSectionHeader
+                title="Registered Users"
+                subtitle="Manage traveler accounts, update profiles, and control access."
+                count={filteredUsers.length}
+                countLabel="Users shown"
+                accent="blue"
+                search={userSearch}
+                onSearchChange={setUserSearch}
+                placeholder="Search name, email, phone…"
+              />
               {loading ? (
-                <div className="py-12 text-center"><div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#1a2e6f]" /></div>
-              ) : users.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-sm">No registered users found.</div>
+                <div className="py-20 text-center">
+                  <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-[#1a2e6f]" />
+                </div>
+              ) : filteredUsers.length === 0 ? (
+                <AdminEmptyState icon="bi-people" title="No users found" message="Try adjusting your search or check back later." />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-400">
-                        <th className="px-5 py-3 text-left">User</th>
-                        <th className="px-5 py-3 text-left">Contact</th>
-                        <th className="px-5 py-3 text-left">Country</th>
-                        <th className="px-5 py-3 text-left">Status</th>
-                        <th className="px-5 py-3 text-left">Joined</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {users.map(u => (
-                        <tr key={u.id} className="hover:bg-slate-50 transition">
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="h-9 w-9 rounded-full bg-sky-100 flex items-center justify-center text-sky-700 font-bold">
-                                {u.name.charAt(0)}
-                              </div>
-                              <span className="font-semibold text-slate-800">{u.name}</span>
-                            </div>
-                          </td>
-                          <td className="px-5 py-4">
-                            <p className="text-slate-600">{u.email}</p>
-                            <p className="text-xs text-slate-400">{u.phone}</p>
-                          </td>
-                          <td className="px-5 py-4 text-slate-600">{u.country || 'N/A'}</td>
-                          <td className="px-5 py-4">
-                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                              {u.is_active ? 'Active' : 'Disabled'}
-                            </span>
-                          </td>
-                          <td className="px-5 py-4 text-slate-400 text-xs">{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {filteredUsers.map((u) => (
+                    <AdminUserCard
+                      key={u.id}
+                      user={u}
+                      onEdit={setEditingUser}
+                      onDelete={handleDeleteUser}
+                      busy={approvingId === u.id || savingEntity}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -518,83 +669,38 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
 
           {/* ── REGISTERED DRIVERS (ALL) ── */}
           {activeTab === 'registered_drivers' && (
-            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                <h2 className="text-base font-bold text-slate-800">Driver Management</h2>
-                <span className="rounded-full bg-orange-100 text-orange-700 text-xs font-bold px-3 py-1">{allDrivers.length} Registered</span>
-              </div>
+            <div>
+              <AdminSectionHeader
+                title="Driver Directory"
+                subtitle="View all registered drivers, edit profiles, and manage approval status."
+                count={filteredDrivers.length}
+                countLabel="Drivers shown"
+                accent="orange"
+                search={driverSearch}
+                onSearchChange={setDriverSearch}
+                placeholder="Search name, vehicle, NIC…"
+              />
               {loading ? (
-                <div className="py-12 text-center"><div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#1a2e6f]" /></div>
-              ) : allDrivers.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-sm">No drivers found.</div>
+                <div className="py-20 text-center">
+                  <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-orange-500" />
+                </div>
+              ) : filteredDrivers.length === 0 ? (
+                <AdminEmptyState icon="bi-truck-front" title="No drivers found" message="Try adjusting your search or check back later." />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-400">
-                        <th className="px-5 py-3 text-left">Driver</th>
-                        <th className="px-5 py-3 text-left">Vehicle</th>
-                        <th className="px-5 py-3 text-left">NIC</th>
-                        <th className="px-5 py-3 text-left">Approval</th>
-                        <th className="px-5 py-3 text-left">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {allDrivers.map(d => (
-                        <tr key={d.id} className="hover:bg-slate-50 transition">
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="h-9 w-9 rounded-full bg-orange-100 flex items-center justify-center text-orange-700 font-bold">
-                                {d.name.charAt(0)}
-                              </div>
-                              <div>
-                                <p className="font-semibold text-slate-800">{d.name}</p>
-                                <p className="text-xs text-slate-400">{d.email}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-5 py-4">
-                            <p className="text-slate-600 font-medium">{d.vehicle}</p>
-                            <p className="text-xs text-slate-400">{d.vehicle_number}</p>
-                          </td>
-                          <td className="px-5 py-4 text-slate-600">{d.nic_number}</td>
-                          <td className="px-5 py-4">
-                            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${d.is_approved ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                              {d.is_approved ? 'Approved' : 'Pending'}
-                            </span>
-                          </td>
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => { setSelectedDriver(d); setShowDriverModal(true) }}
-                                className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 transition shadow-sm"
-                              >
-                                🔍 Details
-                              </button>
-                              
-                              {!d.is_approved ? (
-                                <button
-                                  onClick={() => handleApprove(d.id)}
-                                  disabled={approvingId === d.id}
-                                  className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-600 disabled:opacity-60 transition shadow-sm"
-                                >
-                                  {approvingId === d.id ? '...' : '✓ Approve'}
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleDeactivate(d.id)}
-                                  disabled={approvingId === d.id}
-                                  className="rounded-xl bg-rose-100 px-4 py-2 text-xs font-bold text-rose-600 hover:bg-rose-200 disabled:opacity-60 transition shadow-sm"
-                                >
-                                  {approvingId === d.id ? '...' : 'Deactivate'}
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {filteredDrivers.map((d) => (
+                    <AdminDriverCard
+                      key={d.id}
+                      driver={d}
+                      variant="all"
+                      busy={approvingId === d.id || savingEntity}
+                      onView={(driver) => { setSelectedDriver(driver); setShowDriverModal(true) }}
+                      onEdit={setEditingDriver}
+                      onApprove={handleApprove}
+                      onDeactivate={handleDeactivate}
+                      onReject={handleReject}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -602,62 +708,38 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
 
           {/* ── PENDING DRIVERS ── */}
           {activeTab === 'pending' && (
-            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                <h2 className="text-base font-bold text-slate-800">Pending Driver Approvals</h2>
-                <span className="rounded-full bg-rose-100 text-rose-700 text-xs font-bold px-3 py-1">{pendingDrivers.length} waiting</span>
-              </div>
+            <div>
+              <AdminSectionHeader
+                title="Pending Approvals"
+                subtitle="Review new driver applications and approve or reject registrations."
+                count={filteredPending.length}
+                countLabel="Awaiting review"
+                accent="rose"
+                search={pendingSearch}
+                onSearchChange={setPendingSearch}
+                placeholder="Search applicant, vehicle, district…"
+              />
               {loading ? (
-                <div className="py-12 text-center"><div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#1a2e6f]" /></div>
-              ) : pendingDrivers.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-sm">No pending drivers at the moment.</div>
+                <div className="py-20 text-center">
+                  <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-rose-500" />
+                </div>
+              ) : filteredPending.length === 0 ? (
+                <AdminEmptyState icon="bi-hourglass-split" title="All caught up" message="No pending driver applications at the moment." />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-400">
-                        <th className="px-5 py-3 text-left">ID</th>
-                        <th className="px-5 py-3 text-left">Name</th>
-                        <th className="px-5 py-3 text-left">Email</th>
-                        <th className="px-5 py-3 text-left">Phone</th>
-                        <th className="px-5 py-3 text-left">Vehicle</th>
-                        <th className="px-5 py-3 text-left">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {pendingDrivers.map(driver => (
-                        <tr key={driver.id} className="hover:bg-slate-50 transition">
-                          <td className="px-5 py-4 font-bold text-[#1a2e6f]">#{driver.id}</td>
-                          <td className="px-5 py-4 font-semibold text-slate-800">{driver.name}</td>
-                          <td className="px-5 py-4 text-slate-500">{driver.email}</td>
-                          <td className="px-5 py-4 text-slate-500">{driver.phone}</td>
-                          <td className="px-5 py-4 text-slate-600 font-medium">{driver.vehicle}</td>
-                          <td className="px-5 py-4 flex items-center gap-2">
-                            <button
-                              onClick={() => { setSelectedDriver(driver); setShowDriverModal(true) }}
-                              className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 transition shadow-sm"
-                            >
-                              🔍 View
-                            </button>
-                            <button
-                              onClick={() => handleApprove(driver.id)}
-                              disabled={approvingId === driver.id}
-                              className="rounded-xl bg-emerald-500 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-600 disabled:opacity-60 transition shadow-sm"
-                            >
-                              {approvingId === driver.id ? 'Approving…' : '✓ Approve'}
-                            </button>
-                            <button
-                              onClick={() => handleReject(driver.id)}
-                              disabled={approvingId === driver.id}
-                              className="rounded-xl bg-rose-500 px-4 py-2 text-xs font-bold text-white hover:bg-rose-600 disabled:opacity-60 transition shadow-sm"
-                            >
-                              {approvingId === driver.id ? 'Rejecting…' : '✕ Reject'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {filteredPending.map((driver) => (
+                    <AdminDriverCard
+                      key={driver.id}
+                      driver={driver}
+                      variant="pending"
+                      busy={approvingId === driver.id || savingEntity}
+                      onView={(d) => { setSelectedDriver(d); setShowDriverModal(true) }}
+                      onEdit={setEditingDriver}
+                      onApprove={handleApprove}
+                      onDeactivate={handleDeactivate}
+                      onReject={handleReject}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -716,82 +798,187 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
 
           {/* ── TOUR REQUESTS ── */}
           {activeTab === 'tours' && (
-            <div className="rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                <h2 className="text-base font-bold text-slate-800">Tour Requests</h2>
-                <span className="rounded-full bg-slate-100 text-slate-600 text-xs font-bold px-3 py-1">{tourPlans.length} total</span>
-              </div>
+            <div>
+              <AdminSectionHeader
+                title="Tour Requests"
+                subtitle="Monitor all bookings with traveler and driver details. Track active tours live on the map."
+                count={filteredTours.length}
+                countLabel="Tours shown"
+                accent="violet"
+                search={tourSearch}
+                onSearchChange={setTourSearch}
+                placeholder="Search tour #, user, driver, status…"
+              />
               {loading ? (
-                <div className="py-12 text-center"><div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#1a2e6f]" /></div>
-              ) : tourPlans.length === 0 ? (
-                <div className="py-12 text-center text-slate-400 text-sm">No tour requests yet.</div>
+                <div className="py-20 text-center">
+                  <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-violet-600" />
+                </div>
+              ) : filteredTours.length === 0 ? (
+                <AdminEmptyState icon="bi-map" title="No tours found" message="Try adjusting your search or check back when new bookings arrive." />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-400">
-                        <th className="px-5 py-3 text-left">Tour #</th>
-                        <th className="px-5 py-3 text-left">Distance</th>
-                        <th className="px-5 py-3 text-left">Days</th>
-                        <th className="px-5 py-3 text-left">Price</th>
-                        <th className="px-5 py-3 text-left">Status</th>
-                        <th className="px-5 py-3 text-left">Created</th>
-                        <th className="px-5 py-3 text-left">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {tourPlans.map(tour => (
-                        <tr key={tour.id} className="hover:bg-slate-50 transition">
-                          <td className="px-5 py-4 font-bold text-[#1a2e6f]">#{tour.id}</td>
-                          <td className="px-5 py-4 text-slate-700 font-medium">{tour.total_distance_km} km</td>
-                          <td className="px-5 py-4 text-slate-700">{tour.total_days} days</td>
-                          <td className="px-5 py-4 font-bold text-slate-800">Rs. {Number(tour.estimated_price || 0).toFixed(0)}</td>
-                          <td className="px-5 py-4"><TourBadge status={tour.status} /></td>
-                          <td className="px-5 py-4 text-slate-400 text-xs">{tour.created_at ? new Date(tour.created_at).toLocaleDateString() : '—'}</td>
-                          <td className="px-5 py-4">
-                            <button
-                              onClick={() => { setSelectedTourId(tour.id); setShowDetailsModal(true) }}
-                              className="rounded-xl bg-[#1a2e6f] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#253d94] transition shadow-sm"
-                            >
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                  {filteredTours.map((tour) => (
+                    <AdminTourCard
+                      key={tour.id}
+                      tour={tour}
+                      busy={approvingId === tour.id || savingEntity}
+                      onViewDetails={(t) => {
+                        setSelectedTourId(t.id)
+                        setShowDetailsModal(true)
+                      }}
+                      onTrack={setTrackingTour}
+                      onDelete={handleDeleteTour}
+                    />
+                  ))}
                 </div>
               )}
             </div>
           )}
 
-          {/* ── NOTIFICATIONS ── */}
-          {activeTab === 'notifications' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-bold text-slate-800">Activity Notifications</h2>
-                <span className="text-xs text-slate-400 font-semibold">{notifications.length} total</span>
-              </div>
-              {loading ? (
-                <div className="py-12 text-center"><div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#1a2e6f]" /></div>
-              ) : notifications.length === 0 ? (
-                <div className="rounded-2xl bg-white border border-slate-200 p-12 text-center text-slate-400 text-sm">No notifications yet.</div>
-              ) : (
-                notifications.map(note => (
-                  <div key={note.id} className="flex items-start gap-4 rounded-2xl bg-white border border-slate-200 border-l-4 border-l-[#1a2e6f] px-5 py-4 shadow-sm hover:shadow-md transition">
-                    <div className="h-8 w-8 flex-shrink-0 rounded-full bg-blue-100 flex items-center justify-center text-[#1a2e6f] text-sm">🔔</div>
-                    <div className="flex-1">
-                      <p className="text-sm font-bold text-slate-800">{note.subject}</p>
-                      <p className="mt-0.5 text-sm text-slate-500">{note.message}</p>
-                    </div>
-                    <p className="text-xs text-slate-400 whitespace-nowrap">{note.created_at ? new Date(note.created_at).toLocaleDateString() : '—'}</p>
-                  </div>
-                ))
-              )}
-            </div>
+          {/* ── FINANCE MANAGEMENT ── */}
+          {activeTab === 'finance' && (
+            <FinanceAdminPage token={token} />
           )}
+
+          {/* ── NOTIFICATIONS ── */}
+          {activeTab === 'notifications' && (() => {
+            const unreadCount = notifications.filter(n => n.status !== 'read').length
+
+            const handleMarkRead = async (id) => {
+              try {
+                await markNotificationRead(id, token)
+                setNotifications(prev => prev.map(n => n.id === id ? { ...n, status: 'read' } : n))
+              } catch { /* silent */ }
+            }
+
+            const handleMarkAllRead = async () => {
+              try {
+                await markAllNotificationsRead(token)
+                setNotifications(prev => prev.map(n => ({ ...n, status: 'read' })))
+              } catch { /* silent */ }
+            }
+
+            const handleDismiss = async (id) => {
+              try {
+                await deleteNotification(id, token)
+                setNotifications(prev => prev.filter(n => n.id !== id))
+              } catch { /* silent */ }
+            }
+
+            const handleClearAll = async () => {
+              try {
+                await clearAllNotifications(token)
+                setNotifications([])
+              } catch { /* silent */ }
+            }
+
+            return (
+              <div className="space-y-5 max-w-4xl">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-black text-slate-800">Activity Notifications</h2>
+                    <p className="text-xs text-slate-400 font-semibold mt-0.5">
+                      {unreadCount > 0 ? <span className="text-[#1a2e6f]">{unreadCount} unread</span> : 'All caught up'} · {notifications.length} total
+                    </p>
+                  </div>
+                  {notifications.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={handleMarkAllRead}
+                          className="inline-flex items-center gap-2 text-xs font-bold text-[#1a2e6f] border border-[#1a2e6f]/20 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition"
+                        >
+                          <i className="bi bi-check2-all"></i> Mark All Read
+                        </button>
+                      )}
+                      <button
+                        onClick={handleClearAll}
+                        className="inline-flex items-center gap-2 text-xs font-bold text-rose-600 border border-rose-200 bg-rose-50 hover:bg-rose-100 px-4 py-2 rounded-xl transition"
+                      >
+                        <i className="bi bi-trash3-fill"></i> Clear All
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {loading ? (
+                  <div className="py-12 text-center"><div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#1a2e6f]" /></div>
+                ) : notifications.length === 0 ? (
+                  <div className="rounded-3xl bg-white border border-slate-100 p-16 text-center shadow-sm">
+                    <div className="h-16 w-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <i className="bi bi-bell-slash text-2xl text-slate-300"></i>
+                    </div>
+                    <p className="text-sm font-bold text-slate-400">No notifications yet.</p>
+                    <p className="text-xs text-slate-300 mt-1">System events and updates will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {notifications.map(note => {
+                      const isUnread = note.status !== 'read'
+                      return (
+                        <div
+                          key={note.id}
+                          onClick={() => {
+                            if (isUnread) handleMarkRead(note.id)
+                            if (note.tour_id) { setSelectedTourId(note.tour_id); setShowDetailsModal(true) }
+                          }}
+                          className={`group flex items-start gap-4 rounded-2xl border px-5 py-4 shadow-sm transition-all cursor-pointer hover:shadow-md ${
+                            isUnread
+                              ? 'bg-blue-50/50 border-blue-200 border-l-4 border-l-[#1a2e6f]'
+                              : 'bg-white border-slate-100 hover:bg-slate-50'
+                          }`}
+                        >
+                          {/* Status dot */}
+                          <div className="flex-shrink-0 mt-1">
+                            <div className={`h-2.5 w-2.5 rounded-full ${isUnread ? 'bg-[#1a2e6f]' : 'bg-slate-200'}`} />
+                          </div>
+
+                          {/* Bell icon */}
+                          <div className={`h-10 w-10 flex-shrink-0 rounded-xl flex items-center justify-center text-base ${
+                            isUnread ? 'bg-[#1a2e6f] text-white shadow-md shadow-blue-500/20' : 'bg-slate-100 text-slate-400'
+                          }`}>
+                            <i className="bi bi-bell-fill"></i>
+                          </div>
+
+                          {/* Body */}
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm leading-snug mb-0.5 ${
+                              isUnread ? 'font-black text-slate-900' : 'font-semibold text-slate-600'
+                            }`}>{note.subject}</p>
+                            <p className={`text-xs leading-relaxed line-clamp-2 ${
+                              isUnread ? 'text-slate-600' : 'text-slate-400'
+                            }`}>{note.message}</p>
+                            <div className="flex items-center gap-3 mt-2">
+                              <span className="text-[10px] text-slate-400 font-medium">
+                                {note.created_at ? new Date(note.created_at).toLocaleString() : '—'}
+                              </span>
+                              {note.tour_id && (
+                                <span className="text-[10px] font-black text-[#1a2e6f] uppercase tracking-wider flex items-center gap-1">
+                                  <i className="bi bi-arrow-right-circle"></i> View Tour #{note.tour_id}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Dismiss button */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDismiss(note.id) }}
+                            className="flex-shrink-0 h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:bg-rose-50 hover:text-rose-500 transition opacity-0 group-hover:opacity-100"
+                            title="Dismiss"
+                          >
+                            <i className="bi bi-x-lg text-sm"></i>
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </div>
-        <Footer minimal={true} />
+        <Footer variant="dashboard" portal="admin" />
       </main>
 
       <TourDetailsModal
@@ -818,6 +1005,29 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         onConfirm={confirmState.onConfirm}
         onClose={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
         isLoading={approvingId !== null}
+      />
+
+      <AdminEditUserModal
+        user={editingUser}
+        isOpen={!!editingUser}
+        onClose={() => setEditingUser(null)}
+        onSave={handleSaveUser}
+        saving={savingEntity}
+      />
+
+      <AdminEditDriverModal
+        driver={editingDriver}
+        isOpen={!!editingDriver}
+        onClose={() => setEditingDriver(null)}
+        onSave={handleSaveDriver}
+        saving={savingEntity}
+      />
+
+      <AdminTourTrackingModal
+        tour={trackingTour}
+        token={token}
+        isOpen={!!trackingTour}
+        onClose={() => setTrackingTour(null)}
       />
     </div>
   )

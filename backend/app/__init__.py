@@ -49,11 +49,13 @@ def create_app():
     from app.routes.driver_routes import driver_bp
     from app.routes.tour_routes import tour_bp
     from app.routes.booking_routes import booking_bp
+    from app.routes.finance_routes import finance_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(driver_bp)
     app.register_blueprint(tour_bp, url_prefix="/tour")
     app.register_blueprint(booking_bp)
+    app.register_blueprint(finance_bp)
 
     # =========================
     # HOME ROUTE
@@ -75,16 +77,9 @@ def create_app():
     def seed_all_vehicles():
         from app.models import Vehicle
         
-        # Vehicle data matching frontend vehicleOptions.js
-        vehicle_data = [
-            ("Mini car", 800, 45, 4500, 3),
-            ("Car", 1000, 50, 5000, 4),
-            ("Mini van", 1200, 60, 6500, 6),
-            ("Van", 1500, 70, 8000, 8),
-            ("SUV", 1300, 65, 7000, 5),
-            ("Mini bus", 1800, 85, 11000, 15),
-            ("Bus", 2000, 90, 12000, 20),
-        ]
+        # Vehicle pricing — sourced from finance_service (single source of truth)
+        from app.services.finance_service import VEHICLE_PRICING_SEEDS
+        vehicle_data = VEHICLE_PRICING_SEEDS
         
         added = 0
         for type_name, base_fare, price_per_km, price_per_day, max_passengers in vehicle_data:

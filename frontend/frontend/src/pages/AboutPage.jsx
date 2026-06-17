@@ -72,35 +72,36 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
   return (
     <div className="min-h-screen bg-[#fffbeb] text-slate-900 overflow-x-hidden selection:bg-emerald-200">
       {/* Navigation Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 py-6 px-6 bg-[#fffbeb]/80 backdrop-blur-md border-b border-amber-100">
+      <header className="fixed top-0 left-0 right-0 z-50 py-4 sm:py-6 px-4 sm:px-6 bg-[#fffbeb]/95 backdrop-blur-xl border-b border-amber-100 shadow-sm">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             className="flex items-center gap-3"
           >
-            <div className="w-14 h-14 overflow-hidden rounded-xl shadow-lg border-2 border-emerald-900">
+            <div className="w-10 h-10 sm:w-14 sm:h-14 overflow-hidden rounded-xl shadow-lg border-2 border-emerald-900">
               <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
             </div>
-            <span className="text-xl font-extrabold text-emerald-900 uppercase tracking-tighter">Air B&C <span className="font-light text-slate-400">| About</span></span>
+            <span className="text-base sm:text-xl font-extrabold text-emerald-900 uppercase tracking-tighter">Air B&C <span className="font-light text-slate-400 hidden sm:inline">| About</span></span>
           </motion.div>
           <button
             onClick={onBackHome}
-            className="flex items-center gap-2 text-emerald-900 font-bold hover:text-amber-600 transition-colors group"
+            className="flex items-center gap-1 sm:gap-2 text-emerald-900 font-bold hover:text-amber-600 transition-colors group text-sm sm:text-base"
           >
-            <ArrowLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-            Back to Home
+            <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
+            <span className="hidden sm:inline">Back to Home</span>
+            <span className="sm:hidden">Back</span>
           </button>
         </div>
       </header>
 
       {/* Hero Banner */}
-      <section className="pt-40 pb-20 px-6">
+      <section className="pt-28 sm:pt-40 pb-12 sm:pb-20 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto text-center">
           <motion.span 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-amber-600 font-bold uppercase tracking-[0.3em] text-sm mb-6 block"
+            className="text-amber-600 font-bold uppercase tracking-[0.3em] text-sm mb-4 sm:mb-6 block"
           >
             Our Mission & Story
           </motion.span>
@@ -108,7 +109,7 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-5xl md:text-7xl font-serif text-emerald-950 mb-8 leading-tight"
+            className="text-3xl sm:text-5xl md:text-7xl font-serif text-emerald-950 mb-6 sm:mb-8 leading-tight"
           >
             Crafting Unforgettable <br /> Island Stories
           </motion.h1>
@@ -124,19 +125,19 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
       </section>
 
       {/* Story Section */}
-      <section className="py-20 max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-16 items-center">
+      <section className="py-12 sm:py-20 max-w-7xl mx-auto px-4 sm:px-6 grid lg:grid-cols-2 gap-10 sm:gap-16 items-center">
         <motion.div
           initial={{ opacity: 0, x: -40 }}
           whileInView={{ opacity: 1, x: 0 }}
           viewport={{ once: true }}
           className="relative"
         >
-          <div className="rounded-[40px] overflow-hidden shadow-2xl border-4 border-white">
-            <img src={cultureImg} className="w-full h-[600px] object-cover" alt="Sri Lankan Culture" />
+          <div className="rounded-[24px] sm:rounded-[40px] overflow-hidden shadow-2xl border-4 border-white">
+            <img src={cultureImg} className="w-full h-[280px] sm:h-[450px] lg:h-[600px] object-cover" alt="Sri Lankan Culture" />
           </div>
-          <div className="absolute -bottom-8 -right-8 bg-amber-500 text-emerald-950 p-8 rounded-[32px] shadow-xl max-w-xs">
-            <h4 className="text-2xl font-serif mb-2">Since 2024</h4>
-            <p className="text-sm font-bold opacity-80 uppercase tracking-widest">Born in the heart of the Indian Ocean.</p>
+          <div className="absolute -bottom-4 sm:-bottom-8 -right-4 sm:-right-8 bg-amber-500 text-emerald-950 p-5 sm:p-8 rounded-[24px] sm:rounded-[32px] shadow-xl max-w-[200px] sm:max-w-xs">
+            <h4 className="text-lg sm:text-2xl font-serif mb-1 sm:mb-2">Since 2024</h4>
+            <p className="text-xs sm:text-sm font-bold opacity-80 uppercase tracking-widest">Born in the heart of the Indian Ocean.</p>
           </div>
         </motion.div>
 
@@ -144,6 +145,7 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
           initial={{ opacity: 0, x: 40 }}
           whileInView={{ opacity: 1, x: 0 }}
           viewport={{ once: true }}
+          className="mt-8 lg:mt-0"
         >
           <h2 className="text-4xl font-serif text-emerald-950 mb-8">Who We Are</h2>
           <div className="space-y-6 text-lg text-slate-600 leading-relaxed">
@@ -169,7 +171,7 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
       </section>
 
       {/* Values Section */}
-      <section className="py-32 bg-emerald-950 relative overflow-hidden">
+      <section className="py-16 sm:py-32 bg-emerald-950 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-800 rounded-full blur-[150px] opacity-20 -translate-y-1/2 translate-x-1/2"></div>
         
         <div className="max-w-7xl mx-auto px-6 text-center mb-20 relative z-10">
@@ -198,8 +200,8 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
       </section>
 
       {/* Mission Section */}
-      <section className="py-32 max-w-7xl mx-auto px-6">
-        <div className="bg-white rounded-[60px] p-12 md:p-24 shadow-2xl flex flex-col items-center text-center border border-amber-100">
+      <section className="py-16 sm:py-32 max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="bg-white rounded-[32px] sm:rounded-[60px] p-8 sm:p-12 md:p-24 shadow-2xl flex flex-col items-center text-center border border-amber-100">
            <div className="bg-emerald-100 text-emerald-900 p-6 rounded-[32px] mb-12">
               <Target size={48} />
            </div>

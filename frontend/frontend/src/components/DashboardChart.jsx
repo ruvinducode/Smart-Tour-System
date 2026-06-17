@@ -11,12 +11,15 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-const DashboardChart = ({ data, title, barKey, lineKey }) => {
+const DashboardChart = ({ data, title, barKey, lineKey, barColor = '#f97316', lineColor = '#1a2e6f' }) => {
   return (
-    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 mt-6">
-      <h3 className="text-lg font-black text-slate-900 mb-6 tracking-tight">{title}</h3>
-      <div className="h-[300px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
+    <div className="chart-wrapper bg-white p-6 sm:p-7 rounded-3xl shadow-[0_8px_30px_rgba(15,23,42,0.06)] border border-slate-100">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-lg font-black text-slate-900 tracking-tight">{title}</h3>
+        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 px-3 py-1 rounded-full">Live data</span>
+      </div>
+      <div className="w-full">
+        <ResponsiveContainer width="100%" height={300} minWidth={1}>
           <ComposedChart
             data={data}
             margin={{ top: 10, right: 10, bottom: 0, left: 0 }}
@@ -45,17 +48,17 @@ const DashboardChart = ({ data, title, barKey, lineKey }) => {
             <Legend verticalAlign="top" align="right" iconType="circle" height={36} />
             <Bar 
               dataKey={barKey} 
-              barSize={40} 
-              fill="#3b82f6" 
+              barSize={36} 
+              fill={barColor} 
               radius={[8, 8, 0, 0]} 
             />
             <Line 
               type="monotone" 
               dataKey={lineKey} 
-              stroke="#f59e0b" 
-              strokeWidth={4} 
-              dot={{ r: 6, fill: '#f59e0b', strokeWidth: 3, stroke: '#fff' }} 
-              activeDot={{ r: 8, strokeWidth: 0 }}
+              stroke={lineColor} 
+              strokeWidth={3} 
+              dot={{ r: 5, fill: lineColor, strokeWidth: 2, stroke: '#fff' }} 
+              activeDot={{ r: 7, strokeWidth: 0 }}
             />
           </ComposedChart>
         </ResponsiveContainer>

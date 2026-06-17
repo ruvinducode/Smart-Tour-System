@@ -76,12 +76,12 @@ def create_booking(tour_id):
     if not first_location:
         return jsonify({"message": "Tour location not found"}), 404
 
-    # 4. Get eligible drivers
-    drivers = Driver.query.filter_by(
-        vehicle_type=vehicle.type,
-        is_available=True,
-        is_approved=True
-    ).all()
+    # 4. Get eligible drivers (matching vehicle type, approved & available)
+    from app.services.vehicle_matching_service import find_approved_drivers_for_vehicle_type
+    drivers = [
+        d for d in find_approved_drivers_for_vehicle_type(vehicle.type)
+        if d.is_available
+    ]
 
     if not drivers:
         return jsonify({"message": "No available drivers"}), 404

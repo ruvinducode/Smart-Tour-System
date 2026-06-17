@@ -1,4 +1,12 @@
-const DEFAULT_API = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://127.0.0.1:5001'
+function normalizeApiBase(raw) {
+  const fallback = import.meta.env.DEV ? '' : 'http://127.0.0.1:5001'
+  const base = (raw || fallback).trim().replace(/\/$/, '')
+  if (!base) return ''
+  if (/^https?:\/\//i.test(base)) return base
+  return `http://${base}`
+}
+
+const DEFAULT_API = normalizeApiBase(import.meta.env.VITE_API_URL)
 const API_BASE_URL = DEFAULT_API // Alias for backward compatibility and to fix "undefined" errors
 
 export function apiUrl(path) {
@@ -32,6 +40,16 @@ export async function deactivateDriver(driverId, token) {
 
 export async function getDriverProfile(token) {
   const res = await fetch(apiUrl('/driver/profile'), {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function getMyDriverPayments(token) {
+  const res = await fetch(apiUrl('/driver/payments'), {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
   })
@@ -137,6 +155,20 @@ export async function calculateTourEstimate(payload) {
   const res = await fetch(apiUrl('/tour/calculate'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function createTour(payload, token) {
+  const res = await fetch(apiUrl('/tour/create-tour'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify(payload),
   })
   const data = await res.json().catch(() => ({}))
@@ -336,19 +368,57 @@ export async function getLiveDriverLocation(tourId, token) {
   return data
 }
 export async function getAllUsers(token) {
-  const response = await fetch(`${DEFAULT_API}/admin/users`, {
-    headers: { 'Authorization': `Bearer ${token}` }
+  const response = await fetch(apiUrl('/admin/users'), {
+    headers: { Authorization: `Bearer ${token}` },
   })
   if (!response.ok) throw new Error('Could not fetch all users')
   return response.json()
 }
 
+export async function updateUser(userId, payload, token) {
+  const res = await fetch(apiUrl(`/admin/users/${userId}`), {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function deleteUser(userId, token) {
+  const res = await fetch(apiUrl(`/admin/users/${userId}`), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
 export async function getAllDrivers(token) {
-  const response = await fetch(`${DEFAULT_API}/admin/drivers/all`, {
-    headers: { 'Authorization': `Bearer ${token}` }
+  const response = await fetch(apiUrl('/admin/drivers/all'), {
+    headers: { Authorization: `Bearer ${token}` },
   })
   if (!response.ok) throw new Error('Could not fetch all drivers')
   return response.json()
+}
+
+export async function updateDriverByAdmin(driverId, payload, token) {
+  const res = await fetch(apiUrl(`/admin/driver/${driverId}`), {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
 }
 
 export async function cancelTour(tourId, reason, token) {
@@ -381,6 +451,46 @@ export async function getDriverNotifications(token) {
     headers: { Authorization: `Bearer ${token}` },
   })
   const data = await res.json().catch(() => ([]))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function markNotificationRead(id, token) {
+  const res = await fetch(apiUrl(`/notifications/${id}/read`), {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function markAllNotificationsRead(token) {
+  const res = await fetch(apiUrl('/notifications/read-all'), {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function deleteNotification(id, token) {
+  const res = await fetch(apiUrl(`/notifications/${id}`), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function clearAllNotifications(token) {
+  const res = await fetch(apiUrl('/notifications/clear-all'), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
   return data
 }
@@ -445,4 +555,175 @@ export async function submitFeedback(tourId, rating, comment, token) {
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return await res.json()
+}
+
+// =========================
+// ADMIN — FINANCE
+// =========================
+function financeHeaders(token, json = true) {
+  const h = { Authorization: `Bearer ${token}` }
+  if (json) h['Content-Type'] = 'application/json'
+  return h
+}
+
+async function financeJson(res) {
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function getFinanceDashboard(token) {
+  const res = await fetch(apiUrl('/admin/finance/dashboard'), { headers: financeHeaders(token) })
+  return financeJson(res)
+}
+
+export async function getFinancePricing(token) {
+  const res = await fetch(apiUrl('/admin/finance/pricing'), { headers: financeHeaders(token) })
+  return financeJson(res)
+}
+
+export async function updateFinancePricing(vehicleId, payload, token) {
+  const res = await fetch(apiUrl(`/admin/finance/pricing/${vehicleId}`), {
+    method: 'PUT',
+    headers: financeHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  return financeJson(res)
+}
+
+export async function seedFinancePricing(token) {
+  const res = await fetch(apiUrl('/admin/finance/pricing/seed'), {
+    method: 'POST',
+    headers: financeHeaders(token),
+  })
+  return financeJson(res)
+}
+
+export async function getPlatformSettings(token) {
+  const res = await fetch(apiUrl('/admin/finance/platform-settings'), { headers: financeHeaders(token) })
+  return financeJson(res)
+}
+
+export async function updatePlatformSettings(payload, token) {
+  const res = await fetch(apiUrl('/admin/finance/platform-settings'), {
+    method: 'PUT',
+    headers: financeHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  return financeJson(res)
+}
+
+export async function getCustomerPayments(token, params = {}) {
+  const q = new URLSearchParams(params).toString()
+  const res = await fetch(apiUrl(`/admin/finance/customer-payments?${q}`), { headers: financeHeaders(token) })
+  return financeJson(res)
+}
+
+export async function updateCustomerPayment(id, payload, token) {
+  const res = await fetch(apiUrl(`/admin/finance/customer-payments/${id}`), {
+    method: 'PUT',
+    headers: financeHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  return financeJson(res)
+}
+
+export async function getDriverPayments(token, params = {}) {
+  const q = new URLSearchParams(params).toString()
+  const res = await fetch(apiUrl(`/admin/finance/driver-payments?${q}`), { headers: financeHeaders(token) })
+  return financeJson(res)
+}
+
+export async function updateDriverPayment(id, payload, token) {
+  const res = await fetch(apiUrl(`/admin/finance/driver-payments/${id}`), {
+    method: 'PUT',
+    headers: financeHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  return financeJson(res)
+}
+
+export async function getIncomeSummary(token, period = 'monthly') {
+  const res = await fetch(apiUrl(`/admin/finance/income/summary?period=${period}`), { headers: financeHeaders(token) })
+  return financeJson(res)
+}
+
+export async function getExpenses(token, params = {}) {
+  const q = new URLSearchParams(params).toString()
+  const res = await fetch(apiUrl(`/admin/finance/expenses?${q}`), { headers: financeHeaders(token) })
+  return financeJson(res)
+}
+
+export async function createExpense(formData, token) {
+  const res = await fetch(apiUrl('/admin/finance/expenses'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  })
+  return financeJson(res)
+}
+
+export async function updateExpense(id, formData, token) {
+  const res = await fetch(apiUrl(`/admin/finance/expenses/${id}`), {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  })
+  return financeJson(res)
+}
+
+export async function deleteExpense(id, token) {
+  const res = await fetch(apiUrl(`/admin/finance/expenses/${id}`), {
+    method: 'DELETE',
+    headers: financeHeaders(token),
+  })
+  return financeJson(res)
+}
+
+export async function getRefunds(token, params = {}) {
+  const q = new URLSearchParams(params).toString()
+  const res = await fetch(apiUrl(`/admin/finance/refunds?${q}`), { headers: financeHeaders(token) })
+  return financeJson(res)
+}
+
+export async function createRefund(payload, token) {
+  const res = await fetch(apiUrl('/admin/finance/refunds'), {
+    method: 'POST',
+    headers: financeHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  return financeJson(res)
+}
+
+export async function updateRefund(id, payload, token) {
+  const res = await fetch(apiUrl(`/admin/finance/refunds/${id}`), {
+    method: 'PUT',
+    headers: financeHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  return financeJson(res)
+}
+
+export async function getFinancialReport(token, params = {}) {
+  const q = new URLSearchParams(params).toString()
+  const res = await fetch(apiUrl(`/admin/finance/reports?${q}`), { headers: financeHeaders(token) })
+  return financeJson(res)
+}
+
+export async function exportFinancialReport(token, params = {}) {
+  const q = new URLSearchParams(params).toString()
+  const res = await fetch(apiUrl(`/admin/finance/reports/export?${q}`), { headers: financeHeaders(token) })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.message || `HTTP ${res.status}`)
+  }
+  return res
+}
+
+export async function syncFinanceBookings(token) {
+  const res = await fetch(apiUrl('/admin/finance/sync-bookings'), {
+    method: 'POST',
+    headers: financeHeaders(token),
+  })
+  return financeJson(res)
 }

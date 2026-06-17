@@ -1,72 +1,505 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { User, Mail, Lock, Phone, Globe, ChevronRight, Camera, FileText, CreditCard, CheckCircle2, AlertCircle, Eye, EyeOff, Compass, Shield, Calendar } from 'lucide-react'
 import { registerDriver, registerUser } from '../services/api.js'
-import SriLankaMap from '../components/SriLankaMap.jsx'
-import Footer from '../components/Footer.jsx'
 import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 
-const SL_DISTRICTS = ['Ampara', 'Anuradhapura', 'Badulla', 'Batticaloa', 'Colombo', 'Galle', 'Gampaha', 'Hambantota', 'Jaffna', 'Kalutara', 'Kandy', 'Kegalle', 'Kilinochchi', 'Kurunegala', 'Mannar', 'Matale', 'Matara', 'Monaragala', 'Mullaitivu', 'Nuwara Eliya', 'Polonnaruwa', 'Puttalam', 'Ratnapura', 'Trincomalee', 'Vavuniya']
-const VEHICLE_TYPES = ['Mini car', 'Car', 'Mini van', 'Van', 'SUV', 'Mini bus', 'Bus']
+import heroImg from '../assets/sri-lanka-hero.png'
+import kandyImg from '../assets/kandy.png'
+import galleImg from '../assets/galle.png'
+import colomboImg from '../assets/colombo.png'
+import teaImg from '../assets/tea-plantations.png'
+
+const SL_DISTRICTS = ['Ampara','Anuradhapura','Badulla','Batticaloa','Colombo','Galle','Gampaha','Hambantota','Jaffna','Kalutara','Kandy','Kegalle','Kilinochchi','Kurunegala','Mannar','Matale','Matara','Monaragala','Mullaitivu','Nuwara Eliya','Polonnaruwa','Puttalam','Ratnapura','Trincomalee','Vavuniya']
+const VEHICLE_TYPES = ['Mini car','Car','Mini van','Van','SUV','Mini bus','Bus']
 const EMPTY_DRIVER_REG = {
-  full_name: '', phone: '', email: '', nic_number: '', date_of_birth: '', gender: '', home_district: '', home_address: '', profile_photo: null,
-  license_number: '', license_expiry_date: '', license_front_image: null, license_back_image: null,
-  vehicle_type: '', vehicle_brand: '', vehicle_number: '', vehicle_color: '', capacity: '',
-  vehicle_reg_book_image: null, revenue_license_image: null, insurance_cert_image: null,
-  vehicle_front_image: null, vehicle_rear_image: null, vehicle_side_image: null, password: ''
+  full_name:'',phone:'',email:'',nic_number:'',date_of_birth:'',gender:'',home_district:'',home_address:'',profile_photo:null,
+  license_number:'',license_expiry_date:'',license_front_image:null,license_back_image:null,
+  vehicle_type:'',vehicle_brand:'',vehicle_number:'',vehicle_color:'',capacity:'',
+  vehicle_reg_book_image:null,revenue_license_image:null,insurance_cert_image:null,
+  vehicle_front_image:null,vehicle_rear_image:null,vehicle_side_image:null,password:''
 }
 
-const css = `
+// ── Inject only font + input base styles (no custom utility classes) ────────
+const BASE_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;1,700&display=swap');
-.lp-body{font-family:'Plus Jakarta Sans',sans-serif;}
-.lp-serif{font-family:'Playfair Display',serif;}
-.lp-input{width:100%;background:white;border:1.5px solid rgba(6,78,59,0.12);border-radius:14px;padding:14px 16px;font-size:13px;color:#1c1917;outline:none;transition:border-color 0.2s,box-shadow 0.2s;font-family:'Plus Jakarta Sans',sans-serif;}
-.lp-input:focus{border-color:#064e3b;box-shadow:0 0 0 4px rgba(6,78,59,0.07);}
-.lp-input::placeholder{color:#94a3b8;}
-.lp-scroll::-webkit-scrollbar{width:4px;}
-.lp-scroll::-webkit-scrollbar-thumb{background:#d1fae5;border-radius:4px;}
+.lp-font { font-family: 'Plus Jakarta Sans', sans-serif; }
+.lp-serif { font-family: 'Playfair Display', serif; }
+.lp-input {
+  width: 100%;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 13px 14px 13px 42px;
+  font-size: 13.5px;
+  color: #1c1917;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.lp-input:focus {
+  border-color: #064e3b;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(6,78,59,0.1);
+}
+.lp-input::placeholder { color: #94a3b8; }
+.lp-input-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 40px !important;
+}
+.lp-scroll::-webkit-scrollbar { width: 4px; }
+.lp-scroll::-webkit-scrollbar-thumb { background: rgba(6,78,59,0.15); border-radius: 4px; }
 input[type="date"]::-webkit-calendar-picker-indicator {
-    cursor: pointer;
-    filter: invert(48%) sepia(79%) saturate(2476%) hue-rotate(15deg) brightness(95%) contrast(100%); /* Match amber-500 approx */
-    opacity: 0.7;
-    transition: opacity 0.2s;
+  cursor: pointer;
+  filter: invert(28%) sepia(72%) saturate(800%) hue-rotate(120deg) brightness(80%);
+  opacity: 0.6;
 }
-input[type="date"]::-webkit-calendar-picker-indicator:hover {
-    opacity: 1;
+@keyframes rp-scroll-up {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-50%); }
 }
+@keyframes rp-scroll-down {
+  0%   { transform: translateY(-50%); }
+  100% { transform: translateY(0); }
+}
+@keyframes rp-ken-burns {
+  0%   { transform: scale(1) translate(0, 0); }
+  50%  { transform: scale(1.08) translate(-1%, -1%); }
+  100% { transform: scale(1) translate(0, 0); }
+}
+@keyframes rp-fade-bg {
+  0%, 100% { opacity: 0; }
+  10%, 85% { opacity: 1; }
+}
+@keyframes rp-badge-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes lp-shimmer-btn { 0%{background-position:-200% center} 100%{background-position:200% center} }
+@keyframes lp-float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
 `
-if (typeof document !== 'undefined' && !document.getElementById('lp-css')) { const s = document.createElement('style'); s.id = 'lp-css'; s.textContent = css; document.head.appendChild(s) }
+if (typeof document !== 'undefined' && !document.getElementById('lp-base-css')) {
+  const s = document.createElement('style'); s.id = 'lp-base-css'; s.textContent = BASE_CSS; document.head.appendChild(s)
+}
 
+// ── Shared style tokens ──────────────────────────────────────────────────────
+const S = {
+  btnGreen: {
+    background: 'linear-gradient(135deg, #064e3b 0%, #065f46 60%, #047857 100%)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '14px',
+    padding: '14px 20px',
+    fontWeight: 700,
+    fontSize: '14px',
+    cursor: 'pointer',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    boxShadow: '0 4px 20px rgba(6,78,59,0.3)',
+    transition: 'all 0.3s ease',
+    fontFamily: 'inherit',
+  },
+  btnAmber: {
+    background: 'linear-gradient(135deg, #d97706 0%, #f59e0b 60%, #fbbf24 100%)',
+    color: '#1c1917',
+    border: 'none',
+    borderRadius: '14px',
+    padding: '14px 20px',
+    fontWeight: 700,
+    fontSize: '14px',
+    cursor: 'pointer',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    boxShadow: '0 4px 20px rgba(217,119,6,0.3)',
+    transition: 'all 0.3s ease',
+    fontFamily: 'inherit',
+  },
+  tabActive: {
+    background: '#064e3b',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '50px',
+    padding: '8px 20px',
+    fontWeight: 700,
+    fontSize: '12px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    boxShadow: '0 2px 10px rgba(6,78,59,0.3)',
+    fontFamily: 'inherit',
+    transition: 'all 0.25s',
+  },
+  tabInactive: {
+    background: 'transparent',
+    color: '#94a3b8',
+    border: 'none',
+    borderRadius: '50px',
+    padding: '8px 20px',
+    fontWeight: 600,
+    fontSize: '12px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontFamily: 'inherit',
+    transition: 'all 0.25s',
+  },
+  tabAmberActive: {
+    background: 'linear-gradient(135deg, #d97706, #f59e0b)',
+    color: '#1c1917',
+    border: 'none',
+    borderRadius: '50px',
+    padding: '8px 20px',
+    fontWeight: 700,
+    fontSize: '12px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    boxShadow: '0 2px 10px rgba(217,119,6,0.25)',
+    fontFamily: 'inherit',
+    transition: 'all 0.25s',
+  },
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 function ImgUpload({ label, fieldName, value, onChange, required }) {
   const ref = useRef(null)
   const url = value ? URL.createObjectURL(value) : null
   return (
-    <div className="space-y-1.5">
-      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}{required && <span className="text-amber-500 ml-0.5">*</span>}</p>
-      <div onClick={() => ref.current?.click()} className="h-24 flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/40 transition-all overflow-hidden">
-        {url ? <img src={url} className="h-full w-full object-cover" alt="" /> : <><Camera size={20} className="text-slate-300" /><span className="text-[10px] text-slate-400 mt-1">Upload</span></>}
-        <input ref={ref} type="file" accept="image/*" className="hidden" onChange={e => onChange(fieldName, e.target.files[0] || null)} />
+    <div>
+      <p style={{ fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <i className="bi bi-image" style={{ color: '#059669' }} />{label}{required && <span style={{ color: '#f59e0b' }}>*</span>}
+      </p>
+      <div
+        onClick={() => ref.current?.click()}
+        style={{
+          height: '88px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          borderRadius: '14px', border: '2px dashed #e2e8f0', cursor: 'pointer', overflow: 'hidden',
+          background: url ? 'none' : '#f8fafc', transition: 'all 0.2s',
+        }}
+        onMouseEnter={e => { if (!url) { e.currentTarget.style.borderColor = '#059669'; e.currentTarget.style.background = '#f0fdf4' }}}
+        onMouseLeave={e => { if (!url) { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#f8fafc' }}}
+      >
+        {url
+          ? <img src={url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+          : <><i className="bi bi-cloud-upload" style={{ fontSize: '22px', color: '#cbd5e1' }} /><span style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px', fontWeight: 500 }}>Click to upload</span></>
+        }
+        <input ref={ref} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onChange(fieldName, e.target.files[0] || null)} />
       </div>
-      {value && <p className="text-[10px] text-emerald-600 truncate">✓ {value.name}</p>}
+      {value && <p style={{ fontSize: '10px', color: '#059669', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}><i className="bi bi-check-circle-fill" />{value.name}</p>}
     </div>
   )
 }
 
-function Field({ label, icon: Icon, children }) {
+function Field({ label, icon, children }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-        {Icon && <Icon size={14} className="text-emerald-700" />}{label}
+    <div>
+      <label style={{ fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.12em', display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '6px' }}>
+        {icon && <i className={`bi ${icon}`} style={{ color: '#059669' }} />}{label}
       </label>
       {children}
     </div>
   )
 }
 
-export default function LoginPage({ 
-  error, info, loading, loginForm, setLoginForm, onLogin, onDriverLogin, 
+function SectionHeader({ num, label, icon }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '8px 0 4px' }}>
+      <div style={{ flex: 1, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(6,78,59,0.15), transparent)' }} />
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '6px',
+        background: 'rgba(6,78,59,0.06)', border: '1px solid rgba(6,78,59,0.12)',
+        padding: '5px 14px', borderRadius: '50px',
+        fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', color: '#064e3b',
+        whiteSpace: 'nowrap',
+      }}>
+        <span style={{
+          width: '18px', height: '18px', borderRadius: '50%', background: '#064e3b',
+          color: '#fff', fontSize: '9px', fontWeight: 900,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>{num}</span>
+        <i className={`bi ${icon}`} />
+        {label}
+      </div>
+      <div style={{ flex: 1, height: '1px', background: 'linear-gradient(90deg, transparent, rgba(6,78,59,0.15), transparent)' }} />
+    </div>
+  )
+}
+
+// ── Right Visual Panel ─────────────────────────────────────────────────────────
+const BG_SLIDES = [
+  { image: heroImg,   name: 'Sigiriya', region: 'Cultural Triangle' },
+  { image: kandyImg,  name: 'Kandy',    region: 'Central Hills' },
+  { image: galleImg,  name: 'Galle',    region: 'South Coast' },
+  { image: colomboImg,name: 'Colombo',  region: 'Western Province' },
+  { image: teaImg,    name: 'Nuwara Eliya', region: 'Hill Country' },
+]
+
+// Duplicate for seamless infinite scroll
+const COL1 = [...BG_SLIDES, ...BG_SLIDES]
+const COL2 = [...[...BG_SLIDES].reverse(), ...[...BG_SLIDES].reverse()]
+
+function RightPanel({ acct, mode }) {
+  const [bgIdx, setBgIdx] = useState(0)
+  const [badgeKey, setBadgeKey] = useState(0)
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setBgIdx(i => (i + 1) % BG_SLIDES.length)
+      setBadgeKey(k => k + 1)
+    }, 4000)
+    return () => clearInterval(t)
+  }, [])
+
+  const driverFeatures = [
+    { icon: 'bi-cash-coin',       label: 'Earn More' },
+    { icon: 'bi-shield-check',    label: 'Verified Platform' },
+    { icon: 'bi-graph-up-arrow',  label: 'Growth Tools' },
+  ]
+  const userFeatures = [
+    { icon: 'bi-geo-alt-fill',    label: '250+ Spots' },
+    { icon: 'bi-shield-check',    label: 'Safe & Verified' },
+    { icon: 'bi-lightning-fill',  label: 'Instant Book' },
+  ]
+  const chips = acct === 'driver'
+    ? [
+        { icon: 'bi-cash-coin',      label: 'Earn More' },
+        { icon: 'bi-shield-check',   label: 'Verified Platform' },
+        { icon: 'bi-graph-up-arrow', label: 'Growth Tools' },
+      ]
+    : [
+        { icon: 'bi-geo-alt-fill',   label: '250+ Spots' },
+        { icon: 'bi-shield-check',   label: 'Safe & Verified' },
+        { icon: 'bi-lightning-fill', label: 'Instant Book' },
+      ]
+
+  const testimonial = acct === 'driver'
+    ? { quote: '"Air B&C transformed my business. Steady bookings and incredible travelers every week."', author: 'Kamal P.', loc: 'Kandy, Sri Lanka', initials: 'KP' }
+    : { quote: '"Absolutely seamless. Our driver knew every hidden gem along the southern coast."', author: 'Sarah K.', loc: 'United Kingdom', initials: 'SK' }
+
+  const panelTitle = acct === 'driver'
+    ? (mode === 'register' ? 'Join Our Driver Fleet' : 'Driver Portal')
+    : (mode === 'register' ? 'Start Your Journey' : 'Discover the Island')
+
+  const panelSub = acct === 'driver'
+    ? (mode === 'register' ? 'Partner with Air B&C and earn with verified bookings across Sri Lanka.' : 'Manage your trips, track earnings, and grow your business seamlessly.')
+    : (mode === 'register' ? 'Create an account and book verified local drivers across every corner of Sri Lanka.' : 'Air B&C connects you with trusted local drivers for an unforgettable adventure.')
+
+  const currentDest = BG_SLIDES[bgIdx]
+
+  // Image height + gap for seamless looping
+  const IMG_H = 170
+  const IMG_GAP = 10
+
+  return (
+    <div
+      className="hidden lg:flex"
+      style={{
+        width: '500px', flexShrink: 0, position: 'relative',
+        background: '#011a12',
+        flexDirection: 'column', overflow: 'hidden',
+      }}
+    >
+      {/* ── DUAL INFINITE SCROLL COLUMNS (background) ── */}
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', gap: `${IMG_GAP}px`, padding: `${IMG_GAP}px`, overflow: 'hidden', zIndex: 1 }}>
+        {/* Column 1 — scrolls UP */}
+        <div style={{ flex: 1, overflow: 'hidden', borderRadius: '12px' }}>
+          <div style={{
+            display: 'flex', flexDirection: 'column', gap: `${IMG_GAP}px`,
+            animation: `rp-scroll-up ${BG_SLIDES.length * 4.5}s linear infinite`,
+            willChange: 'transform',
+          }}>
+            {COL1.map((slide, i) => (
+              <div key={i} style={{ height: `${IMG_H}px`, borderRadius: '12px', overflow: 'hidden', flexShrink: 0, position: 'relative' }}>
+                <img
+                  src={slide.image}
+                  alt={slide.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Column 2 — scrolls DOWN */}
+        <div style={{ flex: 1, overflow: 'hidden', borderRadius: '12px', marginTop: `${-(IMG_H / 2)}px` }}>
+          <div style={{
+            display: 'flex', flexDirection: 'column', gap: `${IMG_GAP}px`,
+            animation: `rp-scroll-down ${BG_SLIDES.length * 5.5}s linear infinite`,
+            willChange: 'transform',
+          }}>
+            {COL2.map((slide, i) => (
+              <div key={i} style={{ height: `${IMG_H}px`, borderRadius: '12px', overflow: 'hidden', flexShrink: 0, position: 'relative' }}>
+                <img
+                  src={slide.image}
+                  alt={slide.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Gradient overlays for readability ── */}
+      {/* Dark vignette — edges */}
+      <div style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none',
+        background: 'linear-gradient(to right, rgba(1,26,18,0.1) 0%, rgba(1,26,18,0) 20%, rgba(1,26,18,0) 80%, rgba(1,26,18,0.1) 100%)' }} />
+      {/* Top gradient — strong dark for logo */}
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '150px', zIndex: 3, pointerEvents: 'none',
+        background: 'linear-gradient(to bottom, rgba(1,26,18,0.85) 0%, rgba(1,26,18,0.4) 50%, rgba(1,26,18,0) 100%)' }} />
+      {/* Bottom gradient — strong dark for content */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '65%', zIndex: 3, pointerEvents: 'none',
+        background: 'linear-gradient(to top, rgba(1,26,18,0.95) 0%, rgba(1,26,18,0.8) 35%, rgba(1,26,18,0.4) 65%, rgba(1,26,18,0) 100%)' }} />
+
+      {/* ── CONTENT LAYER ── */}
+      <div style={{ position: 'relative', zIndex: 10, display: 'flex', flexDirection: 'column', height: '100%', padding: '30px 32px 28px' }}>
+
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: 'auto' }}>
+          <div style={{ width: '38px', height: '38px', borderRadius: '11px', overflow: 'hidden', border: '1.5px solid rgba(255,255,255,0.2)', boxShadow: '0 4px 16px rgba(0,0,0,0.4)' }}>
+            <img src={appLogo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+          <div>
+            <span style={{ display: 'block', fontSize: '9px', fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.28em' }}>Air B&C</span>
+            <span style={{ display: 'block', fontSize: '14px', fontWeight: 800, color: '#fff', lineHeight: 1.1 }}>Sri Lanka</span>
+          </div>
+          {/* Live indicator */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', padding: '5px 10px', borderRadius: '50px' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80', animation: 'pulse 2s ease-in-out infinite', display: 'inline-block' }} />
+            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '10px', fontWeight: 600 }}>Live</span>
+          </div>
+        </div>
+
+        {/* Spacer to push content to bottom */}
+        <div style={{ flex: 1 }} />
+
+        {/* ── Animated Location Badge ── */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={badgeKey}
+            initial={{ opacity: 0, y: 12, scale: 0.92 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.95 }}
+            transition={{ duration: 0.5, ease: [0.25, 0.8, 0.25, 1] }}
+            style={{ marginBottom: '20px', display: 'inline-flex', alignItems: 'center', gap: '8px',
+              background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)',
+              backdropFilter: 'blur(8px)', padding: '8px 16px', borderRadius: '50px',
+              width: 'fit-content',
+            }}
+          >
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#fbbf24', boxShadow: '0 0 8px rgba(251,191,36,0.8)', display: 'inline-block', flexShrink: 0 }} />
+            <i className="bi bi-geo-alt-fill" style={{ color: '#fbbf24', fontSize: '12px' }} />
+            <span style={{ color: '#fde68a', fontSize: '12px', fontWeight: 700 }}>{currentDest.name}</span>
+            <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', fontWeight: 500 }}>·</span>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: 500 }}>{currentDest.region}</span>
+          </motion.div>
+        </AnimatePresence>
+
+        {/* ── Dynamic Heading + Sub ── */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`${acct}-${mode}`}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -16 }}
+            transition={{ duration: 0.4, ease: [0.25, 0.8, 0.25, 1] }}
+            style={{ marginBottom: '20px' }}
+          >
+            <h3 className="lp-serif" style={{ color: '#fff', fontSize: '30px', lineHeight: 1.2, margin: '0 0 8px' }}>{panelTitle}</h3>
+            <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px', lineHeight: 1.7, margin: 0, maxWidth: '340px' }}>{panelSub}</p>
+          </motion.div>
+        </AnimatePresence>
+
+        {/* ── Stats Row ── */}
+        <div style={{ display: 'flex', gap: '0', marginBottom: '18px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', overflow: 'hidden' }}>
+          {[
+            { val: '10k+', label: 'Travelers', icon: 'bi-people-fill' },
+            { val: '250+', label: 'Spots',     icon: 'bi-geo-alt-fill' },
+            { val: '4.9',  label: 'Rating',    icon: 'bi-star-fill' },
+          ].map((stat, i) => (
+            <div key={i} style={{
+              flex: 1, padding: '14px 10px', textAlign: 'center',
+              borderRight: i < 2 ? '1px solid rgba(255,255,255,0.07)' : 'none',
+            }}>
+              <i className={`bi ${stat.icon}`} style={{ color: '#fbbf24', fontSize: '14px', display: 'block', marginBottom: '4px' }} />
+              <p style={{ color: '#fff', fontSize: '15px', fontWeight: 800, margin: 0, lineHeight: 1 }}>{stat.val}</p>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', margin: '3px 0 0' }}>{stat.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Feature Chips ── */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '7px', marginBottom: '18px' }}>
+          {chips.map((chip, i) => (
+            <span key={i} style={{
+              display: 'inline-flex', alignItems: 'center', gap: '5px',
+              background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.11)',
+              color: 'rgba(255,255,255,0.75)', padding: '6px 13px', borderRadius: '50px',
+              fontSize: '11px', fontWeight: 600,
+            }}>
+              <i className={`bi ${chip.icon}`} style={{ color: '#fbbf24' }} />
+              {chip.label}
+            </span>
+          ))}
+        </div>
+
+        {/* ── Testimonial ── */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`t-${acct}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.35 }}
+            style={{
+              background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '18px', padding: '18px', backdropFilter: 'blur(10px)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', gap: '2px' }}>
+                {[...Array(5)].map((_, i) => <i key={i} className="bi bi-star-fill" style={{ color: '#fbbf24', fontSize: '12px' }} />)}
+              </div>
+              <i className="bi bi-quote" style={{ color: 'rgba(255,255,255,0.12)', fontSize: '28px', lineHeight: 1 }} />
+            </div>
+            <p style={{ color: 'rgba(255,255,255,0.82)', fontSize: '12.5px', fontStyle: 'italic', lineHeight: 1.65, margin: '0 0 14px' }}>{testimonial.quote}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                width: '34px', height: '34px', borderRadius: '50%',
+                background: 'linear-gradient(135deg, #065f46, #d97706)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontSize: '11px', fontWeight: 800, flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+              }}>{testimonial.initials}</div>
+              <div>
+                <p style={{ color: '#fff', fontSize: '12px', fontWeight: 700, margin: 0 }}>{testimonial.author}</p>
+                <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>{testimonial.loc}</p>
+              </div>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
+export default function LoginPage({
+  error, info, loading, loginForm, setLoginForm, onLogin, onDriverLogin,
   initialAccountType = 'user', initialMode = 'login',
-  roleLock = null // New prop to lock the view to one role
+  roleLock = null
 }) {
   const [acct, setAcct] = useState(roleLock || initialAccountType)
   const [mode, setMode] = useState(initialMode)
@@ -76,305 +509,405 @@ export default function LoginPage({
   const [regInfo, setRegInfo] = useState('')
   const [reg, setReg] = useState({ full_name: '', email: '', password: '', phone: '', country: '' })
   const [drv, setDrv] = useState(EMPTY_DRIVER_REG)
+  const [btnHover, setBtnHover] = useState(false)
 
-  useEffect(() => { 
-    setAcct(roleLock || initialAccountType); 
-    setMode(initialMode); 
-    setRegError(''); 
-    setRegInfo('') 
+  useEffect(() => {
+    setAcct(roleLock || initialAccountType)
+    setMode(initialMode)
+    setRegError('')
+    setRegInfo('')
   }, [initialAccountType, initialMode, roleLock])
 
   const onDriverField = (f, v) => setDrv(p => ({ ...p, [f]: v }))
 
   const onUserReg = async e => {
     e.preventDefault(); setRegError(''); setRegInfo(''); setRegLoading(true)
-    try { const d = await registerUser(reg); setRegInfo(d.message || 'Account created!'); setMode('login'); setLoginForm(p => ({ ...p, email: reg.email })) }
-    catch (err) { setRegError(err.message || 'Failed') } finally { setRegLoading(false) }
+    try {
+      const d = await registerUser(reg)
+      setRegInfo(d.message || 'Account created! Please sign in.')
+      setMode('login')
+      setLoginForm(p => ({ ...p, email: reg.email }))
+    } catch (err) { setRegError(err.message || 'Registration failed') } finally { setRegLoading(false) }
   }
+
   const onDrvReg = async e => {
     e.preventDefault(); setRegError(''); setRegInfo(''); setRegLoading(true)
-    try { const d = await registerDriver(drv); setRegInfo(d.message || 'Submitted! Await approval.'); setMode('login') }
-    catch (err) { setRegError(err.message || 'Failed') } finally { setRegLoading(false) }
+    try {
+      const d = await registerDriver(drv)
+      setRegInfo(d.message || 'Application submitted! Await approval.')
+      setMode('login')
+    } catch (err) { setRegError(err.message || 'Submission failed') } finally { setRegLoading(false) }
   }
 
-  const inp = (extra = '') => `lp-input${extra ? ' ' + extra : ''}`
-
   return (
-    <div className="lp-body min-h-screen bg-gradient-to-br from-slate-100 via-amber-50 to-emerald-50 flex items-center justify-center p-4 sm:p-8">
-      <div className="w-full max-w-[1300px] flex flex-col lg:flex-row overflow-hidden rounded-[2.5rem] shadow-[0_40px_80px_-10px_rgba(0,0,0,0.18)] bg-white min-h-[850px] transition-all duration-500 ease-in-out">
+    <div className="lp-font" style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(145deg, #f0fdf4 0%, #fffbeb 35%, #ecfdf5 65%, #f0f9ff 100%)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '24px', position: 'relative', overflow: 'hidden',
+    }}>
+      {/* Background ambient glows */}
+      <div style={{ position: 'fixed', top: '-100px', left: '-100px', width: '350px', height: '350px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(209,250,229,0.7), transparent)', filter: 'blur(80px)', pointerEvents: 'none', zIndex: 0 }} />
+      <div style={{ position: 'fixed', bottom: '-80px', right: '-80px', width: '300px', height: '300px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(254,243,199,0.6), transparent)', filter: 'blur(80px)', pointerEvents: 'none', zIndex: 0 }} />
 
-        {/* LEFT: FORM */}
-        <div className="flex flex-col flex-1 p-8 md:p-12 overflow-hidden" style={{ minWidth: 0 }}>
+      {/* ── Card ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 28, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.55, ease: [0.25, 0.8, 0.25, 1] }}
+        style={{
+          width: '100%', maxWidth: '1100px', position: 'relative', zIndex: 1,
+          display: 'flex', flexDirection: 'row', overflow: 'hidden',
+          borderRadius: '28px', background: '#fff',
+          boxShadow: '0 32px 80px rgba(6,78,59,0.12), 0 8px 32px rgba(0,0,0,0.06)',
+          minHeight: '780px',
+        }}
+      >
 
-          {/* Logo */}
-          <div className="flex items-center gap-4 mb-10">
-            <div className="w-14 h-14 overflow-hidden rounded-2xl shadow-lg border-2 border-emerald-50">
-              <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
+        {/* ── LEFT: FORM PANEL ── */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: '36px 40px', position: 'relative', overflow: 'hidden' }}>
+          {/* Subtle top glow */}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '200px', background: 'radial-gradient(ellipse 80% 100% at 20% 0%, rgba(6,78,59,0.04), transparent)', pointerEvents: 'none' }} />
+
+          {/* Logo + Security badge */}
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '28px', position: 'relative' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ position: 'relative' }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 4px 16px rgba(6,78,59,0.2)', border: '2px solid #d1fae5' }}>
+                  <img src={appLogo} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+                <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '13px', height: '13px', borderRadius: '50%', background: '#10b981', border: '2px solid #fff', boxShadow: '0 0 6px rgba(16,185,129,0.4)' }} />
+              </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '10px', fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: '0.22em' }}>
+                  <i className="bi bi-airplane-fill" style={{ marginRight: '3px' }} />Sri Lanka
+                </span>
+                <span style={{ display: 'block', fontSize: '16px', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>Air B&C</span>
+              </div>
             </div>
-            <div>
-              <p className="text-xs font-bold text-amber-600 uppercase tracking-[0.3em]">Sri Lanka</p>
-              <h1 className="text-lg font-extrabold text-emerald-950 leading-none tracking-tight">Air B&C</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', border: '1.5px solid #a7f3d0', padding: '8px 14px', borderRadius: '50px' }}>
+              <i className="bi bi-shield-lock-fill" style={{ color: '#059669', fontSize: '13px' }} />
+              <span style={{ color: '#065f46', fontSize: '11px', fontWeight: 700 }}>Secure Login</span>
             </div>
-          </div>
+          </motion.div>
 
-          {/* Title */}
+          {/* Mode / Role Tabs */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '24px' }}
+          >
+            {/* Sign In / Register */}
+            <div style={{ display: 'flex', background: 'rgba(6,78,59,0.06)', border: '1px solid rgba(6,78,59,0.1)', borderRadius: '50px', padding: '4px', gap: '4px' }}>
+              {['login', 'register'].map(m => (
+                <button key={m}
+                  onClick={() => { setMode(m); setRegError(''); setRegInfo('') }}
+                  style={mode === m ? S.tabActive : S.tabInactive}
+                >
+                  <i className={`bi ${m === 'login' ? 'bi-box-arrow-in-right' : 'bi-person-plus'}`} />
+                  {m === 'login' ? 'Sign In' : 'Register'}
+                </button>
+              ))}
+            </div>
+
+            {/* Traveler / Driver (only without roleLock) */}
+            {!roleLock && (
+              <div style={{ display: 'flex', background: 'rgba(6,78,59,0.06)', border: '1px solid rgba(6,78,59,0.1)', borderRadius: '50px', padding: '4px', gap: '4px' }}>
+                <button onClick={() => { setAcct('user'); setRegError(''); setRegInfo('') }}
+                  style={acct === 'user' ? S.tabActive : S.tabInactive}>
+                  <i className="bi bi-person-fill" />Traveler
+                </button>
+                <button onClick={() => { setAcct('driver'); setRegError(''); setRegInfo('') }}
+                  style={acct === 'driver' ? S.tabAmberActive : S.tabInactive}>
+                  <i className="bi bi-truck-front-fill" />Driver
+                </button>
+              </div>
+            )}
+          </motion.div>
+
+          {/* Dynamic Heading */}
           <AnimatePresence mode="wait">
-            <motion.div key={mode + acct} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="mb-8">
-              <h2 className="lp-serif text-3xl sm:text-4xl text-emerald-950 mb-2">
+            <motion.div
+              key={mode + acct}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.25 }}
+              style={{ marginBottom: '20px' }}
+            >
+              <h2 className="lp-serif" style={{ fontSize: '32px', color: '#022c22', margin: '0 0 6px' }}>
                 {mode === 'login' ? (acct === 'driver' ? 'Driver Portal' : 'Welcome Back') : (acct === 'driver' ? 'Partner Registration' : 'Create Account')}
               </h2>
-              <p className="text-slate-400 text-sm">
+              <p style={{ color: '#94a3b8', fontSize: '13.5px', margin: 0 }}>
                 {mode === 'login' ? 'Sign in to manage your journeys across the island.' : 'Join Air B&C and explore Sri Lanka like never before.'}
               </p>
             </motion.div>
           </AnimatePresence>
 
-          {/* Tabs */}
-          <div className="flex flex-wrap gap-3 mb-8">
-            <div className="flex bg-slate-100 rounded-2xl p-1 gap-0.5">
-              {['login', 'register'].map(m => (
-                <button key={m} onClick={() => { setMode(m); setRegError(''); setRegInfo('') }}
-                  className={`px-5 py-2 rounded-xl text-xs font-bold transition-all ${mode === m ? 'bg-white text-emerald-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
-                  {m === 'login' ? 'Sign In' : 'Register'}
-                </button>
-              ))}
-            </div>
-            {!roleLock && (
-              <div className="flex bg-slate-100 rounded-2xl p-1 gap-0.5">
-                <button onClick={() => { setAcct('user'); setRegError(''); setRegInfo('') }}
-                  className={`px-5 py-2 rounded-xl text-xs font-bold transition-all ${acct === 'user' ? 'bg-emerald-900 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
-                  Traveler
-                </button>
-                <button onClick={() => { setAcct('driver'); setRegError(''); setRegInfo('') }}
-                  className={`px-5 py-2 rounded-xl text-xs font-bold transition-all ${acct === 'driver' ? 'bg-amber-500 text-emerald-950 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>
-                  Driver
-                </button>
-              </div>
-            )}
-          </div>
-
           {/* Alerts */}
-          {(error || regError) && <div className="mb-4 flex items-center gap-3 p-4 rounded-2xl bg-rose-50 border border-rose-100 text-rose-600 text-xs font-semibold"><AlertCircle size={15} />{error || regError}</div>}
-          {(info || regInfo) && <div className="mb-4 flex items-center gap-3 p-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs font-semibold"><CheckCircle2 size={15} />{info || regInfo}</div>}
+          <AnimatePresence>
+            {(error || regError) && (
+              <motion.div initial={{ opacity: 0, height: 0, marginBottom: 0 }} animate={{ opacity: 1, height: 'auto', marginBottom: '16px' }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} style={{ overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '14px', background: '#fff1f2', border: '1.5px solid #fecaca', color: '#e11d48', fontSize: '13px', fontWeight: 600 }}>
+                  <div style={{ width: '30px', height: '30px', borderRadius: '10px', background: '#ffe4e6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <i className="bi bi-exclamation-triangle-fill" style={{ color: '#f43f5e' }} />
+                  </div>
+                  {error || regError}
+                </div>
+              </motion.div>
+            )}
+            {(info || regInfo) && (
+              <motion.div initial={{ opacity: 0, height: 0, marginBottom: 0 }} animate={{ opacity: 1, height: 'auto', marginBottom: '16px' }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} style={{ overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderRadius: '14px', background: '#f0fdf4', border: '1.5px solid #a7f3d0', color: '#065f46', fontSize: '13px', fontWeight: 600 }}>
+                  <div style={{ width: '30px', height: '30px', borderRadius: '10px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <i className="bi bi-check-circle-fill" style={{ color: '#059669' }} />
+                  </div>
+                  {info || regInfo}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {/* FORM AREA */}
-          <div className="flex-1 overflow-y-auto lp-scroll -mr-2 pr-2">
+          {/* ── Scrollable Form Area ── */}
+          <div className="lp-scroll" style={{ flex: 1, overflowY: 'auto', paddingRight: '4px', marginRight: '-4px' }}>
             <AnimatePresence mode="wait">
 
-              {/* LOGIN */}
+              {/* LOGIN FORM */}
               {mode === 'login' && (
-                <motion.form key="login" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}
-                  onSubmit={acct === 'driver' ? onDriverLogin : onLogin} className="space-y-5">
-                  <Field label="Email Address" icon={Mail}>
-                    <div className="relative"><Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                      <input type="email" required value={loginForm.email} onChange={e => setLoginForm(p => ({ ...p, email: e.target.value }))} className={inp()} style={{ paddingLeft: '40px' }} placeholder="you@example.com" />
-                    </div>
-                  </Field>
-                  <Field label="Password" icon={Lock}>
-                    <div className="relative">
-                      <Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                      <input type={showPw ? 'text' : 'password'} required value={loginForm.password} onChange={e => setLoginForm(p => ({ ...p, password: e.target.value }))} className={inp()} style={{ paddingLeft: '40px', paddingRight: '48px' }} placeholder="••••••••" />
-                      <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-emerald-900 transition-colors">{showPw ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-                    </div>
-                  </Field>
-                  <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} type="submit" disabled={loading}
-                    className="w-full py-4 rounded-2xl bg-emerald-900 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 hover:bg-emerald-800 transition-all disabled:opacity-60 mt-2">
-                    {loading ? 'Authenticating…' : 'Sign In'}<ChevronRight size={17} />
-                  </motion.button>
+                <motion.form key="login"
+                  initial={{ opacity: 0, x: -18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 18 }}
+                  transition={{ duration: 0.28 }}
+                  onSubmit={acct === 'driver' ? onDriverLogin : onLogin}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <Field label="Email Address" icon="bi-envelope-fill">
+                      <div style={{ position: 'relative' }}>
+                        <i className="bi bi-envelope-fill" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '14px' }} />
+                        <input type="email" required value={loginForm.email}
+                          onChange={e => setLoginForm(p => ({ ...p, email: e.target.value }))}
+                          className="lp-input" placeholder="you@example.com" />
+                      </div>
+                    </Field>
+
+                    <Field label="Password" icon="bi-lock-fill">
+                      <div style={{ position: 'relative' }}>
+                        <i className="bi bi-lock-fill" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '14px' }} />
+                        <input type={showPw ? 'text' : 'password'} required value={loginForm.password}
+                          onChange={e => setLoginForm(p => ({ ...p, password: e.target.value }))}
+                          className="lp-input" style={{ paddingRight: '46px' }} placeholder="••••••••" />
+                        <button type="button" onClick={() => setShowPw(!showPw)}
+                          style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '16px' }}>
+                          <i className={`bi ${showPw ? 'bi-eye-slash-fill' : 'bi-eye-fill'}`} />
+                        </button>
+                      </div>
+                    </Field>
+
+                    <motion.button
+                      type="submit" disabled={loading}
+                      whileTap={{ scale: 0.98 }}
+                      onHoverStart={() => setBtnHover(true)}
+                      onHoverEnd={() => setBtnHover(false)}
+                      style={{
+                        ...S.btnGreen,
+                        marginTop: '6px',
+                        opacity: loading ? 0.6 : 1,
+                        boxShadow: btnHover ? '0 8px 32px rgba(6,78,59,0.4)' : '0 4px 20px rgba(6,78,59,0.25)',
+                        transform: btnHover ? 'translateY(-1px)' : 'none',
+                      }}
+                    >
+                      {loading
+                        ? <><i className="bi bi-hourglass-split" style={{ animation: 'spin 1s linear infinite' }} /> Authenticating…</>
+                        : <><i className="bi bi-box-arrow-in-right" style={{ fontSize: '16px' }} /> Sign In to Your Account</>
+                      }
+                    </motion.button>
+
+                    <p style={{ textAlign: 'center', fontSize: '12.5px', color: '#94a3b8', marginTop: '4px' }}>
+                      Don't have an account?{' '}
+                      <button type="button" onClick={() => setMode('register')}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#064e3b', fontWeight: 700, fontSize: '12.5px', fontFamily: 'inherit' }}>
+                        Register now <i className="bi bi-arrow-right" />
+                      </button>
+                    </p>
+                  </div>
                 </motion.form>
               )}
 
               {/* REGISTER USER */}
               {mode === 'register' && acct === 'user' && (
-                <motion.form key="reg-user" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}
-                  onSubmit={onUserReg} className="space-y-5 pb-4">
-                  <Field label="Full Name" icon={User}>
-                    <div className="relative"><User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                      <input type="text" required value={reg.full_name} onChange={e => setReg(p => ({ ...p, full_name: e.target.value }))} className={inp()} style={{ paddingLeft: '40px' }} placeholder="Your Full Name" />
-                    </div>
-                  </Field>
-                  <Field label="Email Address" icon={Mail}>
-                    <div className="relative"><Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                      <input type="email" required value={reg.email} onChange={e => setReg(p => ({ ...p, email: e.target.value }))} className={inp()} style={{ paddingLeft: '40px' }} placeholder="you@example.com" />
-                    </div>
-                  </Field>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field label="Phone" icon={Phone}>
-                      <div className="relative"><Phone size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                        <input type="tel" required value={reg.phone} onChange={e => setReg(p => ({ ...p, phone: e.target.value }))} className={inp()} style={{ paddingLeft: '40px' }} placeholder="+94" />
+                <motion.form key="reg-user"
+                  initial={{ opacity: 0, x: -18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 18 }}
+                  transition={{ duration: 0.28 }}
+                  onSubmit={onUserReg}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', paddingBottom: '16px' }}>
+                    <Field label="Full Name" icon="bi-person-fill">
+                      <div style={{ position: 'relative' }}>
+                        <i className="bi bi-person-fill" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '14px' }} />
+                        <input type="text" required value={reg.full_name} onChange={e => setReg(p => ({ ...p, full_name: e.target.value }))} className="lp-input" placeholder="Your Full Name" />
                       </div>
                     </Field>
-                    <Field label="Country" icon={Globe}>
-                      <div className="relative"><Globe size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                        <input type="text" required value={reg.country} onChange={e => setReg(p => ({ ...p, country: e.target.value }))} className={inp()} style={{ paddingLeft: '40px' }} placeholder="Country" />
+                    <Field label="Email Address" icon="bi-envelope-fill">
+                      <div style={{ position: 'relative' }}>
+                        <i className="bi bi-envelope-fill" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '14px' }} />
+                        <input type="email" required value={reg.email} onChange={e => setReg(p => ({ ...p, email: e.target.value }))} className="lp-input" placeholder="you@example.com" />
                       </div>
                     </Field>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <Field label="Phone" icon="bi-telephone-fill">
+                        <div style={{ position: 'relative' }}>
+                          <i className="bi bi-telephone-fill" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '14px' }} />
+                          <input type="tel" required value={reg.phone} onChange={e => setReg(p => ({ ...p, phone: e.target.value }))} className="lp-input" placeholder="+94 77…" />
+                        </div>
+                      </Field>
+                      <Field label="Country" icon="bi-globe2">
+                        <div style={{ position: 'relative' }}>
+                          <i className="bi bi-globe2" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '14px' }} />
+                          <input type="text" required value={reg.country} onChange={e => setReg(p => ({ ...p, country: e.target.value }))} className="lp-input" placeholder="Country" />
+                        </div>
+                      </Field>
+                    </div>
+                    <Field label="Create Password" icon="bi-lock-fill">
+                      <div style={{ position: 'relative' }}>
+                        <i className="bi bi-lock-fill" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '14px' }} />
+                        <input type={showPw ? 'text' : 'password'} required value={reg.password} onChange={e => setReg(p => ({ ...p, password: e.target.value }))} className="lp-input" style={{ paddingRight: '46px' }} placeholder="Create a strong password" />
+                        <button type="button" onClick={() => setShowPw(!showPw)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '16px' }}>
+                          <i className={`bi ${showPw ? 'bi-eye-slash-fill' : 'bi-eye-fill'}`} />
+                        </button>
+                      </div>
+                    </Field>
+                    <motion.button type="submit" disabled={regLoading} whileTap={{ scale: 0.98 }}
+                      style={{ ...S.btnGreen, marginTop: '4px', opacity: regLoading ? 0.6 : 1 }}>
+                      {regLoading ? <><i className="bi bi-hourglass-split" /> Creating account…</> : <><i className="bi bi-person-check-fill" style={{ fontSize: '16px' }} /> Create Traveler Account</>}
+                    </motion.button>
+                    <p style={{ textAlign: 'center', fontSize: '12.5px', color: '#94a3b8' }}>
+                      Already have an account?{' '}
+                      <button type="button" onClick={() => setMode('login')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#064e3b', fontWeight: 700, fontSize: '12.5px', fontFamily: 'inherit' }}>
+                        Sign in <i className="bi bi-arrow-right" />
+                      </button>
+                    </p>
                   </div>
-                  <Field label="Password" icon={Lock}>
-                    <div className="relative"><Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                      <input type={showPw ? 'text' : 'password'} required value={reg.password} onChange={e => setReg(p => ({ ...p, password: e.target.value }))} className={inp()} style={{ paddingLeft: '40px', paddingRight: '48px' }} placeholder="Create password" />
-                      <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-emerald-900">{showPw ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-                    </div>
-                  </Field>
-                  <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} type="submit" disabled={regLoading}
-                    className="w-full py-4 rounded-2xl bg-emerald-900 text-white font-bold text-sm shadow-lg shadow-emerald-900/20 hover:bg-emerald-800 transition-all disabled:opacity-60">
-                    {regLoading ? 'Creating…' : 'Create Traveler Account'}
-                  </motion.button>
                 </motion.form>
               )}
 
               {/* REGISTER DRIVER */}
               {mode === 'register' && acct === 'driver' && (
-                <motion.form key="reg-driver" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }}
-                  onSubmit={onDrvReg} className="space-y-8 pb-6">
-
-                  {/* Section 1 */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-                      <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-xs font-black flex items-center justify-center">1</span>
-                      <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest">Personal Info</h4>
+                <motion.form key="reg-driver"
+                  initial={{ opacity: 0, x: -18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 18 }}
+                  transition={{ duration: 0.28 }}
+                  onSubmit={onDrvReg}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', paddingBottom: '16px' }}>
+                    <SectionHeader num="1" label="Personal Info" icon="bi-person-vcard-fill" />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <input className="lp-input" style={{ paddingLeft: '14px' }} placeholder="Full Name (as NIC)*" required value={drv.full_name} onChange={e => onDriverField('full_name', e.target.value)} />
+                      <input className="lp-input" style={{ paddingLeft: '14px' }} placeholder="NIC Number*" required value={drv.nic_number} onChange={e => onDriverField('nic_number', e.target.value)} />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <input className={inp()} placeholder="Full Name (NIC)*" required value={drv.full_name} onChange={e => onDriverField('full_name', e.target.value)} />
-                      <input className={inp()} placeholder="NIC Number*" required value={drv.nic_number} onChange={e => onDriverField('nic_number', e.target.value)} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <Field label="Date of Birth" icon={Calendar}>
-                        <input type="date" className={inp()} required value={drv.date_of_birth} onChange={e => onDriverField('date_of_birth', e.target.value)} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <Field label="Date of Birth" icon="bi-calendar3">
+                        <input type="date" className="lp-input" style={{ paddingLeft: '14px' }} required value={drv.date_of_birth} onChange={e => onDriverField('date_of_birth', e.target.value)} />
                       </Field>
-                      <Field label="Gender" icon={User}>
-                        <select className={inp()} required value={drv.gender} onChange={e => onDriverField('gender', e.target.value)}>
-                          <option value="">Gender*</option><option>Male</option><option>Female</option><option>Other</option>
+                      <Field label="Gender" icon="bi-gender-ambiguous">
+                        <select className="lp-input lp-input-select" style={{ paddingLeft: '14px' }} required value={drv.gender} onChange={e => onDriverField('gender', e.target.value)}>
+                          <option value="">Select Gender*</option>
+                          <option>Male</option><option>Female</option><option>Other</option>
                         </select>
                       </Field>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <input className={inp()} placeholder="Phone*" required value={drv.phone} onChange={e => onDriverField('phone', e.target.value)} />
-                      <input type="email" className={inp()} placeholder="Email (optional)" value={drv.email} onChange={e => onDriverField('email', e.target.value)} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div style={{ position: 'relative' }}>
+                        <i className="bi bi-telephone-fill" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1' }} />
+                        <input className="lp-input" placeholder="Phone*" required value={drv.phone} onChange={e => onDriverField('phone', e.target.value)} />
+                      </div>
+                      <div style={{ position: 'relative' }}>
+                        <i className="bi bi-envelope-fill" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1' }} />
+                        <input type="email" className="lp-input" placeholder="Email (optional)" value={drv.email} onChange={e => onDriverField('email', e.target.value)} />
+                      </div>
                     </div>
-                    <select className={inp()} required value={drv.home_district} onChange={e => onDriverField('home_district', e.target.value)}>
-                      <option value="">District*</option>{SL_DISTRICTS.map(d => <option key={d}>{d}</option>)}
+                    <select className="lp-input lp-input-select" style={{ paddingLeft: '14px' }} required value={drv.home_district} onChange={e => onDriverField('home_district', e.target.value)}>
+                      <option value="">Select District*</option>
+                      {SL_DISTRICTS.map(d => <option key={d}>{d}</option>)}
                     </select>
                     <ImgUpload label="Profile Photo" fieldName="profile_photo" value={drv.profile_photo} onChange={onDriverField} required />
-                  </div>
 
-                  {/* Section 2 */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-                      <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-xs font-black flex items-center justify-center">2</span>
-                      <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest">Driving License</h4>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <Field label="License Number" icon={Shield}>
-                        <input className={inp()} placeholder="ABC-123456" required value={drv.license_number} onChange={e => onDriverField('license_number', e.target.value)} />
+                    <SectionHeader num="2" label="Driving License" icon="bi-card-text" />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <Field label="License Number" icon="bi-upc">
+                        <input className="lp-input" style={{ paddingLeft: '14px' }} placeholder="ABC-123456*" required value={drv.license_number} onChange={e => onDriverField('license_number', e.target.value)} />
                       </Field>
-                      <Field label="Expiry Date" icon={Calendar}>
-                        <input type="date" className={inp()} required value={drv.license_expiry_date} onChange={e => onDriverField('license_expiry_date', e.target.value)} />
+                      <Field label="Expiry Date" icon="bi-calendar-x">
+                        <input type="date" className="lp-input" style={{ paddingLeft: '14px' }} required value={drv.license_expiry_date} onChange={e => onDriverField('license_expiry_date', e.target.value)} />
                       </Field>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                       <ImgUpload label="License Front" fieldName="license_front_image" value={drv.license_front_image} onChange={onDriverField} required />
                       <ImgUpload label="License Back" fieldName="license_back_image" value={drv.license_back_image} onChange={onDriverField} required />
                     </div>
-                  </div>
 
-                  {/* Section 3 */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-                      <span className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-xs font-black flex items-center justify-center">3</span>
-                      <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest">Vehicle Details</h4>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <select className={inp()} required value={drv.vehicle_type} onChange={e => onDriverField('vehicle_type', e.target.value)}>
-                        <option value="">Vehicle Type*</option>{VEHICLE_TYPES.map(v => <option key={v}>{v}</option>)}
+                    <SectionHeader num="3" label="Vehicle Details" icon="bi-truck-front-fill" />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <select className="lp-input lp-input-select" style={{ paddingLeft: '14px' }} required value={drv.vehicle_type} onChange={e => onDriverField('vehicle_type', e.target.value)}>
+                        <option value="">Vehicle Type*</option>
+                        {VEHICLE_TYPES.map(v => <option key={v}>{v}</option>)}
                       </select>
-                      <input className={inp()} placeholder="Brand (Toyota…)*" required value={drv.vehicle_brand} onChange={e => onDriverField('vehicle_brand', e.target.value)} />
+                      <input className="lp-input" style={{ paddingLeft: '14px' }} placeholder="Brand (Toyota…)*" required value={drv.vehicle_brand} onChange={e => onDriverField('vehicle_brand', e.target.value)} />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <input className={inp()} placeholder="Reg. Number*" required value={drv.vehicle_number} onChange={e => onDriverField('vehicle_number', e.target.value)} />
-                      <input type="number" min="1" max="60" className={inp()} placeholder="Capacity*" required value={drv.capacity} onChange={e => onDriverField('capacity', e.target.value)} />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <input className="lp-input" style={{ paddingLeft: '14px' }} placeholder="Reg. Number*" required value={drv.vehicle_number} onChange={e => onDriverField('vehicle_number', e.target.value)} />
+                      <input type="number" min="1" max="60" className="lp-input" style={{ paddingLeft: '14px' }} placeholder="Capacity*" required value={drv.capacity} onChange={e => onDriverField('capacity', e.target.value)} />
                     </div>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                       <ImgUpload label="Reg. Book" fieldName="vehicle_reg_book_image" value={drv.vehicle_reg_book_image} onChange={onDriverField} required />
                       <ImgUpload label="Revenue Lic." fieldName="revenue_license_image" value={drv.revenue_license_image} onChange={onDriverField} required />
                       <ImgUpload label="Insurance" fieldName="insurance_cert_image" value={drv.insurance_cert_image} onChange={onDriverField} required />
                     </div>
-                  </div>
-
-                  {/* Password */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 pb-2 border-b border-slate-100">
-                      <span className="w-7 h-7 rounded-full bg-slate-200 text-slate-600 text-xs font-black flex items-center justify-center"><Shield size={12} /></span>
-                      <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest">Account Password</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginTop: '10px' }}>
+                      <ImgUpload label="Vehicle Front" fieldName="vehicle_front_image" value={drv.vehicle_front_image} onChange={onDriverField} required />
+                      <ImgUpload label="Vehicle Rear" fieldName="vehicle_rear_image" value={drv.vehicle_rear_image} onChange={onDriverField} required />
+                      <ImgUpload label="Vehicle Side" fieldName="vehicle_side_image" value={drv.vehicle_side_image} onChange={onDriverField} required />
                     </div>
-                    <div className="relative"><Lock size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" />
-                      <input type={showPw ? 'text' : 'password'} required value={drv.password} onChange={e => onDriverField('password', e.target.value)} className={inp()} style={{ paddingLeft: '40px', paddingRight: '48px' }} placeholder="Create a strong password" />
-                      <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300">{showPw ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-                    </div>
-                  </div>
 
-                  <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} type="submit" disabled={regLoading}
-                    className="w-full py-4 rounded-2xl bg-amber-500 text-emerald-950 font-bold text-sm shadow-lg hover:bg-amber-400 transition-all disabled:opacity-60">
-                    {regLoading ? 'Submitting…' : 'Submit Driver Application'}
-                  </motion.button>
+                    <SectionHeader num="4" label="Account Security" icon="bi-shield-lock-fill" />
+                    <div style={{ position: 'relative' }}>
+                      <i className="bi bi-lock-fill" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1' }} />
+                      <input type={showPw ? 'text' : 'password'} required value={drv.password} onChange={e => onDriverField('password', e.target.value)} className="lp-input" style={{ paddingRight: '46px' }} placeholder="Create a strong password" />
+                      <button type="button" onClick={() => setShowPw(!showPw)} style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '16px' }}>
+                        <i className={`bi ${showPw ? 'bi-eye-slash-fill' : 'bi-eye-fill'}`} />
+                      </button>
+                    </div>
+
+                    <motion.button type="submit" disabled={regLoading} whileTap={{ scale: 0.98 }}
+                      style={{ ...S.btnAmber, marginTop: '4px', opacity: regLoading ? 0.6 : 1 }}>
+                      {regLoading ? <><i className="bi bi-hourglass-split" /> Submitting…</> : <><i className="bi bi-send-fill" style={{ fontSize: '15px' }} /> Submit Driver Application</>}
+                    </motion.button>
+                  </div>
                 </motion.form>
               )}
-
             </AnimatePresence>
           </div>
 
-          <Footer minimal={true} />
-        </div>
-
-        {/* RIGHT: MAP PANEL */}
-        <div className="hidden lg:flex flex-col items-center justify-start relative bg-emerald-950 overflow-hidden" style={{ width: '550px', flexShrink: 0 }}>
-          <div className="absolute inset-0 bg-gradient-to-br from-emerald-900/80 via-emerald-950 to-emerald-900/60" />
-          <div className="absolute top-0 right-0 w-80 h-80 rounded-full blur-[120px] opacity-20" style={{ background: '#d97706' }} />
-          <div className="absolute bottom-0 left-0 w-64 h-64 rounded-full blur-[100px] opacity-15" style={{ background: '#34d399' }} />
-
-          <div className="relative z-10 w-full h-full flex flex-col items-center px-8 pb-8 pt-0 text-center">
-            <div className="w-full flex items-center justify-center pt-8 mb-2">
-              <SriLankaMap />
+          {/* Footer bar */}
+          <div style={{ paddingTop: '20px', marginTop: '8px', borderTop: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <img src={appLogo} alt="" style={{ height: '18px', width: '18px', objectFit: 'cover', borderRadius: '5px' }} />
+              <p style={{ margin: 0, fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+                Powered by <span style={{ color: '#d97706' }}>Air B&C</span>
+              </p>
             </div>
-            <div className="shrink-0 w-full max-w-xs">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`text-${acct}-${mode}`}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <h3 className="lp-serif text-white text-3xl mb-3">
-                    {acct === 'driver'
-                      ? (mode === 'register' ? 'Join Our Fleet' : 'Driver Portal')
-                      : (mode === 'register' ? 'Start Your Journey' : 'Discover the Island')}
-                  </h3>
-                  <p className="text-emerald-100/40 text-sm leading-relaxed mb-8">
-                    {acct === 'driver'
-                      ? (mode === 'register' ? 'Partner with Air B&C and turn your vehicle into a thriving business.' : 'Access your dashboard, manage your trips, and track your earnings seamlessly.')
-                      : (mode === 'register' ? 'Create an account to book verified local drivers across every corner of Sri Lanka.' : 'Air B&C connects travelers with verified local drivers across every corner of Sri Lanka.')}
-                  </p>
-                  <div className="w-full bg-white/5 border border-white/10 rounded-2xl p-5 text-left backdrop-blur-sm">
-                    <div className="flex gap-1 mb-3">
-                      {[...Array(5)].map((_, i) => <span key={i} className="text-amber-400 text-sm">★</span>)}
-                    </div>
-                    <p className="text-white text-sm font-medium leading-relaxed mb-2">
-                      {acct === 'driver'
-                        ? '"Air B&C completely transformed my business. The platform is easy to use and provides steady bookings."'
-                        : '"Absolutely seamless experience. Our driver knew every hidden gem along the southern coast."'}
-                    </p>
-                    <p className="text-white/30 text-[10px] font-bold uppercase tracking-widest">
-                      {acct === 'driver' ? '— Kamal P., Kandy' : '— Sarah K., United Kingdom'}
-                    </p>
-                  </div>
-                </motion.div>
-              </AnimatePresence>
-            </div>
+            <p style={{ margin: 0, fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+              Developed by <span style={{ color: '#475569' }}>IR Mate Pvt</span>
+            </p>
           </div>
         </div>
 
-      </div>
+        {/* ── RIGHT: VISUAL PANEL ── */}
+        <RightPanel acct={acct} mode={mode} />
+      </motion.div>
     </div>
   )
 }

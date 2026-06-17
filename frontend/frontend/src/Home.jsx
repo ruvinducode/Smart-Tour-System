@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import L from 'leaflet'
 import {
   MapContainer,
@@ -14,6 +15,7 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 import Footer from './components/Footer.jsx'
+import { calculateTourEstimate, createTour as createTourRequest } from './services/api.js'
 import appLogo from '../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 import sigiriyaImg from '../images/sigiriya.png'
 import galleImg from '../images/galle.png'
@@ -25,7 +27,15 @@ import kandyImg from '../images/kandy.png'
 import mirissaImg from '../images/mirissa.png'
 import trincomaleeImg from '../images/trincomalee.png'
 
-// Custom CSS animations & Modern Design Tokens
+const pad2 = (n) => String(n).padStart(2, '0')
+const formatLocalDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+const todayDateString = () => formatLocalDate(new Date())
+
+const VEHICLE_ALIASES = {
+  'Mini Car': 'Mini car', 'mini car': 'Mini car',
+  'Mini Van': 'Mini van', 'mini van': 'Mini van',
+  'Mini Bus': 'Mini bus', 'mini bus': 'Mini bus',
+}
 const customStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
   
@@ -79,10 +89,14 @@ const customStyles = `
 
   /* Glassmorphism utility */
   .glass {
-    background: rgba(255, 255, 255, 0.75);
+    background: rgba(255, 255, 255, 0.9);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+
+  .location-search-dropdown {
+    animation: fade-in-up 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
   .glass-dark {
     background: rgba(15, 23, 42, 0.8);
@@ -363,14 +377,6 @@ function getHaversineDistance(lat1, lon1, lat2, lon2) {
 
 import { VEHICLE_OPTIONS } from './vehicleOptions.js'
 
-const DEFAULT_API =
-  import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://127.0.0.1:5001'
-
-function apiUrl(path) {
-  const p = path.startsWith('/') ? path : `/${path}`
-  return `${DEFAULT_API}${p}`
-}
-
 const SRI_LANKA_CENTER = [7.85, 80.65]
 const DEFAULT_ZOOM = 8
 
@@ -383,7 +389,7 @@ const SRI_LANKA_BOUNDS = [
 function ZoomControls({ mapRef, onUndo, canUndo, onClear, hasLocations }) {
   if (!mapRef) return null
   return (
-    <div className="absolute top-6 right-6 z-[1000] flex flex-col gap-3 pointer-events-auto">
+    <div className="absolute bottom-28 md:bottom-auto md:top-6 right-6 z-[1000] flex flex-col gap-3 pointer-events-auto">
       {/* Zoom In */}
       <button
         onClick={() => mapRef.zoomIn()}
@@ -440,7 +446,14 @@ function ZoomControls({ mapRef, onUndo, canUndo, onClear, hasLocations }) {
 // Helper to extract map ref from inside MapContainer
 function MapRefSetter({ onMapRef }) {
   const map = useMap()
-  useEffect(() => { onMapRef(map) }, [map, onMapRef])
+  useEffect(() => { 
+    onMapRef(map) 
+    const handleResize = () => map.invalidateSize()
+    window.addEventListener('resize', handleResize)
+    // Invalidate once on mount to handle initial render bugs
+    setTimeout(() => map.invalidateSize(), 100)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [map, onMapRef])
   return null
 }
 
@@ -488,6 +501,118 @@ function MapEffect({ locations }) {
     }
   }, [locations, map])
   return null
+}
+
+const SEARCH_ACCENT = {
+  emerald: {
+    ring: 'focus:ring-emerald-500/20 focus:border-emerald-500',
+    hover: 'hover:bg-emerald-50',
+    title: 'group-hover:text-emerald-700',
+    spinner: 'border-emerald-200 border-t-emerald-500',
+  },
+  orange: {
+    ring: 'focus:ring-orange-500/20 focus:border-orange-500',
+    hover: 'hover:bg-orange-50',
+    title: 'group-hover:text-orange-700',
+    spinner: 'border-orange-200 border-t-orange-500',
+  },
+}
+
+function LocationSearchInput({
+  value,
+  onChange,
+  onSubmit,
+  results,
+  onSelect,
+  isSearching,
+  placeholder,
+  accent = 'emerald',
+}) {
+  const inputRef = useRef(null)
+  const listId = useId()
+  const [dropdownPos, setDropdownPos] = useState(null)
+  const styles = SEARCH_ACCENT[accent] || SEARCH_ACCENT.emerald
+
+  const updateDropdownPosition = useCallback(() => {
+    if (!inputRef.current) return
+    const rect = inputRef.current.getBoundingClientRect()
+    setDropdownPos({
+      top: rect.bottom + 8,
+      left: rect.left,
+      width: rect.width,
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!results.length) {
+      setDropdownPos(null)
+      return undefined
+    }
+
+    updateDropdownPosition()
+    window.addEventListener('resize', updateDropdownPosition)
+    window.addEventListener('scroll', updateDropdownPosition, true)
+
+    return () => {
+      window.removeEventListener('resize', updateDropdownPosition)
+      window.removeEventListener('scroll', updateDropdownPosition, true)
+    }
+  }, [results, updateDropdownPosition])
+
+  const dropdown = results.length > 0 && dropdownPos && typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          role="listbox"
+          id={listId}
+          className="location-search-dropdown fixed z-[9999] bg-white rounded-2xl border border-slate-200 shadow-[0_20px_50px_-12px_rgba(15,23,42,0.35)] overflow-hidden max-h-56 overflow-y-auto"
+          style={{
+            top: dropdownPos.top,
+            left: dropdownPos.left,
+            width: dropdownPos.width,
+          }}
+        >
+          {results.map((result, index) => (
+            <button
+              key={result.place_id || result.osm_id || `${result.lat}-${result.lon}-${index}`}
+              type="button"
+              role="option"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onSelect(result)}
+              className={`w-full text-left px-4 py-3.5 transition-colors border-b border-slate-100 last:border-0 group ${styles.hover}`}
+            >
+              <p className={`text-xs font-bold text-slate-900 ${styles.title}`}>
+                {result.display_name.split(',')[0]}
+              </p>
+              <p className="text-[10px] text-slate-400 truncate mt-0.5">{result.display_name}</p>
+            </button>
+          ))}
+        </div>,
+        document.body
+      )
+    : null
+
+  return (
+    <div className="relative">
+      <form onSubmit={onSubmit}>
+        <input
+          ref={inputRef}
+          type="text"
+          value={value}
+          onChange={onChange}
+          onFocus={updateDropdownPosition}
+          placeholder={placeholder}
+          aria-expanded={results.length > 0}
+          aria-controls={results.length > 0 ? listId : undefined}
+          autoComplete="off"
+          className={`w-full pl-6 pr-10 py-3.5 bg-white border border-slate-100 rounded-2xl text-xs font-bold text-slate-900 focus:ring-2 ${styles.ring} transition-all shadow-sm`}
+        />
+      </form>
+      {isSearching && (
+        <div className={`absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 border-2 ${styles.spinner} rounded-full animate-spin pointer-events-none`} />
+      )}
+      {dropdown}
+    </div>
+  )
 }
 
 // Image Carousel Component with Auto Animation
@@ -577,21 +702,35 @@ function ImageCarousel() {
   )
 }
 
-export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip, onBookingConfirmed }) {
+export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip, onBookingConfirmed, initialDestination }) {
   useLeafletDefaultIcon()
 
   const listId = useId()
   const vehicleGroupId = useId()
-  const [locations, setLocations] = useState([]);
+  const [locations, setLocations] = useState(() => {
+    // Pre-fill with initial destination if provided
+    if (initialDestination) {
+      return [{
+        id: `preset-${initialDestination.name}`,
+        lat: initialDestination.lat,
+        lng: initialDestination.lng,
+        name: `${initialDestination.name}, Sri Lanka`,
+      }]
+    }
+    return []
+  });
   const [selectedVehicle, setSelectedVehicle] = useState('');
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [currentStep, setCurrentStep] = useState(1) // 1: Locations, 2: Vehicle, 3: Review
   const [estimatedPrice, setEstimatedPrice] = useState(null)
+  const [estimateLoading, setEstimateLoading] = useState(false)
+  const [estimateError, setEstimateError] = useState('')
   const [bookingConfirmed, setBookingConfirmed] = useState(false)
 
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
+  const [startDate, setStartDate] = useState(todayDateString)
+  const [endDate, setEndDate] = useState(todayDateString)
   const [startTime, setStartTime] = useState("10:00")
   const [bookingType, setBookingType] = useState('now')
   const [searchQuery, setSearchQuery] = useState('')
@@ -603,6 +742,8 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
   const [startSearchResults, setStartSearchResults] = useState([])
   const [isStartSearching, setIsStartSearching] = useState(false)
   const [mapRef, setMapRef] = useState(null)
+  const [isStartCollapsed, setIsStartCollapsed] = useState(false)
+  const [isStopsCollapsed, setIsStopsCollapsed] = useState(false)
 
   // Live GPS detection
   const handleGetLiveLocation = useCallback(() => {
@@ -781,7 +922,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
   const [routeCoords, setRouteCoords] = useState([])
   const [legDistances, setLegDistances] = useState([]) // km per segment
 
-  const createTour = useCallback(async () => {
+  const submitTourBooking = useCallback(async (bookingOverride = {}) => {
     if (locations.length === 0) {
       setMessage('Please select at least 1 location')
       return
@@ -801,56 +942,34 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
         return
       }
 
-      // 1. Fetch vehicles list
-      const vehicleResponse = await fetch('http://127.0.0.1:5001/vehicles-test')
-      if (!vehicleResponse.ok) throw new Error('Could not load vehicle list')
-      const vehicles = await vehicleResponse.json()
+      const resolvedVehicleType = VEHICLE_ALIASES[selectedVehicle] ?? selectedVehicle
+      const vehicleId = estimatedPrice?.vehicle?.id
 
-      // 2. Normalise vehicle name casing to match DB exactly
-      const VEHICLE_ALIASES = {
-        'Mini Car': 'Mini car', 'mini car': 'Mini car',
-        'Mini Van': 'Mini van', 'mini van': 'Mini van',
-        'Mini Bus': 'Mini bus', 'mini bus': 'Mini bus',
-      }
-      const resolvedVehicle = VEHICLE_ALIASES[selectedVehicle] ?? selectedVehicle
+      // Compute dates based on booking type (pass overrides — state updates are async)
+      const type = bookingOverride.bookingType ?? bookingType
+      const scheduledDate = bookingOverride.startDate ?? startDate
+      const scheduledEndDate = bookingOverride.endDate ?? endDate
+      const scheduledTime = bookingOverride.startTime ?? startTime
 
-      // 3. Find matching vehicle (exact → case-insensitive fallback)
-      let selectedVehicleObj = vehicles.find((v) => v.type === resolvedVehicle)
-        || vehicles.find((v) => v.type.toLowerCase() === resolvedVehicle.toLowerCase())
+      let startDateStr
+      let timeStr
+      let endDateStr
 
-      // 4. If still not found, seed then retry once
-      if (!selectedVehicleObj) {
-        await fetch('http://127.0.0.1:5001/seed-all-vehicles', { method: 'POST' })
-        const retryVehicles = await (await fetch('http://127.0.0.1:5001/vehicles-test')).json()
-        selectedVehicleObj = retryVehicles.find(
-          (v) => v.type.toLowerCase() === resolvedVehicle.toLowerCase()
-        )
+      if (type === 'now') {
+        const now = new Date()
+        startDateStr = formatLocalDate(now)
+        timeStr = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`
+        endDateStr = endDate
+      } else {
+        startDateStr = scheduledDate
+        timeStr = scheduledTime
+        endDateStr = scheduledEndDate
       }
 
-      if (!selectedVehicleObj) {
-        setMessage(`Vehicle "${resolvedVehicle}" not found. Please go back and re-select a vehicle.`)
+      if (endDateStr < startDateStr) {
+        setMessage('End date cannot be earlier than start date.')
         return
       }
-
-      // 4. Compute real total km from OSRM leg distances
-      const totalKm = legDistances.length > 0
-        ? legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)
-        : 100 // fallback
-
-      // 5. Compute dates based on booking type
-      let start, timeStr;
-      if (bookingType === 'now') {
-         start = new Date();
-         timeStr = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
-      } else {
-         const parts = startDate.split('-').map(Number)
-         start = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]))
-         timeStr = startTime;
-      }
-      
-      const days = estimatedPrice?.days || 1
-      const endDate = new Date(start.getTime() + days * 24 * 60 * 60 * 1000)
-      const fmt = (d) => d.toISOString().split('T')[0]
 
       // 6. Build locations payload
       const locationsPayload = locations.map((loc, i) => ({
@@ -859,37 +978,27 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
         longitude: loc.lng,
       }))
 
-      // 7. Create the tour
-      const response = await fetch('http://127.0.0.1:5001/tour/create-tour', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          vehicle_id: selectedVehicleObj.id,
-          total_distance_km: totalKm,
-          total_days: days,
-          start_date: fmt(start),
-          start_time: timeStr,
-          end_date: fmt(endDate),
-          locations: locationsPayload,
-        }),
-      })
+      const totalKm = legDistances.length > 0
+        ? legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)
+        : undefined
 
-      const data = await response.json()
+      // Create the tour — pricing and duration are computed on the backend
+      const data = await createTourRequest({
+        ...(vehicleId ? { vehicle_id: vehicleId } : {}),
+        vehicle_type: resolvedVehicleType,
+        total_distance_km: totalKm,
+        start_date: startDateStr,
+        start_time: timeStr,
+        end_date: endDateStr,
+        locations: locationsPayload,
+      }, token)
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Session expired. Please log out and log in again.')
-        }
-        throw new Error(data.message || 'Failed to create tour')
-      }
+      const tour = data.tour || {}
+      const days = tour.total_days || 1
+      const distance = tour.total_distance_km || 0
+      const priceLkr = tour.estimated_price || 0
 
-      setMessage(`Tour booked! ${totalKm} km • ${days} day${days !== 1 ? 's' : ''} • $${estimatedPrice?.usd || 0} USD`)
-      setBookingConfirmed(true)
-
-      // Navigate to Uber-style finding-driver screen
+      // Navigate to finding-driver screen immediately on success
       if (onBookingConfirmed) {
         const startLoc = locations.find(l => l.isStart) || locations[0]
         onBookingConfirmed({
@@ -898,20 +1007,22 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
             : null,
           bookingDetails: {
             vehicle: selectedVehicle,
-            days: estimatedPrice?.days || days,
-            usd: estimatedPrice?.usd || 0,
-            lkr: estimatedPrice?.lkr || 0,
+            days,
+            distance,
+            lkr: priceLkr,
           },
         })
       }
+
+      setMessage(`Tour booked! ${distance} km • ${days} day${days !== 1 ? 's' : ''} • Rs. ${Number(priceLkr).toLocaleString()}`)
+      setBookingConfirmed(true)
 
     } catch (error) {
       setMessage(error.message)
     } finally {
       setLoading(false)
     }
-  }, [locations, selectedVehicle, estimatedPrice])
-
+  }, [locations, selectedVehicle, estimatedPrice, bookingType, startDate, endDate, startTime, legDistances, onBookingConfirmed])
 
   // Debounced OSRM routing fetch
   const fetchRoute = useCallback(() => {
@@ -966,66 +1077,71 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     return () => clearTimeout(handler);
   }, [fetchRoute]);
 
+  const totalRouteKm = useMemo(
+    () => legDistances.reduce((s, k) => +(s + k).toFixed(1), 0),
+    [legDistances],
+  )
+
+  const locationsPayload = useMemo(
+    () => locations.map((loc, i) => ({
+      place_name: loc.name || `Stop ${i + 1}`,
+      latitude: loc.lat,
+      longitude: loc.lng,
+    })),
+    [locations],
+  )
+
+  const handleStartDateChange = useCallback((value) => {
+    setStartDate(value)
+    if (endDate < value) setEndDate(value)
+  }, [endDate])
+
+  const handleEndDateChange = useCallback((value) => {
+    setEndDate(value < startDate ? startDate : value)
+  }, [startDate])
+
+  // Fetch pricing estimate from backend whenever route, vehicle, or travel dates change
+  useEffect(() => {
+    if (!selectedVehicle || locations.length < 2 || endDate < startDate) {
+      setEstimatedPrice(null)
+      setEstimateError('')
+      return undefined
+    }
+
+    let cancelled = false
+    const handler = setTimeout(async () => {
+      setEstimateLoading(true)
+      setEstimateError('')
+      try {
+        const resolvedVehicle = VEHICLE_ALIASES[selectedVehicle] ?? selectedVehicle
+        const data = await calculateTourEstimate({
+          locations: locationsPayload,
+          vehicle_type: resolvedVehicle,
+          start_date: startDate,
+          end_date: endDate,
+          total_distance_km: totalRouteKm > 0 ? totalRouteKm : undefined,
+        })
+        if (!cancelled) setEstimatedPrice(data)
+      } catch (err) {
+        if (!cancelled) {
+          setEstimatedPrice(null)
+          setEstimateError(err.message || 'Could not calculate estimate')
+        }
+      } finally {
+        if (!cancelled) setEstimateLoading(false)
+      }
+    }, 400)
+
+    return () => {
+      cancelled = true
+      clearTimeout(handler)
+    }
+  }, [selectedVehicle, locationsPayload, startDate, endDate, totalRouteKm, locations.length])
+
   const canUndo = locations.length > 0
 
-  // Calculate estimated price based on locations and vehicle
-  const calculateEstimatedPrice = useCallback(() => {
-    if (!selectedVehicle || locations.length === 0) return { usd: 0, lkr: 0, days: 0, hours: 0 }
-    
-    // Get total distance from legDistances (computed via BRouter)
-    const totalKm = legDistances.reduce((s, k) => +(s + k).toFixed(1), 0) || (locations.length * 50)
-    
-    // ── Practical days calculation (Sri Lanka tourism context) ─────────────────
-    // • Max comfortable driving per day: 300 km (6 hrs at ~50 km/h)
-    // • Each stop after the start needs ~0.5 day for sightseeing
-    // • Minimum 1 day for any trip
-    const numStops = locations.length
-    const drivingDays = totalKm / 300
-    const sightseeingDays = (numStops - 1) * 0.5  // each stop after pickup
-    const rawDays = drivingDays + sightseeingDays
-    const totalDays = Math.max(1, Math.ceil(rawDays))
-
-    // Hours breakdown for display (driving hours only)
-    const avgSpeedKmh = 50
-    const totalHours = Math.round((totalKm / avgSpeedKmh + (numStops - 1) * 4) * 10) / 10
-
-    // Rates in USD (roughly matching backend LKR rates)
-    const rates = {
-      'Mini car': { km: 0.14, day: 14 },
-      'Car': { km: 0.16, day: 16 },
-      'Mini van': { km: 0.19, day: 20 },
-      'Van': { km: 0.22, day: 25 },
-      'SUV': { km: 0.20, day: 22 },
-      'Mini bus': { km: 0.26, day: 35 },
-      'Bus': { km: 0.28, day: 38 },
-    }
-    
-    const vehicleRate = rates[selectedVehicle] || rates['Car']
-    
-    // FINAL CALCULATION: (km * rate_km) + (days * rate_day)
-    const totalUSD = (totalKm * vehicleRate.km) + (totalDays * vehicleRate.day)
-    
-    // Convert USD to LKR (approximate rate: 1 USD = 320 LKR)
-    const totalLKR = Math.round(totalUSD * 320)
-    
-    return {
-      usd: Math.round(totalUSD),
-      lkr: totalLKR,
-      days: totalDays,
-      hours: totalHours
-    }
-  }, [selectedVehicle, locations.length, legDistances])
-
-  // Calculate price when locations or vehicle changes
-  useEffect(() => {
-    const price = calculateEstimatedPrice()
-    setEstimatedPrice(price)
-  }, [calculateEstimatedPrice])
-
-  const handleBookTour = async () => {
-    setLoading(true)
-    await createTour()
-    setLoading(false)
+  const handleBookTour = async (bookingOverride) => {
+    await submitTourBooking(bookingOverride)
   }
 
   const mapContentMemo = useMemo(() => (
@@ -1083,27 +1199,6 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
             </Popup>
           </Marker>
         ))}
-
-        {/* Segment Distances on Map */}
-        {locations.length >= 2 && legDistances.length > 0 && locations.slice(0, -1).map((loc, i) => {
-          const nextLoc = locations[i+1];
-          const distance = legDistances[i];
-          if (!nextLoc || distance === undefined) return null;
-          const midLat = (loc.lat + nextLoc.lat) / 2;
-          const midLng = (loc.lng + nextLoc.lng) / 2;
-          return (
-            <Marker 
-              key={`leg-${i}`} 
-              position={[midLat, midLng]} 
-              interactive={false}
-              icon={L.divIcon({
-                className: 'custom-div-icon',
-                html: `<div style="background: white; border: 2px solid #f97316; border-radius: 20px; padding: 4px 10px; font-size: 10px; font-weight: 900; color: #f97316; box-shadow: 0 4px 10px rgba(0,0,0,0.1); white-space: nowrap; transform: translate(-50%, -50%); border-style: dashed;">${distance} km</div>`,
-                iconSize: [0, 0]
-              })}
-            />
-          );
-        })}
       </MapContainer>
     </div>
   ), [locations, routeCoords, legDistances, addLocation, removeLocation, setMapRef]);
@@ -1137,7 +1232,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
   ), [selectedVehicle]);
 
   return (
-    <div className="min-h-screen bg-slate-50 font-['Plus_Jakarta_Sans'] overflow-x-hidden">
+    <div className="min-h-screen flex flex-col bg-slate-50 font-['Plus_Jakarta_Sans'] overflow-x-hidden">
       
       {/* ── Dynamic Mesh Background ── */}
       <div className="fixed inset-0 pointer-events-none z-0">
@@ -1248,106 +1343,169 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
         {/* ──────────── STEP 1: ROUTE PLANNING ──────────── */}
         {currentStep === 1 && (
           <div className="max-w-[1600px] mx-auto px-4 lg:px-8">
-            <div className="relative rounded-[3rem] overflow-hidden shadow-2xl border-8 border-white h-[88vh] bg-slate-100 group">
+            <div className="flex flex-col lg:grid lg:grid-cols-12 gap-8 items-start">
               
-              {/* ── IMMERSIVE MAP ── */}
-              {mapContentMemo}
-
-              {/* ── FLOATING CONTROLS STACK ── */}
-              <div className="absolute top-8 left-8 z-[1000] w-full max-w-[380px] space-y-4 pointer-events-none">
+              {/* ── CONTROLS STACK (Below map on mobile, left-side on desktop) ── */}
+              <div className="order-2 lg:order-1 w-full lg:col-span-4 space-y-4 relative z-20 overflow-visible">
                 
                 {/* Search Start */}
                 <div className="glass rounded-[2rem] p-6 shadow-2xl shadow-slate-900/10 pointer-events-auto border-emerald-500/20">
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20 text-xl font-black">
-                      <i className="bi bi-geo-alt"></i>
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-extrabold text-slate-900 tracking-tight leading-none">Starting Point</h3>
-                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1">WHERE YOU BEGIN</p>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={handleGetLiveLocation}
-                    disabled={gpsLoading}
-                    className="w-full mb-4 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl active:scale-95"
-                  >
-                    {gpsLoading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <i className="bi bi-crosshair"></i>}
-                    {gpsLoading ? 'Detecting...' : 'Detect My Location'}
-                  </button>
-
-                  <div className="relative">
-                    <form onSubmit={handleStartSearch}>
-                      <input
-                        type="text" value={startSearchQuery} onChange={(e) => setStartSearchQuery(e.target.value)}
-                        placeholder="Search city..."
-                        className="w-full pl-6 pr-4 py-3.5 bg-white border border-slate-100 rounded-2xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-sm"
-                      />
-                    </form>
-                    {startSearchResults.length > 0 && (
-                      <div className="absolute top-full left-0 w-full mt-2 bg-white rounded-2xl border border-slate-100 shadow-2xl overflow-hidden max-h-48 overflow-y-auto">
-                        {startSearchResults.map((r, i) => (
-                          <button key={i} onClick={() => addStartLocation(r)} className="w-full text-left p-4 hover:bg-emerald-50 transition-all border-b border-slate-50 last:border-0 group">
-                            <p className="text-[10px] font-black text-slate-900 group-hover:text-emerald-700">{r.display_name.split(',')[0]}</p>
-                            <p className="text-[9px] text-slate-400 truncate">{r.display_name}</p>
-                          </button>
-                        ))}
+                  <div className={`flex items-center justify-between cursor-pointer select-none ${isStartCollapsed ? '' : 'mb-5'}`} onClick={() => setIsStartCollapsed(!isStartCollapsed)}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20 text-xl font-black">
+                        <i className="bi bi-geo-alt"></i>
                       </div>
-                    )}
+                      <div>
+                        <h3 className="text-lg font-extrabold text-slate-900 tracking-tight leading-none">Starting Point</h3>
+                        <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1">WHERE YOU BEGIN</p>
+                      </div>
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors">
+                      <i className={`bi bi-chevron-${isStartCollapsed ? 'down' : 'up'} text-xs font-black`}></i>
+                    </div>
                   </div>
+
+                  {!isStartCollapsed && (
+                    <div>
+                      <button
+                        onClick={handleGetLiveLocation}
+                        disabled={gpsLoading}
+                        className="w-full mb-4 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl active:scale-95"
+                      >
+                        {gpsLoading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <i className="bi bi-crosshair"></i>}
+                        {gpsLoading ? 'Detecting...' : 'Detect My Location'}
+                      </button>
+
+                      <LocationSearchInput
+                        value={startSearchQuery}
+                        onChange={(e) => setStartSearchQuery(e.target.value)}
+                        onSubmit={handleStartSearch}
+                        results={startSearchResults}
+                        onSelect={addStartLocation}
+                        isSearching={isStartSearching}
+                        placeholder="Search city..."
+                        accent="emerald"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Add Stops */}
                 <div className="glass rounded-[2rem] p-6 shadow-2xl shadow-slate-900/10 pointer-events-auto border-orange-500/20">
-                  <div className="flex items-center gap-3 mb-5">
-                    <div className="w-10 h-10 rounded-2xl bg-orange-500 text-white flex items-center justify-center shadow-lg shadow-orange-500/20 text-xl font-black">
-                      <i className="bi bi-plus-lg"></i>
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-extrabold text-slate-900 tracking-tight leading-none">Add Stops</h3>
-                      <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest mt-1">
-                        {locations.filter(l=>!l.isStart).length} DESTINATIONS
-                      </p>
-                    </div>
-                  </div>
-                  <div className="relative">
-                    <form onSubmit={handleSearch}>
-                      <input
-                        type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Add another stop..."
-                        className="w-full pl-6 pr-4 py-3.5 bg-white border border-slate-100 rounded-2xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all shadow-sm"
-                      />
-                    </form>
-                    {isSearching && <div className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-orange-200 border-t-orange-500 rounded-full animate-spin"></div>}
-                    {searchResults.length > 0 && (
-                      <div className="absolute top-full left-0 w-full mt-2 bg-white rounded-2xl border border-slate-100 shadow-2xl overflow-hidden max-h-48 overflow-y-auto">
-                        {searchResults.map((r, i) => (
-                          <button key={i} onClick={() => addSearchedLocation(r)} className="w-full text-left p-4 hover:bg-orange-50 transition-all border-b border-slate-50 last:border-0 group">
-                            <p className="text-[10px] font-black text-slate-900 group-hover:text-orange-700">{r.display_name.split(',')[0]}</p>
-                            <p className="text-[9px] text-slate-400 truncate">{r.display_name}</p>
-                          </button>
-                        ))}
+                  <div className={`flex items-center justify-between cursor-pointer select-none ${isStopsCollapsed ? '' : 'mb-5'}`} onClick={() => setIsStopsCollapsed(!isStopsCollapsed)}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-orange-500 text-white flex items-center justify-center shadow-lg shadow-orange-500/20 text-xl font-black">
+                        <i className="bi bi-plus-lg"></i>
                       </div>
-                    )}
+                      <div>
+                        <h3 className="text-lg font-extrabold text-slate-900 tracking-tight leading-none">Add Stops</h3>
+                        <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest mt-1">
+                          {locations.filter(l=>!l.isStart).length} DESTINATIONS
+                        </p>
+                      </div>
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors">
+                      <i className={`bi bi-chevron-${isStopsCollapsed ? 'down' : 'up'} text-xs font-black`}></i>
+                    </div>
                   </div>
+
+                  {!isStopsCollapsed && (
+                    <LocationSearchInput
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onSubmit={handleSearch}
+                      results={searchResults}
+                      onSelect={addSearchedLocation}
+                      isSearching={isSearching}
+                      placeholder="Add another stop..."
+                      accent="orange"
+                    />
+                  )}
                 </div>
+
+                {/* Journey Timeline */}
+                {locations.length > 0 && (
+                  <div className="glass rounded-[2rem] p-6 shadow-2xl shadow-slate-900/10 pointer-events-auto border-slate-200/50">
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 mb-6">Journey Timeline</h3>
+                    <div className="space-y-4">
+                      {locations.map((loc, i) => {
+                        const nextLoc = locations[i + 1];
+                        const distance = legDistances[i];
+                        return (
+                          <div key={loc.id} className="relative">
+                            {/* Location row */}
+                            <div className="flex items-start gap-4 relative">
+                              <div className={`mt-1.5 h-3.5 w-3.5 rounded-full border-4 border-white shadow-md z-10 flex-shrink-0 ${loc.isStart ? 'bg-emerald-500' : 'bg-orange-500'}`} />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-black text-slate-900 leading-tight truncate">{loc.name.split(',')[0]}</p>
+                                <p className="text-[9px] text-slate-400 truncate mt-0.5">{loc.name}</p>
+                              </div>
+                              {/* Remove button */}
+                              <button
+                                onClick={() => removeLocation(loc.id)}
+                                className="p-1 text-slate-400 hover:text-rose-500 transition-colors flex-shrink-0"
+                                title="Remove stop"
+                              >
+                                <i className="bi bi-x-lg text-[10px] font-black"></i>
+                              </button>
+                            </div>
+
+                            {/* Connecting vertical line & distance segment */}
+                            {nextLoc && distance !== undefined && (
+                              <div className="flex items-center gap-3 pl-1.5 relative h-10">
+                                {/* Timeline vertical line */}
+                                <div className="absolute left-[6px] top-0 bottom-0 w-0.5 bg-slate-200" />
+                                {/* Distance indicator pill */}
+                                <div className="ml-6 bg-slate-50 text-slate-600 text-[10px] font-black px-3 py-1 rounded-full border border-slate-100 shadow-sm flex items-center gap-1.5 z-20">
+                                  <i className="bi bi-arrow-down text-[9px] text-orange-500"></i>
+                                  <span>{distance} km</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Summary & Action */}
                 {locations.length >= 2 && (
                   <div className="glass rounded-[2rem] p-6 shadow-2xl shadow-slate-900/10 pointer-events-auto border-slate-900/10">
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
+                        <input
+                          type="date"
+                          value={startDate}
+                          min={todayDateString()}
+                          onChange={(e) => handleStartDateChange(e.target.value)}
+                          className="w-full rounded-xl border-2 border-slate-100 bg-white px-3 py-2 font-bold text-sm text-slate-800 focus:border-orange-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">End Date</label>
+                        <input
+                          type="date"
+                          value={endDate}
+                          min={startDate}
+                          onChange={(e) => handleEndDateChange(e.target.value)}
+                          className="w-full rounded-xl border-2 border-slate-100 bg-white px-3 py-2 font-bold text-sm text-slate-800 focus:border-orange-500 outline-none"
+                        />
+                      </div>
+                    </div>
                     <div className="flex justify-between items-center mb-6">
                       <div className="text-center flex-1 border-r border-slate-100">
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Duration</p>
                         <div className="flex items-baseline justify-center gap-1">
-                          <span className="text-2xl font-black text-slate-900">{estimatedPrice?.days || 1}</span>
+                          <span className="text-2xl font-black text-slate-900">{estimatedPrice?.total_days ?? '—'}</span>
                           <span className="text-[10px] font-bold text-slate-400">DAYS</span>
                         </div>
                       </div>
                       <div className="text-center flex-1">
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Distance</p>
                         <div className="flex items-baseline justify-center gap-1">
-                          <span className="text-2xl font-black text-slate-900">{legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)}</span>
+                          <span className="text-2xl font-black text-slate-900">{totalRouteKm}</span>
                           <span className="text-[10px] font-bold text-orange-400">KM</span>
                         </div>
                       </div>
@@ -1362,18 +1520,25 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                 )}
               </div>
 
-              {/* Custom Zoom & Map Controls (Right Side) */}
-              <ZoomControls mapRef={mapRef} onUndo={undoLast} canUndo={canUndo} onClear={clearAll} hasLocations={locations.length > 0} />
+              {/* ── MAP CONTAINER (First on mobile, right-side on desktop) ── */}
+              <div className="order-1 lg:order-2 w-full lg:col-span-8 relative rounded-[3rem] overflow-hidden shadow-2xl border-8 border-white h-[65vh] lg:h-[88vh] bg-slate-100 group z-0">
+                {/* Immersive Map */}
+                {mapContentMemo}
 
-              {/* Hint Overlay */}
-              {locations.length === 0 && (
-                <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[1000] glass-dark text-white px-10 py-5 rounded-full animate-pulse-soft border-none">
-                  <p className="text-sm font-black tracking-tight flex items-center gap-3">
-                    <span className="w-2 h-2 rounded-full bg-orange-400 animate-ping"></span>
-                    Tap anywhere on Sri Lanka to start your tour
-                  </p>
-                </div>
-              )}
+                {/* Custom Zoom & Map Controls (Right Side) */}
+                <ZoomControls mapRef={mapRef} onUndo={undoLast} canUndo={canUndo} onClear={clearAll} hasLocations={locations.length > 0} />
+
+                {/* Hint Overlay */}
+                {locations.length === 0 && (
+                  <div className="absolute bottom-4 md:bottom-12 left-1/2 -translate-x-1/2 z-[1000] glass-dark text-white px-6 md:px-10 py-3 md:py-5 rounded-full animate-pulse-soft border-none whitespace-nowrap pointer-events-none">
+                    <p className="text-sm font-black tracking-tight flex items-center gap-3">
+                      <span className="w-2 h-2 rounded-full bg-orange-400 animate-ping"></span>
+                      Tap anywhere on Sri Lanka to start your tour
+                    </p>
+                  </div>
+                )}
+              </div>
+
             </div>
           </div>
         )}
@@ -1397,16 +1562,40 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
               <div className="lg:col-span-4 sticky top-28">
                 <div className="glass rounded-[2.5rem] p-8 shadow-2xl shadow-slate-900/5">
                   <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 mb-8">Price Breakdown</h3>
+
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
+                      <input
+                        type="date"
+                        value={startDate}
+                        min={todayDateString()}
+                        onChange={(e) => handleStartDateChange(e.target.value)}
+                        className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 px-3 py-2.5 font-bold text-sm text-slate-800 focus:border-orange-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">End Date</label>
+                      <input
+                        type="date"
+                        value={endDate}
+                        min={startDate}
+                        onChange={(e) => handleEndDateChange(e.target.value)}
+                        className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 px-3 py-2.5 font-bold text-sm text-slate-800 focus:border-orange-500 outline-none"
+                      />
+                    </div>
+                  </div>
                   
                   <div className="space-y-6 mb-10">
                     <div className="flex justify-between items-end">
-                      <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">USD Estimate</span>
-                      <span className="text-4xl font-black text-orange-600">${estimatedPrice?.usd || 0}</span>
+                      <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Estimated Price</span>
+                      <span className="text-4xl font-black text-orange-600">
+                        {estimateLoading ? '…' : `Rs. ${Number(estimatedPrice?.estimated_price || 0).toLocaleString()}`}
+                      </span>
                     </div>
-                    <div className="flex justify-between items-center py-4 border-y border-slate-100">
-                      <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">LKR Total</span>
-                      <span className="text-xl font-extrabold text-slate-900 font-mono">රු. {estimatedPrice?.lkr?.toLocaleString()}</span>
-                    </div>
+                    {estimateError && (
+                      <p className="text-xs font-bold text-rose-500">{estimateError}</p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 mb-8">
@@ -1416,18 +1605,14 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                     </div>
                     <div className="bg-slate-50 rounded-2xl p-4">
                       <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Duration</p>
-                      <p className="text-sm font-black text-slate-900">{estimatedPrice?.days} Days</p>
+                      <p className="text-sm font-black text-slate-900">{estimatedPrice?.total_days ?? '—'} Days</p>
                     </div>
                   </div>
 
                   <div className="space-y-3 mb-10">
                     <div className="flex items-center gap-3 text-[11px] font-bold text-slate-500">
-                       <i className="bi bi-clock-history text-orange-500"></i>
-                       <span>Est. {estimatedPrice?.hours} hours travel time</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-[11px] font-bold text-slate-500">
-                       <i className="bi bi-camera text-emerald-500"></i>
-                       <span>Includes {locations.length - 1} sightseeing days</span>
+                       <i className="bi bi-geo-alt text-orange-500"></i>
+                       <span>{estimatedPrice?.total_distance_km ?? totalRouteKm} km estimated distance</span>
                     </div>
                   </div>
 
@@ -1469,7 +1654,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                     </div>
                     <div>
                       <h3 className="text-2xl font-extrabold text-slate-900">Tour Route</h3>
-                      <p className="text-sm text-slate-500 font-medium mt-1">{locations.length} stops • {legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)} km</p>
+                      <p className="text-sm text-slate-500 font-medium mt-1">{locations.length} stops • {estimatedPrice?.total_distance_km ?? totalRouteKm} km</p>
                     </div>
                   </div>
                   <div className="space-y-3 relative">
@@ -1506,24 +1691,22 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                   </div>
                   
                   <div className="bg-white/5 rounded-2xl p-6 mb-6 backdrop-blur-sm border border-white/10">
-                    <div className="mb-4">
-                      <p className="text-xs font-black uppercase tracking-widest text-orange-300 mb-2">USD TOTAL</p>
-                      <p className="text-5xl font-black text-orange-400">${estimatedPrice?.usd}</p>
-                    </div>
-                    <div className="border-t border-white/20 pt-4">
-                      <p className="text-xs font-black uppercase tracking-widest text-white/50 mb-1">LKR TOTAL</p>
-                      <p className="text-xl font-extrabold text-white">රු. {estimatedPrice?.lkr?.toLocaleString()}</p>
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest text-orange-300 mb-2">Estimated Price (LKR)</p>
+                      <p className="text-5xl font-black text-orange-400">
+                        {estimateLoading ? '…' : `Rs. ${Number(estimatedPrice?.estimated_price || 0).toLocaleString()}`}
+                      </p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white/10 rounded-xl p-4 border border-white/20 text-center hover:bg-white/15 transition-all">
                       <p className="text-[11px] font-black uppercase tracking-widest text-white/50 mb-2">Distance</p>
-                      <p className="text-2xl font-black">{legDistances.reduce((s, k) => +(s + k).toFixed(1), 0)}<span className="text-sm text-white/60 ml-1">km</span></p>
+                      <p className="text-2xl font-black">{estimatedPrice?.total_distance_km ?? totalRouteKm}<span className="text-sm text-white/60 ml-1">km</span></p>
                     </div>
                     <div className="bg-white/10 rounded-xl p-4 border border-white/20 text-center hover:bg-white/15 transition-all">
                       <p className="text-[11px] font-black uppercase tracking-widest text-white/50 mb-2">Duration</p>
-                      <p className="text-2xl font-black">{estimatedPrice?.days}<span className="text-sm text-white/60 ml-1">days</span></p>
+                      <p className="text-2xl font-black">{estimatedPrice?.total_days ?? '—'}<span className="text-sm text-white/60 ml-1">days</span></p>
                     </div>
                   </div>
 
@@ -1543,19 +1726,19 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                   </div>
                 </div>
 
-                {/* Schedule Card - if scheduled */}
-                {bookingType === 'schedule' && (
-                  <div className="glass rounded-[2rem] p-6 shadow-xl shadow-slate-900/5">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-500/20 text-emerald-600 flex items-center justify-center">
-                        <i className="bi bi-calendar-event-fill"></i>
-                      </div>
-                      <h4 className="font-extrabold text-slate-900">Scheduled For</h4>
+                {/* Travel dates */}
+                <div className="glass rounded-[2rem] p-6 shadow-xl shadow-slate-900/5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-lg bg-blue-500/20 text-blue-600 flex items-center justify-center">
+                      <i className="bi bi-calendar-range-fill"></i>
                     </div>
-                    <p className="text-sm text-slate-700 font-semibold">{startDate}</p>
-                    <p className="text-sm text-slate-700 font-semibold">@ {startTime}</p>
+                    <h4 className="font-extrabold text-slate-900">Travel Dates</h4>
                   </div>
-                )}
+                  <p className="text-sm text-slate-700 font-semibold">{startDate} → {endDate}</p>
+                  {bookingType === 'schedule' && (
+                    <p className="text-sm text-slate-700 font-semibold mt-1">Start time: {startTime}</p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1567,41 +1750,13 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                </div>
             )}
 
-            {/* Booking Type Selection */}
-            <div className="glass rounded-[2.5rem] p-8 shadow-xl shadow-slate-900/5 mb-6">
-              <div className="flex items-center gap-4 mb-4">
-                <label className="flex items-center gap-2 text-sm font-black text-slate-700">
-                  <input type="radio" name="bookingType" value="now" checked={bookingType === 'now'} onChange={() => setBookingType('now')} className="form-radio h-4 w-4 text-emerald-600" />
-                  Book Now
-                </label>
-                <label className="flex items-center gap-2 text-sm font-black text-slate-700">
-                  <input type="radio" name="bookingType" value="schedule" checked={bookingType === 'schedule'} onChange={() => setBookingType('schedule')} className="form-radio h-4 w-4 text-emerald-600" />
-                  Schedule Booking
-                </label>
-              </div>
-              {bookingType === 'schedule' && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
-                    <input type="date" value={startDate} min={new Date().toISOString().split('T')[0]} max={new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} onChange={(e) => setStartDate(e.target.value)} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Time</label>
-                    <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800" />
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Final Action */}
             <div className="flex flex-col items-center gap-6 w-full max-w-xl mx-auto">
               {!bookingConfirmed ? (
                 <div className="flex gap-4 w-full">
                   <button
-                    onClick={() => {
-                       setBookingType('now');
-                       handleBookTour();
-                    }}
+                    onClick={() => handleBookTour({ bookingType: 'now' })}
+                    disabled={loading}
                     className="flex-1 px-8 py-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[2rem] font-black text-lg shadow-xl shadow-emerald-500/30 transition-all hover:scale-[1.02] active:scale-95 flex flex-col items-center justify-center gap-2"
                   >
                     <i className="bi bi-lightning-charge-fill text-2xl"></i>
@@ -1660,9 +1815,19 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                 <input
                   type="date"
                   value={startDate}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={todayDateString()}
                   max={new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">End Date</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  min={startDate}
+                  onChange={(e) => handleEndDateChange(e.target.value)}
                   className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800"
                 />
               </div>
@@ -1679,10 +1844,11 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
             
             <button
               onClick={() => {
-                setShowScheduleModal(false);
-                setBookingType('schedule');
-                handleBookTour();
+                setShowScheduleModal(false)
+                setBookingType('schedule')
+                handleBookTour({ bookingType: 'schedule', startDate, endDate, startTime })
               }}
+              disabled={loading}
               className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black shadow-xl shadow-emerald-500/30 transition-all hover:scale-[1.02] active:scale-95"
             >
               Confirm Schedule
@@ -1691,7 +1857,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
         </div>
       )}
 
-      <Footer minimal={true} />
+      <Footer variant="dashboard" portal="booking" />
 
     </div>
   )
