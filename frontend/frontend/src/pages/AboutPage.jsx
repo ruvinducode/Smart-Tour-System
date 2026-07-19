@@ -13,6 +13,7 @@ import {
   Globe
 } from 'lucide-react'
 import Footer from '../components/Footer.jsx'
+import SEO from '../components/SEO.jsx'
 import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 
 // Assets
@@ -71,6 +72,11 @@ if (typeof document !== 'undefined' && !document.getElementById('about-premium-s
 export default function AboutPage({ onBackHome, onOpenLogin }) {
   return (
     <div className="min-h-screen bg-[#fffbeb] text-slate-900 overflow-x-hidden selection:bg-emerald-200">
+      <SEO 
+        title="About Us" 
+        canonicalUrl="/about" 
+        description="Learn more about Air B & C Tours. We are dedicated to revolutionizing the way you experience Sri Lanka by blending local wisdom with intelligent technology." 
+      />
       {/* Navigation Header */}
       <header className="fixed top-0 left-0 right-0 z-50 py-4 sm:py-6 px-4 sm:px-6 bg-[#fffbeb]/95 backdrop-blur-xl border-b border-amber-100 shadow-sm">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -133,7 +139,7 @@ export default function AboutPage({ onBackHome, onOpenLogin }) {
           className="relative"
         >
           <div className="rounded-[24px] sm:rounded-[40px] overflow-hidden shadow-2xl border-4 border-white">
-            <img src={cultureImg} className="w-full h-[280px] sm:h-[450px] lg:h-[600px] object-cover" alt="Sri Lankan Culture" />
+            <img src={cultureImg} loading="lazy" width="800" height="600" className="w-full h-[280px] sm:h-[450px] lg:h-[600px] object-cover" alt="Sri Lankan Culture" />
           </div>
           <div className="absolute -bottom-4 sm:-bottom-8 -right-4 sm:-right-8 bg-amber-500 text-emerald-950 p-5 sm:p-8 rounded-[24px] sm:rounded-[32px] shadow-xl max-w-[200px] sm:max-w-xs">
             <h4 className="text-lg sm:text-2xl font-serif mb-1 sm:mb-2">Since 2024</h4>

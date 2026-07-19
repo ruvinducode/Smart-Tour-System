@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
-import Home from './Home.jsx'
-import HomePage from './pages/HomePage.jsx'
-import AboutPage from './pages/AboutPage.jsx'
-import LandingPage from './pages/LandingPage.jsx'
-import LoginPage from './pages/LoginPage.jsx'
-import AdminDashboardPage from './pages/AdminDashboardPage.jsx'
-import DriverDashboardPage from './pages/DriverDashboardPage.jsx'
-import FindingDriverPage from './pages/FindingDriverPage.jsx'
-import UserDashboardPage from './pages/UserDashboardPage.jsx'
+import React, { useCallback, useEffect, useState, Suspense, lazy } from 'react'
 import useAuth from './hooks/useAuth.js'
 import { calculateTourEstimate, getApiBaseUrl, loginDriver, loginUser } from './services/api.js'
+import { initGA, logPageView } from './utils/analytics.js'
+
+const Home = lazy(() => import('./Home.jsx'))
+const HomePage = lazy(() => import('./pages/HomePage.jsx'))
+const AboutPage = lazy(() => import('./pages/AboutPage.jsx'))
+const LandingPage = lazy(() => import('./pages/LandingPage.jsx'))
+const LoginPage = lazy(() => import('./pages/LoginPage.jsx'))
+const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage.jsx'))
+const DriverDashboardPage = lazy(() => import('./pages/DriverDashboardPage.jsx'))
+const FindingDriverPage = lazy(() => import('./pages/FindingDriverPage.jsx'))
+const UserDashboardPage = lazy(() => import('./pages/UserDashboardPage.jsx'))
 
 const API_BASE_URL = getApiBaseUrl()
 
@@ -62,6 +64,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    // Initialize Google Analytics on initial mount
+    initGA();
+    
     if (typeof window === 'undefined') return
 
     const normalizePublicView = (view) => {
@@ -90,6 +95,11 @@ export default function App() {
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [loggedIn])
+
+  // Track page views on route/state changes
+  useEffect(() => {
+    logPageView();
+  }, [activePage, publicPage, loggedIn])
 
   // Navigation Handlers
   const handleStartTour = useCallback(() => setActivePage('plan-trip'), [])

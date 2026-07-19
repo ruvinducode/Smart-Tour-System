@@ -16,6 +16,7 @@ import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 import Footer from './components/Footer.jsx'
 import { calculateTourEstimate, createTour as createTourRequest } from './services/api.js'
+import SEO from './components/SEO.jsx'
 import appLogo from '../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 import sigiriyaImg from '../images/sigiriya.png'
 import galleImg from '../images/galle.png'
@@ -1232,7 +1233,12 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
   ), [selectedVehicle]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 font-['Plus_Jakarta_Sans'] overflow-x-hidden">
+    <div className="min-h-screen bg-[#fffbeb] text-slate-800 flex flex-col font-['Plus_Jakarta_Sans'] overflow-x-hidden">
+      <SEO 
+        title="Plan Your Tour" 
+        canonicalUrl="/tours" 
+        description="Plan your custom tour across Sri Lanka. Choose destinations, select vehicles, and book your trusted local driver with Air B & C Tours." 
+      />
       
       {/* ── Dynamic Mesh Background ── */}
       <div className="fixed inset-0 pointer-events-none z-0">

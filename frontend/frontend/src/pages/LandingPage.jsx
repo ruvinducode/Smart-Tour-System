@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import appLogo from '../../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 import Footer from '../components/Footer.jsx'
+import SEO from '../components/SEO.jsx'
 
 // Assets
 import heroImg from '../assets/sri-lanka-hero.png'
@@ -179,6 +180,11 @@ export default function LandingPage({
 
   return (
     <div className="relative min-h-screen bg-[#fffbeb] text-slate-900 overflow-x-hidden">
+      <SEO 
+        title="Welcome to Air B & C Tours" 
+        canonicalUrl="/" 
+        description="Discover Sri Lanka with Air B & C Tours. Plan personalized trips, book trusted local drivers, explore destinations, and enjoy unforgettable travel experiences." 
+      />
       {/* Audio Toggle */}
       <div className="fixed bottom-8 left-8 z-[3000]">
         <motion.button
@@ -372,7 +378,7 @@ export default function LandingPage({
               className="group cursor-pointer"
             >
               <div className="relative h-[320px] sm:h-[420px] md:h-[500px] rounded-[40px] overflow-hidden shadow-2xl mb-8">
-                <img src={dest.image} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={dest.name} />
+                <img src={dest.image} loading="lazy" width="800" height="600" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={`Tour destination: ${dest.name}`} />
                 <div className="absolute inset-0 bg-gradient-to-t from-emerald-950/90 via-emerald-950/20 to-transparent"></div>
                 
                 <div className="absolute top-8 left-8">
@@ -443,7 +449,7 @@ export default function LandingPage({
                className="relative"
              >
                 <div className="rounded-[40px] overflow-hidden border border-white/10 shadow-3xl">
-                   <img src={colomboImg} className="w-full h-[400px] lg:h-[600px] object-cover" alt="Sri Lanka Experience" />
+                   <img src={colomboImg} loading="lazy" width="800" height="600" className="w-full h-[400px] lg:h-[600px] object-cover" alt="Travelers enjoying a Sri Lanka Experience" />
                 </div>
                 <div className="absolute -bottom-6 sm:-bottom-10 left-4 sm:-left-10 bg-white p-6 sm:p-8 rounded-3xl sm:rounded-[32px] shadow-2xl max-w-[280px] sm:max-w-xs z-10">
                    <div className="flex gap-1 text-amber-500 mb-4">
