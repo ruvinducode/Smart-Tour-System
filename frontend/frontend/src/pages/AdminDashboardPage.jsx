@@ -17,6 +17,7 @@ import {
   markAllNotificationsRead,
   deleteNotification,
   clearAllNotifications,
+  getAdminFeedbacks,
 } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import DriverDetailsModal from '../components/DriverDetailsModal.jsx'
@@ -73,6 +74,7 @@ const NAV_ITEMS = [
   { id: 'pending',            icon: 'bi bi-person-plus-fill',     label: 'Pending Drivers'  },
   { id: 'tours',              icon: 'bi bi-map-fill',            label: 'Tour Requests'    },
   { id: 'finance',            icon: 'bi bi-currency-dollar',     label: 'Finance'          },
+  { id: 'feedbacks',          icon: 'bi bi-star-fill',           label: 'Feedbacks'        },
   { id: 'notifications',      icon: 'bi bi-bell-fill',           label: 'Notifications'    },
 ]
 
@@ -84,6 +86,8 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
   const [users, setUsers]                   = useState([])
   const [tourPlans, setTourPlans]           = useState([])
   const [notifications, setNotifications]   = useState([])
+  const [feedbacks, setFeedbacks]           = useState([])
+  const [averageDriverRating, setAverageDriverRating] = useState(0.0)
   const [loading, setLoading]               = useState(true)
   const [error, setError]                   = useState('')
   const [info, setInfo]                     = useState('')
@@ -130,9 +134,10 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         getAllUsers(token),
         getTourPlans(token),
         getAdminNotifications(token),
+        getAdminFeedbacks(token).catch(() => ({ feedbacks: [], average_rating: 0.0 })),
       ])
 
-      const [pending, approved, allD, allU, tours, notes] = results.map(r => r.status === 'fulfilled' ? r.value : [])
+      const [pending, approved, allD, allU, tours, notes, fbsData] = results.map(r => r.status === 'fulfilled' ? r.value : [])
       
       // Check if any request failed with 401
       const isUnauthorized = results.some(r => r.status === 'rejected' && r.reason?.message?.includes('401'))
@@ -148,6 +153,8 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
       setUsers(Array.isArray(allU) ? allU : [])
       setTourPlans(Array.isArray(tours) ? tours : [])
       setNotifications(Array.isArray(notes) ? notes : [])
+      setFeedbacks(Array.isArray(fbsData?.feedbacks) ? fbsData.feedbacks : [])
+      setAverageDriverRating(fbsData?.average_rating || 0.0)
 
       if (results.every(r => r.status === 'rejected')) {
         setError('Could not load any dashboard data. Please check your connection or backend status.')
@@ -556,11 +563,12 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
               </div>
 
               {/* Stat cards */}
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
                 <DashboardStatCard label="Total Users" value={analytics.totalUsers} icon="bi-people-fill" accent="blue" sub="Registered travelers" />
                 <DashboardStatCard label="Active Drivers" value={analytics.activeDrivers} icon="bi-truck-front-fill" accent="emerald" sub={`${analytics.totalDrivers} total drivers`} />
                 <DashboardStatCard label="Pending Drivers" value={analytics.pendingDrivers} icon="bi-hourglass-split" accent="orange" sub="Awaiting approval" />
                 <DashboardStatCard label="Tour Requests" value={analytics.totalTours} icon="bi-map-fill" accent="violet" sub={`${analytics.confirmed} confirmed`} />
+                <DashboardStatCard label="Avg Rating" value={`${averageDriverRating}/5`} icon="bi-star-fill" accent="amber" sub={`${feedbacks.length} feedbacks`} />
               </div>
 
               {/* Analytics Charts */}
@@ -629,6 +637,58 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                     ))}
                  </div>
               </div>
+            </div>
+          )}
+
+          {/* ── FEEDBACKS ── */}
+          {activeTab === 'feedbacks' && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
+                  <i className="bi bi-star-fill text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900">Platform Feedbacks</h3>
+                  <p className="text-sm text-slate-500">Average Driver Rating: {averageDriverRating}/5 ({feedbacks.length} reviews)</p>
+                </div>
+              </div>
+              
+              {feedbacks.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center">
+                  <i className="bi bi-chat-square-text text-4xl text-slate-300 mb-3 block"></i>
+                  <h4 className="text-lg font-bold text-slate-800">No feedbacks yet</h4>
+                  <p className="text-slate-500 mt-1">Users have not submitted any feedback.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {feedbacks.map(fb => (
+                    <div key={fb.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col h-full transition-shadow hover:shadow-md">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
+                            {fb.user_name?.charAt(0) || 'U'}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-900">{fb.user_name}</p>
+                            <p className="text-xs text-slate-500">{new Date(fb.created_at).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center bg-amber-50 px-2 py-1 rounded-lg">
+                          <i className="bi bi-star-fill text-amber-500 mr-1 text-sm"></i>
+                          <span className="font-bold text-amber-700 text-sm">{fb.rating}/5</span>
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-slate-700 text-sm italic">"{fb.comment || 'No comment provided.'}"</p>
+                      </div>
+                      <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
+                        <p className="text-xs text-slate-400">Driver: <span className="font-bold text-slate-600">{fb.driver_name}</span></p>
+                        <p className="text-xs text-slate-400">Tour ID: #{fb.tour_id}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
