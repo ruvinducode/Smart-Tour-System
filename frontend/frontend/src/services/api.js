@@ -557,6 +557,22 @@ export async function submitFeedback(tourId, rating, comment, token) {
   return await res.json()
 }
 
+export async function getDriverFeedbacks(token) {
+  const res = await fetch(apiUrl('/driver/feedbacks'), {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return await res.json()
+}
+
+export async function getAdminFeedbacks(token) {
+  const res = await fetch(apiUrl('/admin/feedbacks'), {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return await res.json()
+}
+
 // =========================
 // ADMIN — FINANCE
 // =========================

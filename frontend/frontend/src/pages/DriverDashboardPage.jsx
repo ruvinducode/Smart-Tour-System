@@ -11,6 +11,7 @@ import {
   markAllNotificationsRead,
   deleteNotification,
   clearAllNotifications,
+  getDriverFeedbacks,
 } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import ConfirmationModal from '../components/ConfirmationModal.jsx'
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
   { id: 'approved',    label: 'Approved',    icon: 'bi bi-check-circle-fill', countKey: 'approved' },
   { id: 'price_sent',  label: 'Negotiating', icon: 'bi bi-arrow-left-right', countKey: 'negotiating' },
   { id: 'payments',    label: 'Payments',    icon: 'bi bi-wallet2' },
+  { id: 'feedbacks',   label: 'Feedbacks',   icon: 'bi bi-star-fill' },
   { id: 'profile',     label: 'My Profile',  icon: 'bi bi-person-circle' },
 ]
 
@@ -45,6 +47,7 @@ const TAB_TITLES = {
   approved: 'Approved Tours',
   price_sent: 'Negotiating Requests',
   payments: 'Payments',
+  feedbacks: 'My Feedbacks',
   profile: 'My Profile',
 }
 
@@ -59,6 +62,9 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [sidebarOpen, setSidebarOpen]   = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  
+  // Feedbacks State
+  const [feedbacks, setFeedbacks] = useState([])
   
   // Profile State
   const [profileData, setProfileData] = useState(null)
@@ -120,12 +126,14 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
     setError('')
     if (!silent) setLoading(true)
     try {
-      const [tourData, notifData] = await Promise.all([
+      const [tourData, notifData, feedbackData] = await Promise.all([
         getDriverTourRequests(token),
-        getDriverNotifications(token)
+        getDriverNotifications(token),
+        getDriverFeedbacks(token).catch(() => [])
       ])
       setTourRequests(Array.isArray(tourData) ? tourData : [])
       setNotifications(Array.isArray(notifData) ? notifData : [])
+      setFeedbacks(Array.isArray(feedbackData) ? feedbackData : [])
     } catch (err) {
       if (!silent) setError(err.message || 'Could not load dashboard data')
     } finally {
@@ -617,6 +625,56 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
 
           {activeTab === 'payments' && (
             <DriverPaymentsSection token={token} tourRequests={tourRequests} analytics={analytics} />
+          )}
+
+          {activeTab === 'feedbacks' && (
+            <div className="space-y-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600">
+                  <i className="bi bi-star-fill text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900">My Feedbacks</h3>
+                  <p className="text-sm text-slate-500">What clients are saying about your service.</p>
+                </div>
+              </div>
+              
+              {feedbacks.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center">
+                  <i className="bi bi-chat-square-text text-4xl text-slate-300 mb-3 block"></i>
+                  <h4 className="text-lg font-bold text-slate-800">No feedbacks yet</h4>
+                  <p className="text-slate-500 mt-1">Complete tours to receive feedback from users.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {feedbacks.map(fb => (
+                    <div key={fb.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col h-full transition-shadow hover:shadow-md">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
+                            {fb.user_name?.charAt(0) || 'U'}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-900">{fb.user_name}</p>
+                            <p className="text-xs text-slate-500">{new Date(fb.created_at).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center bg-amber-50 px-2 py-1 rounded-lg">
+                          <i className="bi bi-star-fill text-amber-500 mr-1 text-sm"></i>
+                          <span className="font-bold text-amber-700 text-sm">{fb.rating}/5</span>
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-slate-700 text-sm italic">"{fb.comment || 'No comment provided.'}"</p>
+                      </div>
+                      <div className="mt-4 pt-4 border-t border-slate-100">
+                        <p className="text-xs text-slate-400">Tour ID: #{fb.tour_id}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {activeTab === 'profile' && (
