@@ -1,8 +1,8 @@
 function normalizeApiBase(raw) {
-  const fallback = import.meta.env.DEV ? '' : 'http://127.0.0.1:5001'
+  const fallback = import.meta.env.DEV ? '' : '/api'
   const base = (raw || fallback).trim().replace(/\/$/, '')
   if (!base) return ''
-  if (/^https?:\/\//i.test(base)) return base
+  if (/^https?:\/\//i.test(base) || base.startsWith('/')) return base
   return `http://${base}`
 }
 

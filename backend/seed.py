@@ -37,7 +37,7 @@ with app.app_context():
     # =========================
     #  SEED ADMIN
     # =========================
-    admin_email = "admin@gmail.com"
+    admin_email = "smkosalaminis@airbc.com"
 
     existing_admin = User.query.filter_by(email=admin_email).first()
 
@@ -45,7 +45,7 @@ with app.app_context():
         admin = User(
             full_name="Admin",
             email=admin_email,
-            password=generate_password_hash("admin123", method='pbkdf2:sha256'),
+            password=generate_password_hash("kosalasuperminis+-*12345", method='pbkdf2:sha256'),
             role="admin",   #  IMPORTANT
             is_active=True
         )

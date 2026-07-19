@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const DEFAULT_API = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || 'http://127.0.0.1:5001'
+const DEFAULT_API = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || (import.meta.env.DEV ? '' : '/api')
 
 function apiUrl(path) {
   const p = path.startsWith('/') ? path : `/${path}`
