@@ -65,10 +65,21 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
 
   const feedbackShownRef = useRef(false)
 
+  // Tracks the driver's actual recent pace (km/h), derived from consecutive
+  // GPS fixes, so ETA reflects how fast they're really moving right now
+  // rather than OSRM's generic road-speed assumption or a flat guess.
+  const prevLocRef = useRef(null) // { lat, lng, time }
+  const speedKmhRef = useRef(30) // sensible default until we have real samples
+  const speedSamplesRef = useRef(0)
+
   // 1. Fetch Tour Details (includes driver & stops)
   useEffect(() => {
     if (!tourId || !token) return
     getTourDetails(tourId, token).then(setTourDetails).catch(console.error)
+    // Reset speed tracking for the new tour
+    prevLocRef.current = null
+    speedKmhRef.current = 30
+    speedSamplesRef.current = 0
   }, [tourId, token])
 
   // 2. Poll Driver GPS & Status
@@ -97,7 +108,28 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
           if (locData.latitude && locData.longitude) {
             const loc = [locData.latitude, locData.longitude]
             setDriverLoc(loc)
-            
+
+            // Update the driver's actual pace from how far they moved since the
+            // last GPS fix, smoothed to ignore single-sample GPS noise/jumps.
+            const now = Date.now()
+            const prev = prevLocRef.current
+            if (prev) {
+              const elapsedHours = (now - prev.time) / 3_600_000
+              if (elapsedHours > 0) {
+                const movedKm = haversineKm(prev.lat, prev.lng, locData.latitude, locData.longitude)
+                const rawSpeedKmh = movedKm / elapsedHours
+                // Discard implausible spikes (GPS jump) or noise near-zero movement;
+                // a driver briefly stopped in traffic just won't update the average much.
+                if (rawSpeedKmh >= 1 && rawSpeedKmh <= 120) {
+                  speedKmhRef.current = speedSamplesRef.current === 0
+                    ? rawSpeedKmh
+                    : speedKmhRef.current * 0.6 + rawSpeedKmh * 0.4
+                  speedSamplesRef.current += 1
+                }
+              }
+            }
+            prevLocRef.current = { lat: locData.latitude, lng: locData.longitude, time: now }
+
             if (userLat && userLng) {
               if (details.status === 'arrived') {
                 setEta('At Pickup')
@@ -106,9 +138,8 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
               }
 
               if (details.status !== 'ongoing') {
-                // Real road-routed distance/duration from OSRM — a straight-line
-                // haversine estimate with an assumed flat speed understated the
-                // real driving distance/time on Sri Lanka's winding roads.
+                // Real road-routed distance from OSRM — a straight-line haversine
+                // estimate understated real driving distance on winding roads.
                 const url = `https://router.project-osrm.org/route/v1/driving/${locData.longitude},${locData.latitude};${userLng},${userLat}?overview=full&geometries=geojson`
                 fetch(url)
                   .then(r => { if (!r.ok) throw new Error(`OSRM error: ${r.status}`); return r.json() })
@@ -116,20 +147,23 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
                     const routeResult = res?.routes?.[0]
                     if (!routeResult) throw new Error('No route found')
                     setRoute(routeResult.geometry?.coordinates ? routeResult.geometry.coordinates.map(([lng, lat]) => [lat, lng]) : [])
-                    setDistKm((routeResult.distance / 1000).toFixed(1))
+                    const routeKm = routeResult.distance / 1000
+                    setDistKm(routeKm.toFixed(1))
                     setDistanceIsLive(true)
                     if (details.status !== 'arrived') {
-                      const mins = Math.round(routeResult.duration / 60)
+                      // ETA from the driver's actual current pace, not OSRM's generic
+                      // road-speed assumption — reflects real traffic/conditions.
+                      const mins = Math.round((routeKm / speedKmhRef.current) * 60)
                       setEta(mins < 1 ? 'Arriving' : `${mins} min`)
                     }
                   })
                   .catch(() => {
                     // Fall back to a straight-line estimate, clearly marked as such.
-                    const km = haversineKm(locData.latitude, locData.longitude, userLat, userLng)
-                    setDistKm((km * 1.25).toFixed(1))
+                    const km = haversineKm(locData.latitude, locData.longitude, userLat, userLng) * 1.25
+                    setDistKm(km.toFixed(1))
                     setDistanceIsLive(false)
                     if (details.status !== 'arrived') {
-                      const mins = Math.round(((km * 1.25) / 35) * 60)
+                      const mins = Math.round((km / speedKmhRef.current) * 60)
                       setEta(mins < 1 ? 'Arriving' : `${mins} min`)
                     }
                     setRoute([[locData.latitude, locData.longitude], [userLat, userLng]])

@@ -30,6 +30,18 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
 
   const imgUrl = (path) => path ? `/api/uploads/drivers/${path}` : null
 
+  // Tracks the driver's actual recent pace (km/h) from consecutive GPS fixes,
+  // so ETA reflects how fast they're really moving instead of a flat guess.
+  const prevLocRef = useRef(null) // { lat, lng, time }
+  const speedKmhRef = useRef(30)
+  const speedSamplesRef = useRef(0)
+
+  useEffect(() => {
+    prevLocRef.current = null
+    speedKmhRef.current = 30
+    speedSamplesRef.current = 0
+  }, [tourId])
+
   useEffect(() => {
     const fetchLocation = async () => {
       try {
@@ -40,7 +52,7 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
 
         if (locData.latitude && locData.longitude) {
           setDriverLoc({ lat: locData.latitude, lng: locData.longitude })
-          
+
           if (tourData.status === 'arrived') {
             setStatus('Driver has arrived')
           } else if (tourData.status === 'ongoing') {
@@ -51,30 +63,49 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
             setStatus(tourData.status.replace(/_/g, ' '))
           }
 
+          const now = Date.now()
+          const prev = prevLocRef.current
+          if (prev) {
+            const elapsedHours = (now - prev.time) / 3_600_000
+            if (elapsedHours > 0) {
+              const movedKm = haversineKm(prev.lat, prev.lng, locData.latitude, locData.longitude)
+              const rawSpeedKmh = movedKm / elapsedHours
+              if (rawSpeedKmh >= 1 && rawSpeedKmh <= 120) {
+                speedKmhRef.current = speedSamplesRef.current === 0
+                  ? rawSpeedKmh
+                  : speedKmhRef.current * 0.6 + rawSpeedKmh * 0.4
+                speedSamplesRef.current += 1
+              }
+            }
+          }
+          prevLocRef.current = { lat: locData.latitude, lng: locData.longitude, time: now }
+
           if (userLat && userLng) {
             if (tourData.status === 'arrived') setEta('At Pickup')
             else if (tourData.status === 'ongoing') setEta('On Trip')
 
             if (tourData.status !== 'ongoing') {
-              // Real road-routed distance/duration via OSRM, not a straight-line
-              // haversine estimate with an assumed flat speed.
+              // Real road-routed distance via OSRM, not a straight-line estimate.
               const url = `https://router.project-osrm.org/route/v1/driving/${locData.longitude},${locData.latitude};${userLng},${userLat}?overview=false`
               fetch(url)
                 .then((r) => { if (!r.ok) throw new Error(`OSRM error: ${r.status}`); return r.json() })
                 .then((res) => {
                   const route = res?.routes?.[0]
                   if (!route) throw new Error('No route found')
-                  setDistanceKm((route.distance / 1000).toFixed(1))
+                  const routeKm = route.distance / 1000
+                  setDistanceKm(routeKm.toFixed(1))
                   if (tourData.status !== 'arrived') {
-                    const mins = Math.round(route.duration / 60)
+                    // ETA from the driver's actual current pace, not OSRM's generic
+                    // road-speed assumption.
+                    const mins = Math.round((routeKm / speedKmhRef.current) * 60)
                     setEta(mins < 1 ? 'Arriving' : `${mins} min`)
                   }
                 })
                 .catch(() => {
-                  const km = haversineKm(locData.latitude, locData.longitude, userLat, userLng)
-                  setDistanceKm((km * 1.25).toFixed(1))
+                  const km = haversineKm(locData.latitude, locData.longitude, userLat, userLng) * 1.25
+                  setDistanceKm(km.toFixed(1))
                   if (tourData.status !== 'arrived') {
-                    const mins = Math.round(((km * 1.25) / 30) * 60)
+                    const mins = Math.round((km / speedKmhRef.current) * 60)
                     setEta(mins < 1 ? 'Arriving' : `${mins} min`)
                   }
                 })
