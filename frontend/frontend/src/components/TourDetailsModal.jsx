@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { getTourDetails, acceptDriverPrice, rejectDriverPrice, replyToDriver } from '../services/api.js'
+import { getTourDetails, acceptDriverPrice, rejectDriverPrice, replyToDriver, getRoute } from '../services/api.js'
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
 import L from 'leaflet'
 
@@ -130,18 +130,13 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
     }
 
     let cancelled = false
-    const url = `https://router.project-osrm.org/route/v1/driving/${driverLocation.lng},${driverLocation.lat};${pickup.longitude},${pickup.latitude}?overview=full&geometries=geojson`
-    fetch(url)
-      .then((res) => { if (!res.ok) throw new Error(`OSRM error: ${res.status}`); return res.json() })
+    getRoute([[driverLocation.lng, driverLocation.lat], [pickup.longitude, pickup.latitude]])
       .then((data) => {
         if (cancelled) return
-        const route = data?.routes?.[0]
-        if (!route) throw new Error('No route found')
-        setPickupDistanceKm((route.distance / 1000).toFixed(1))
+        if (!data.geometry?.length) throw new Error('No route found')
+        setPickupDistanceKm(data.distance_km.toFixed(1))
         setPickupDistanceLive(true)
-        setToPickupRouteCoords(
-          route.geometry?.coordinates ? route.geometry.coordinates.map(([lng, lat]) => [lat, lng]) : []
-        )
+        setToPickupRouteCoords(data.geometry)
       })
       .catch((err) => {
         if (cancelled) return
@@ -167,16 +162,14 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
         const locs = Array.isArray(data?.locations) ? data.locations : []
         setLocations(locs)
 
-        // Fetch OSRM Route
+        // Fetch the tour's road route
         const validLocs = locs.filter(loc => loc.latitude && loc.longitude)
         if (validLocs.length >= 2) {
-          const coords = validLocs.map(l => `${l.longitude},${l.latitude}`).join(';')
-          const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
-          const res = await fetch(url)
-          const routeData = await res.json()
-          const route = routeData?.routes?.[0]
-          if (route && route.geometry?.coordinates) {
-            setRouteCoords(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+          try {
+            const routeData = await getRoute(validLocs.map(l => [l.longitude, l.latitude]))
+            if (routeData.geometry?.length) setRouteCoords(routeData.geometry)
+          } catch (routeErr) {
+            console.warn('Tour route fetch failed:', routeErr)
           }
         }
       } catch (err) {

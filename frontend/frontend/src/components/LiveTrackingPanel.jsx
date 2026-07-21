@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getLiveDriverLocation, getTourDetails } from '../services/api.js'
+import { getLiveDriverLocation, getTourDetails, getRoute } from '../services/api.js'
 
 // Haversine distance formula to calculate km between two lat/lng points
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -85,14 +85,11 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
             else if (tourData.status === 'ongoing') setEta('On Trip')
 
             if (tourData.status !== 'ongoing') {
-              // Real road-routed distance via OSRM, not a straight-line estimate.
-              const url = `https://router.project-osrm.org/route/v1/driving/${locData.longitude},${locData.latitude};${userLng},${userLat}?overview=false`
-              fetch(url)
-                .then((r) => { if (!r.ok) throw new Error(`OSRM error: ${r.status}`); return r.json() })
-                .then((res) => {
-                  const route = res?.routes?.[0]
-                  if (!route) throw new Error('No route found')
-                  const routeKm = route.distance / 1000
+              // Real road-routed distance via our backend (OpenRouteService),
+              // not a straight-line estimate.
+              getRoute([[locData.longitude, locData.latitude], [userLng, userLat]])
+                .then((route) => {
+                  const routeKm = route.distance_km
                   setDistanceKm(routeKm.toFixed(1))
                   if (tourData.status !== 'arrived') {
                     // ETA from the driver's actual current pace, not OSRM's generic

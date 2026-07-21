@@ -50,12 +50,14 @@ def create_app():
     from app.routes.tour_routes import tour_bp
     from app.routes.booking_routes import booking_bp
     from app.routes.finance_routes import finance_bp
+    from app.routes.routing_routes import routing_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(driver_bp)
     app.register_blueprint(tour_bp, url_prefix="/tour")
     app.register_blueprint(booking_bp)
     app.register_blueprint(finance_bp)
+    app.register_blueprint(routing_bp)
 
     # =========================
     # HOME ROUTE

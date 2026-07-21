@@ -28,3 +28,8 @@ class Config:
     # DEBUG MODE
     # =========================
     DEBUG = False
+
+    # =========================
+    # ROUTING (OpenRouteService)
+    # =========================
+    ORS_API_KEY = os.getenv("ORS_API_KEY", "")

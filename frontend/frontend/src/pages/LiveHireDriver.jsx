@@ -18,14 +18,15 @@ import {
   ChevronUp,
   ChevronDown
 } from 'lucide-react'
-import { 
-  updateDriverLocation, 
-  getTourDetails, 
-  markTourArrived, 
-  startTour, 
-  completeTour, 
-  driverCancelTour, 
-  markTourEnRoute 
+import {
+  updateDriverLocation,
+  getTourDetails,
+  markTourArrived,
+  startTour,
+  completeTour,
+  driverCancelTour,
+  markTourEnRoute,
+  getRoute
 } from '../services/api.js'
 import { isTourScheduleLocked, formatTourSchedule } from '../utils/tourSchedule.js'
 import CancellationModal from '../components/CancellationModal.jsx'
@@ -307,16 +308,12 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
       return
     }
     const target = locations[0]
-    const url = `https://router.project-osrm.org/route/v1/driving/${currentLoc[1]},${currentLoc[0]};${target.longitude},${target.latitude}?overview=full&geometries=geojson`
-    fetch(url)
-      .then(r => r.json())
-      .then(data => {
-        const route = data?.routes?.[0]
-        if (route && route.geometry?.coordinates) {
-          setApproachRoute(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+    getRoute([[currentLoc[1], currentLoc[0]], [target.longitude, target.latitude]])
+      .then(route => {
+        if (route.geometry?.length) {
+          setApproachRoute(route.geometry)
           if (rideStatus === 'Heading to Pickup') {
-            const distKm = route.distance / 1000
-            setDistanceToPickup(distKm);
+            setDistanceToPickup(route.distance_km);
           }
         }
       }).catch(() => {})
@@ -324,15 +321,9 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
 
   useEffect(() => {
     if (locations.length < 2) return
-    const coords = locations.map(l => `${l.longitude},${l.latitude}`).join(';')
-    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`
-    fetch(url)
-      .then(r => r.json())
-      .then(data => {
-        const route = data?.routes?.[0]
-        if (route && route.geometry?.coordinates) {
-          setTourRoute(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
-        }
+    getRoute(locations.map(l => [l.longitude, l.latitude]))
+      .then(route => {
+        if (route.geometry?.length) setTourRoute(route.geometry)
       }).catch(() => {})
   }, [locations])
 

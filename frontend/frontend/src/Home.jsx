@@ -15,7 +15,7 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 import Footer from './components/Footer.jsx'
-import { calculateTourEstimate, createTour as createTourRequest } from './services/api.js'
+import { calculateTourEstimate, createTour as createTourRequest, getRoute } from './services/api.js'
 import SEO from './components/SEO.jsx'
 import appLogo from '../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
 import sigiriyaImg from '../images/sigiriya.png'
@@ -1284,7 +1284,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     }
   }, [locations, selectedVehicle, estimatedPrice, bookingType, startDate, endDate, startTime, legDistances, onBookingConfirmed])
 
-  // Debounced OSRM routing fetch
+  // Debounced routing fetch (via our backend, which proxies OpenRouteService)
   const fetchRoute = useCallback(() => {
     const validLocs = locations.filter(l => !l.name.startsWith('Loading'));
     if (validLocs.length < 2) {
@@ -1294,31 +1294,16 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
       setIsRoutingLive(false);
       return;
     }
-    const coords = validLocs.map(l => `${l.lng},${l.lat}`).join(';');
-    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
     let cancelled = false;
-    fetch(url)
-      .then(res => { if (!res.ok) throw new Error(`OSRM error: ${res.status}`); return res.json(); })
+    getRoute(validLocs.map(l => [l.lng, l.lat]))
       .then(data => {
         if (cancelled) return;
-        const route = data?.routes?.[0];
-        if (route && route.geometry?.coordinates) {
-          setRouteCoords(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]));
-          const totalDistanceKm = route.distance / 1000;
-          const legs = route.legs || [];
-          if (legs.length > 0) {
-            setLegDistances(legs.map(leg => +(leg.distance / 1000).toFixed(1)));
-          } else {
-            setLegDistances([+(totalDistanceKm).toFixed(1)]);
-          }
-          // Use OSRM's own total rather than re-summing rounded legs, so the
-          // headline figure doesn't drift from the real road-routed distance.
-          setTotalRouteKm(+totalDistanceKm.toFixed(1));
-          setIsRoutingLive(true);
-        } else {
-          console.warn('No route found in OSRM response', data);
-          throw new Error('No route found');
-        }
+        if (!data.geometry?.length) throw new Error('No route found');
+        setRouteCoords(data.geometry);
+        const legs = data.leg_distances_km || [];
+        setLegDistances(legs.length > 0 ? legs : [data.distance_km]);
+        setTotalRouteKm(data.distance_km);
+        setIsRoutingLive(true);
       })
       .catch(err => {
         if (!cancelled) {

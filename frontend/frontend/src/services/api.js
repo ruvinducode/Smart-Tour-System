@@ -757,3 +757,20 @@ export async function getDriverFeedbacks(token) {
   if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
   return data
 }
+
+// =========================
+// ROUTING
+// =========================
+// Proxies to OpenRouteService via our backend (the API key must never reach
+// the browser). coordinates: array of [lng, lat] pairs, 2+ points.
+// Returns { distance_km, duration_min, geometry: [[lat, lng], ...] }
+export async function getRoute(coordinates) {
+  const res = await fetch(apiUrl('/routing/route'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ coordinates }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { getLiveDriverLocation, getTourDetails, getApiBaseUrl, cancelTour, submitFeedback } from '../services/api.js'
+import { getLiveDriverLocation, getTourDetails, getApiBaseUrl, cancelTour, submitFeedback, getRoute } from '../services/api.js'
 import CancellationModal from '../components/CancellationModal.jsx'
 import FeedbackModal from '../components/FeedbackModal.jsx'
 
@@ -138,16 +138,14 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
               }
 
               if (details.status !== 'ongoing') {
-                // Real road-routed distance from OSRM — a straight-line haversine
-                // estimate understated real driving distance on winding roads.
-                const url = `https://router.project-osrm.org/route/v1/driving/${locData.longitude},${locData.latitude};${userLng},${userLat}?overview=full&geometries=geojson`
-                fetch(url)
-                  .then(r => { if (!r.ok) throw new Error(`OSRM error: ${r.status}`); return r.json() })
-                  .then(res => {
-                    const routeResult = res?.routes?.[0]
-                    if (!routeResult) throw new Error('No route found')
-                    setRoute(routeResult.geometry?.coordinates ? routeResult.geometry.coordinates.map(([lng, lat]) => [lat, lng]) : [])
-                    const routeKm = routeResult.distance / 1000
+                // Real road-routed distance via our backend (OpenRouteService) —
+                // a straight-line haversine estimate understated real driving
+                // distance on winding roads.
+                getRoute([[locData.longitude, locData.latitude], [userLng, userLat]])
+                  .then(routeResult => {
+                    if (!routeResult.geometry?.length) throw new Error('No route found')
+                    setRoute(routeResult.geometry)
+                    const routeKm = routeResult.distance_km
                     setDistKm(routeKm.toFixed(1))
                     setDistanceIsLive(true)
                     if (details.status !== 'arrived') {
