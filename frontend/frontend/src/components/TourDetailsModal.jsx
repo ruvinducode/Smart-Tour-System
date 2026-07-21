@@ -45,6 +45,7 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
   const [routeCoords, setRouteCoords] = useState([])
   const [pickupDistanceKm, setPickupDistanceKm] = useState(null)
   const [pickupDistanceLive, setPickupDistanceLive] = useState(false)
+  const [toPickupRouteCoords, setToPickupRouteCoords] = useState([])
 
   const handleAccept = async () => {
     setActionLoading(true)
@@ -124,11 +125,12 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
     if (!driverLocation || !pickup) {
       setPickupDistanceKm(null)
       setPickupDistanceLive(false)
+      setToPickupRouteCoords([])
       return undefined
     }
 
     let cancelled = false
-    const url = `https://router.project-osrm.org/route/v1/driving/${driverLocation.lng},${driverLocation.lat};${pickup.longitude},${pickup.latitude}?overview=false`
+    const url = `https://router.project-osrm.org/route/v1/driving/${driverLocation.lng},${driverLocation.lat};${pickup.longitude},${pickup.latitude}?overview=full&geometries=geojson`
     fetch(url)
       .then((res) => { if (!res.ok) throw new Error(`OSRM error: ${res.status}`); return res.json() })
       .then((data) => {
@@ -137,6 +139,9 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
         if (!route) throw new Error('No route found')
         setPickupDistanceKm((route.distance / 1000).toFixed(1))
         setPickupDistanceLive(true)
+        setToPickupRouteCoords(
+          route.geometry?.coordinates ? route.geometry.coordinates.map(([lng, lat]) => [lat, lng]) : []
+        )
       })
       .catch((err) => {
         if (cancelled) return
@@ -144,6 +149,7 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
         const straightLineKm = calculateDistance(driverLocation.lat, driverLocation.lng, pickup.latitude, pickup.longitude)
         setPickupDistanceKm((straightLineKm * 1.25).toFixed(1))
         setPickupDistanceLive(false)
+        setToPickupRouteCoords([[driverLocation.lat, driverLocation.lng], [pickup.latitude, pickup.longitude]])
       })
 
     return () => { cancelled = true }
@@ -230,6 +236,22 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
             
             {/* Left: Map */}
             <div className="flex-1 relative bg-slate-50 border-r border-slate-100">
+              {!loading && (toPickupRouteCoords.length > 1 || routeCoords.length > 1) && (
+                <div className="absolute top-4 left-4 z-[1000] bg-white/95 backdrop-blur rounded-2xl px-4 py-3 shadow-lg border border-slate-100 space-y-1.5">
+                  {toPickupRouteCoords.length > 1 && (
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                      <span className="w-4 h-0.5 rounded-full bg-red-500"></span>
+                      To Pickup
+                    </div>
+                  )}
+                  {routeCoords.length > 1 && (
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                      <span className="w-4 h-0.5 rounded-full bg-blue-600"></span>
+                      Tour Route
+                    </div>
+                  )}
+                </div>
+              )}
               {loading ? (
                 <div className="absolute inset-0 flex items-center justify-center z-20 bg-slate-50/80">
                   <div className="text-center">
@@ -250,9 +272,21 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
                     </Marker>
                   )}
 
-                  {/* REAL ROAD ROUTE */}
+                  {/* Driver → Pickup route (red) */}
+                  {toPickupRouteCoords.length > 1 && (
+                    <Polyline
+                      positions={toPickupRouteCoords}
+                      color="#ef4444"
+                      weight={5}
+                      opacity={0.85}
+                      lineJoin="round"
+                      dashArray={pickupDistanceLive ? undefined : '8, 8'}
+                    />
+                  )}
+
+                  {/* Tour route across all stops (blue) */}
                   {routeCoords.length > 1 && (
-                    <Polyline positions={routeCoords} color="#f97316" weight={5} opacity={0.8} lineJoin="round" />
+                    <Polyline positions={routeCoords} color="#2563eb" weight={5} opacity={0.8} lineJoin="round" />
                   )}
 
                   {/* Destination Markers */}
@@ -346,6 +380,7 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
                 <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Trip Details</h3>
                 <div className="space-y-3">
                   {[
+                    { icon: 'bi-geo-alt-fill', label: 'Pickup Location', value: validLocations[0]?.place_name },
                     { icon: 'bi-calendar3', label: 'Start Date', value: tour?.start_date },
                     { icon: 'bi-calendar-check', label: 'End Date', value: tour?.end_date },
                     { icon: 'bi-people', label: 'Passengers', value: `${tour?.vehicle?.max_passengers || 0} max` },
