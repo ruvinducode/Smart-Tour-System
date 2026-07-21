@@ -828,7 +828,9 @@ def negotiate_price_as_driver(tour_id):
     driver = Driver.query.get(driver_id) if driver_id else None
     driver_name = driver.full_name if driver else "Driver"
 
-    tour.estimated_price = driver_price
+    # Keep the original platform estimate intact (tour.estimated_price) — the
+    # driver's counter-offer belongs on the booking only, so the user can see
+    # both numbers and the gap between them, not two copies of the same value.
     tour.status = "price_sent_by_driver"
 
     # Create or update booking for this tour
@@ -870,7 +872,7 @@ def negotiate_price_as_driver(tour_id):
     return jsonify({
         "message": "Driver price sent to user",
         "tour_id": tour.id,
-        "driver_price": tour.estimated_price,
+        "driver_price": driver_price,
         "status": tour.status,
     }), 200
 # =========================
