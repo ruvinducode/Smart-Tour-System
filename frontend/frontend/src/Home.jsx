@@ -1958,13 +1958,6 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                     <i className="bi bi-lightning-charge-fill text-2xl"></i>
                     <span>Book Now</span>
                   </button>
-                  <button
-                    onClick={() => setShowScheduleModal(true)}
-                    className="flex-1 px-8 py-6 bg-slate-900 hover:bg-slate-800 text-white rounded-[2rem] font-black text-lg shadow-xl shadow-slate-900/30 transition-all hover:scale-[1.02] active:scale-95 flex flex-col items-center justify-center gap-2"
-                  >
-                    <i className="bi bi-calendar-plus-fill text-2xl"></i>
-                    <span>Schedule Tour</span>
-                  </button>
                 </div>
               ) : (
                 <div className="text-center animate-fade-in-up">
