@@ -692,12 +692,6 @@ const TIME_PRESETS = [
   { label: 'Evening', value: '17:00', icon: 'bi-sunset' },
 ]
 
-const ALL_DAY_TIMES = Array.from({ length: 48 }, (_, i) => {
-  const h = Math.floor(i / 2)
-  const m = i % 2 === 0 ? '00' : '30'
-  return `${String(h).padStart(2, '0')}:${m}`
-})
-
 function formatTimeLabel(value) {
   if (!value) return 'Select time'
   const [h, m] = value.split(':').map(Number)
@@ -755,23 +749,21 @@ function TimeField({ label, value, onChange, accent = 'orange' }) {
               )
             })}
           </div>
-          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Or Pick Exact Time</p>
-          <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto pr-1">
-            {ALL_DAY_TIMES.map((t) => {
-              const active = value === t
-              return (
-                <button
-                  type="button"
-                  key={t}
-                  onClick={() => { onChange(t); setOpen(false) }}
-                  className={`py-1.5 rounded-lg text-[11px] font-bold transition-colors ${
-                    active ? `${c.bg} text-white` : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  {formatTimeLabel(t)}
-                </button>
-              )
-            })}
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Or Enter Any Time</p>
+          <div className="flex items-center gap-2">
+            <input
+              type="time"
+              value={value || ''}
+              onChange={(e) => e.target.value && onChange(e.target.value)}
+              className={`w-full rounded-xl border-2 border-slate-100 bg-slate-50 px-3 py-2.5 font-bold text-sm text-slate-800 ${c.ring} outline-none transition`}
+            />
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className={`px-4 py-2.5 rounded-xl text-xs font-black text-white ${c.bg} flex-shrink-0`}
+            >
+              Done
+            </button>
           </div>
         </div>
       )}
