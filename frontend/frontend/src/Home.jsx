@@ -971,6 +971,8 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
 
   const [routeCoords, setRouteCoords] = useState([])
   const [legDistances, setLegDistances] = useState([]) // km per segment
+  const [totalRouteKm, setTotalRouteKm] = useState(0) // authoritative total (not a sum of rounded legs)
+  const [isRoutingLive, setIsRoutingLive] = useState(false) // true = real road distance (OSRM), false = straight-line estimate
 
   const submitTourBooking = useCallback(async (bookingOverride = {}) => {
     if (locations.length === 0) {
@@ -1080,6 +1082,8 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     if (validLocs.length < 2) {
       setRouteCoords([]);
       setLegDistances([]);
+      setTotalRouteKm(0);
+      setIsRoutingLive(false);
       return;
     }
     const coords = validLocs.map(l => `${l.lng},${l.lat}`).join(';');
@@ -1099,6 +1103,10 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
           } else {
             setLegDistances([+(totalDistanceKm).toFixed(1)]);
           }
+          // Use OSRM's own total rather than re-summing rounded legs, so the
+          // headline figure doesn't drift from the real road-routed distance.
+          setTotalRouteKm(+totalDistanceKm.toFixed(1));
+          setIsRoutingLive(true);
         } else {
           console.warn('No route found in OSRM response', data);
           throw new Error('No route found');
@@ -1108,12 +1116,16 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
         if (!cancelled) {
           console.error('Routing failed:', err, '- falling back to straight lines');
           setRouteCoords(validLocs.map(l => [l.lat, l.lng]));
+          let rawTotalKm = 0;
           const fallbackLegs = [];
           for (let i = 0; i < validLocs.length - 1; i++) {
-            const dist = getHaversineDistance(validLocs[i].lat, validLocs[i].lng, validLocs[i+1].lat, validLocs[i+1].lng);
-            fallbackLegs.push(+(dist * 1.2).toFixed(1));
+            const dist = getHaversineDistance(validLocs[i].lat, validLocs[i].lng, validLocs[i+1].lat, validLocs[i+1].lng) * 1.2;
+            rawTotalKm += dist;
+            fallbackLegs.push(+dist.toFixed(1));
           }
           setLegDistances(fallbackLegs);
+          setTotalRouteKm(+rawTotalKm.toFixed(1));
+          setIsRoutingLive(false);
         }
       });
     return () => { cancelled = true; };
@@ -1126,11 +1138,6 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     }, 300);
     return () => clearTimeout(handler);
   }, [fetchRoute]);
-
-  const totalRouteKm = useMemo(
-    () => legDistances.reduce((s, k) => +(s + k).toFixed(1), 0),
-    [legDistances],
-  )
 
   const locationsPayload = useMemo(
     () => locations.map((loc, i) => ({
@@ -1582,6 +1589,21 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
 
                 {/* Custom Zoom & Map Controls (Right Side) */}
                 <ZoomControls mapRef={mapRef} onUndo={undoLast} canUndo={canUndo} onClear={clearAll} hasLocations={locations.length > 0} />
+
+                {/* Total Distance Badge — visible as soon as a route exists, not buried in the summary card below */}
+                {totalRouteKm > 0 && (
+                  <div className="absolute top-6 left-6 z-[1000] glass rounded-2xl px-5 py-3 shadow-2xl shadow-slate-900/20 pointer-events-none">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Total Distance</p>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xl font-black text-slate-900">{totalRouteKm}</span>
+                      <span className="text-[10px] font-bold text-orange-500">KM</span>
+                    </div>
+                    <p className={`text-[9px] font-bold mt-0.5 flex items-center gap-1 ${isRoutingLive ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      <i className={`bi ${isRoutingLive ? 'bi-signpost-split-fill' : 'bi-rulers'}`}></i>
+                      {isRoutingLive ? 'Real road route' : 'Estimated (straight-line)'}
+                    </p>
+                  </div>
+                )}
 
                 {/* Hint Overlay */}
                 {locations.length === 0 && (
