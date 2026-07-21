@@ -684,6 +684,101 @@ function DateField({ label, value, onChange, minDate, maxDate, accent = 'orange'
   )
 }
 
+const TIME_PRESETS = [
+  { label: 'Early Morning', value: '06:00', icon: 'bi-sunrise' },
+  { label: 'Morning', value: '08:00', icon: 'bi-brightness-high' },
+  { label: 'Midday', value: '12:00', icon: 'bi-sun' },
+  { label: 'Afternoon', value: '14:00', icon: 'bi-cloud-sun' },
+  { label: 'Evening', value: '17:00', icon: 'bi-sunset' },
+]
+
+const ALL_DAY_TIMES = Array.from({ length: 48 }, (_, i) => {
+  const h = Math.floor(i / 2)
+  const m = i % 2 === 0 ? '00' : '30'
+  return `${String(h).padStart(2, '0')}:${m}`
+})
+
+function formatTimeLabel(value) {
+  if (!value) return 'Select time'
+  const [h, m] = value.split(':').map(Number)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const hour12 = h % 12 === 0 ? 12 : h % 12
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`
+}
+
+/** Elegant pickup-time popover: quick presets plus a scrollable full-day list. */
+function TimeField({ label, value, onChange, accent = 'orange' }) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef(null)
+  const c = DATE_FIELD_ACCENTS[accent] || DATE_FIELD_ACCENTS.orange
+
+  useEffect(() => {
+    if (!open) return
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [open])
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full flex items-center justify-between gap-2 rounded-xl border-2 border-slate-100 bg-white px-3 py-2.5 font-bold text-sm text-slate-800 ${c.ring} outline-none transition`}
+      >
+        <span>{formatTimeLabel(value)}</span>
+        <i className="bi bi-clock-history text-slate-400 text-xs"></i>
+      </button>
+
+      {open && (
+        <div className="absolute z-[2000] mt-2 w-72 bg-white rounded-[1.5rem] shadow-2xl shadow-slate-900/20 border border-slate-100 p-4 right-0 animate-fade-in">
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Quick Pick</p>
+          <div className="grid grid-cols-1 gap-1.5 mb-3">
+            {TIME_PRESETS.map((preset) => {
+              const active = value === preset.value
+              return (
+                <button
+                  type="button"
+                  key={preset.value}
+                  onClick={() => { onChange(preset.value); setOpen(false) }}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                    active ? `${c.bg} text-white shadow-md` : 'text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <i className={`bi ${preset.icon}`}></i>
+                  <span className="flex-1 text-left">{preset.label}</span>
+                  <span className="opacity-70">{formatTimeLabel(preset.value)}</span>
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Or Pick Exact Time</p>
+          <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto pr-1">
+            {ALL_DAY_TIMES.map((t) => {
+              const active = value === t
+              return (
+                <button
+                  type="button"
+                  key={t}
+                  onClick={() => { onChange(t); setOpen(false) }}
+                  className={`py-1.5 rounded-lg text-[11px] font-bold transition-colors ${
+                    active ? `${c.bg} text-white` : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {formatTimeLabel(t)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function LocationSearchInput({
   value,
   onChange,
@@ -1539,21 +1634,24 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
             <div className="flex flex-col lg:grid lg:grid-cols-12 gap-8 items-start">
               
               {/* ── CONTROLS STACK (Below map on mobile, left-side on desktop) ── */}
-              <div className="order-2 lg:order-1 w-full lg:col-span-4 space-y-4 relative z-20 overflow-visible">
-                
-                {/* Search Start */}
-                <div className="glass rounded-[2rem] p-6 shadow-2xl shadow-slate-900/10 pointer-events-auto border-emerald-500/20">
+              <div className="order-2 lg:order-1 w-full lg:col-span-4 space-y-3 sm:space-y-4 relative z-20 overflow-visible">
+
+                {/* Connecting "journey rail" — desktop-only decorative touch */}
+                <div className="hidden lg:block absolute left-[2.85rem] top-8 bottom-8 w-px bg-gradient-to-b from-emerald-300 via-orange-300 to-slate-200 opacity-60 pointer-events-none z-0" />
+
+                {/* Starting Point */}
+                <div className="glass rounded-[1.75rem] sm:rounded-[2rem] p-5 sm:p-6 shadow-xl shadow-slate-900/10 pointer-events-auto border-emerald-500/20 relative z-10">
                   <div className={`flex items-center justify-between cursor-pointer select-none ${isStartCollapsed ? '' : 'mb-5'}`} onClick={() => setIsStartCollapsed(!isStartCollapsed)}>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/20 text-xl font-black">
+                      <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30 text-xl font-black">
                         <i className="bi bi-geo-alt"></i>
                       </div>
                       <div>
-                        <h3 className="text-lg font-extrabold text-slate-900 tracking-tight leading-none">Starting Point</h3>
-                        <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1">WHERE YOU BEGIN</p>
+                        <h3 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight leading-none">Starting Point</h3>
+                        <p className="text-[9px] sm:text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-1">Where You Begin</p>
                       </div>
                     </div>
-                    <div className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors">
+                    <div className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors flex-shrink-0">
                       <i className={`bi bi-chevron-${isStartCollapsed ? 'down' : 'up'} text-xs font-black`}></i>
                     </div>
                   </div>
@@ -1563,7 +1661,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                       <button
                         onClick={handleGetLiveLocation}
                         disabled={gpsLoading}
-                        className="w-full mb-4 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl active:scale-95"
+                        className="w-full mb-4 py-3 bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-3 hover:from-slate-800 hover:to-slate-700 transition-all shadow-xl active:scale-95"
                       >
                         {gpsLoading ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <i className="bi bi-crosshair"></i>}
                         {gpsLoading ? 'Detecting...' : 'Detect My Location'}
@@ -1584,20 +1682,20 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                 </div>
 
                 {/* Add Stops */}
-                <div className="glass rounded-[2rem] p-6 shadow-2xl shadow-slate-900/10 pointer-events-auto border-orange-500/20">
+                <div className="glass rounded-[1.75rem] sm:rounded-[2rem] p-5 sm:p-6 shadow-xl shadow-slate-900/10 pointer-events-auto border-orange-500/20 relative z-10">
                   <div className={`flex items-center justify-between cursor-pointer select-none ${isStopsCollapsed ? '' : 'mb-5'}`} onClick={() => setIsStopsCollapsed(!isStopsCollapsed)}>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-2xl bg-orange-500 text-white flex items-center justify-center shadow-lg shadow-orange-500/20 text-xl font-black">
+                      <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 text-white flex items-center justify-center shadow-lg shadow-orange-500/30 text-xl font-black">
                         <i className="bi bi-plus-lg"></i>
                       </div>
                       <div>
-                        <h3 className="text-lg font-extrabold text-slate-900 tracking-tight leading-none">Add Stops</h3>
-                        <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest mt-1">
-                          {locations.filter(l=>!l.isStart).length} DESTINATIONS
+                        <h3 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight leading-none">Add Stops</h3>
+                        <p className="text-[9px] sm:text-[10px] font-black text-orange-600 uppercase tracking-widest mt-1">
+                          {locations.filter(l=>!l.isStart).length} Destinations
                         </p>
                       </div>
                     </div>
-                    <div className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors">
+                    <div className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition-colors flex-shrink-0">
                       <i className={`bi bi-chevron-${isStopsCollapsed ? 'down' : 'up'} text-xs font-black`}></i>
                     </div>
                   </div>
@@ -1618,8 +1716,11 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
 
                 {/* Journey Timeline */}
                 {locations.length > 0 && (
-                  <div className="glass rounded-[2rem] p-6 shadow-2xl shadow-slate-900/10 pointer-events-auto border-slate-200/50">
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 mb-6">Journey Timeline</h3>
+                  <div className="glass rounded-[1.75rem] sm:rounded-[2rem] p-5 sm:p-6 shadow-xl shadow-slate-900/10 pointer-events-auto border-slate-200/50 relative z-10">
+                    <div className="flex items-center gap-2 mb-5 sm:mb-6">
+                      <i className="bi bi-signpost-split text-slate-300"></i>
+                      <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Journey Timeline</h3>
+                    </div>
                     <div className="space-y-4">
                       {locations.map((loc, i) => {
                         const nextLoc = locations[i + 1];
@@ -1662,10 +1763,20 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                   </div>
                 )}
 
-                {/* Summary & Action */}
+                {/* Trip Summary & Action */}
                 {locations.length >= 2 && (
-                  <div className="glass rounded-[2rem] p-6 shadow-2xl shadow-slate-900/10 pointer-events-auto border-slate-900/10">
-                    <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="glass rounded-[1.75rem] sm:rounded-[2rem] p-5 sm:p-6 shadow-xl shadow-slate-900/10 pointer-events-auto border-slate-900/10 relative z-10">
+                    <div className="flex items-center gap-3 mb-5">
+                      <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-950 text-white flex items-center justify-center shadow-lg shadow-slate-900/30 text-lg font-black">
+                        <i className="bi bi-calendar-check"></i>
+                      </div>
+                      <div>
+                        <h3 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight leading-none">Trip Summary</h3>
+                        <p className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Dates & Pickup</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-4">
                       <DateField
                         label="Start Date"
                         value={startDate}
@@ -1681,25 +1792,36 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                         accent="orange"
                       />
                     </div>
-                    <div className="flex justify-between items-center mb-6">
-                      <div className="text-center flex-1 border-r border-slate-100">
+
+                    <div className="mb-6">
+                      <TimeField
+                        label="Pickup Time"
+                        value={startTime}
+                        onChange={setStartTime}
+                        accent="orange"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 mb-6">
+                      <div className="bg-slate-50 rounded-2xl p-4 text-center">
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Duration</p>
                         <div className="flex items-baseline justify-center gap-1">
-                          <span className="text-2xl font-black text-slate-900">{estimatedPrice?.total_days ?? tripDurationDays ?? '—'}</span>
+                          <span className="text-xl sm:text-2xl font-black text-slate-900">{estimatedPrice?.total_days ?? tripDurationDays ?? '—'}</span>
                           <span className="text-[10px] font-bold text-slate-400">DAYS</span>
                         </div>
                       </div>
-                      <div className="text-center flex-1">
+                      <div className="bg-slate-50 rounded-2xl p-4 text-center">
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Distance</p>
                         <div className="flex items-baseline justify-center gap-1">
-                          <span className="text-2xl font-black text-slate-900">{totalRouteKm}</span>
+                          <span className="text-xl sm:text-2xl font-black text-slate-900">{totalRouteKm}</span>
                           <span className="text-[10px] font-bold text-orange-400">KM</span>
                         </div>
                       </div>
                     </div>
+
                     <button
                       onClick={() => setCurrentStep(2)}
-                      className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all shadow-xl shadow-orange-500/30 active:scale-95"
+                      className="w-full py-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 transition-all shadow-xl shadow-orange-500/30 active:scale-95"
                     >
                       Plan Vehicles <i className="bi bi-arrow-right-short text-lg"></i>
                     </button>
