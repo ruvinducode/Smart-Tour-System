@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: dark;
+  --app-bg: #fffbeb;
+  --app-bg-glow: rgba(217, 119, 6, 0.16);
 }
 
 body {
@@ -17,7 +19,9 @@ body {
   min-height: 100vh;
 }
 
-/* Elegant Suspense loading screen (lightweight: no JS, single CSS animation) */
+/* Elegant Suspense loading screen (lightweight: no JS, single CSS animation).
+   Background blends with whatever section the user was last on (set as CSS
+   vars by App.jsx) so switching pages doesn't flash to an unrelated color. */
 .loading-screen {
   position: fixed;
   inset: 0;
@@ -26,8 +30,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 0.9rem;
-  background: #020617;
-  color: #e2e8f0;
+  background: radial-gradient(circle at 50% 40%, var(--app-bg-glow), transparent 60%), var(--app-bg);
+  color: #1e293b;
+  transition: background-color 0.3s ease;
 }
 
 .loading-screen__spinner {
@@ -44,8 +49,8 @@ body {
   position: absolute;
   inset: 0;
   border-radius: 9999px;
-  border: 3px solid rgba(226, 232, 240, 0.12);
-  border-top-color: #fbbf24;
+  border: 3px solid rgba(15, 23, 42, 0.1);
+  border-top-color: #d97706;
   animation: loading-spin 1s linear infinite;
 }
 
@@ -54,7 +59,7 @@ body {
   height: 60px;
   border-radius: 9999px;
   object-fit: cover;
-  box-shadow: 0 0 16px rgba(251, 191, 36, 0.35);
+  box-shadow: 0 0 16px rgba(217, 119, 6, 0.3);
   animation: loading-pulse 1.8s ease-in-out infinite;
 }
 
@@ -63,14 +68,14 @@ body {
   font-family: 'Space Grotesk', sans-serif;
   font-weight: 700;
   font-size: 1.15rem;
-  color: #f8fafc;
+  color: #1e293b;
   letter-spacing: 0.01em;
 }
 
 .loading-screen__label {
   margin: 0;
   font-size: 0.85rem;
-  color: rgba(226, 232, 240, 0.6);
+  color: rgba(30, 41, 59, 0.6);
 }
 
 @keyframes loading-spin {

@@ -1,7 +1,15 @@
-import React, { useCallback, useEffect, useState, Suspense, lazy } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, Suspense, lazy } from 'react'
 import useAuth from './hooks/useAuth.js'
 import { calculateTourEstimate, getApiBaseUrl, loginDriver, loginUser } from './services/api.js'
 import { initGA, logPageView } from './utils/analytics.js'
+
+// Matches each section's real background so the Suspense loading screen
+// blends in with whatever page the user was just on, instead of a fixed color.
+const PAGE_THEME = {
+  home:      { bg: '#fffbeb', glow: 'rgba(217, 119, 6, 0.16)' },
+  auth:      { bg: '#f0fdf4', glow: 'rgba(16, 185, 129, 0.16)' },
+  dashboard: { bg: '#f8fafc', glow: 'rgba(51, 65, 85, 0.12)' },
+}
 
 const Home = lazy(() => import('./Home.jsx'))
 const HomePage = lazy(() => import('./pages/HomePage.jsx'))
@@ -47,6 +55,23 @@ export default function App() {
   const [selectedDestForTrip, setSelectedDestForTrip] = useState(null) // destination pre-fill for plan-trip page
 
   const { loggedIn, userName, userRole, token, persistSession, logout } = useAuth()
+
+  const currentThemeKey = useMemo(() => {
+    if (loggedIn) {
+      const role = userRole || getRoleFromToken(token)
+      if (role === 'admin' || role === 'driver') return 'dashboard'
+      if (role === 'user' && activePage === 'dashboard' && !findingDriverData) return 'dashboard'
+      return 'home'
+    }
+    if (publicPage === 'user-auth' || publicPage === 'driver-auth') return 'auth'
+    return 'home'
+  }, [loggedIn, userRole, token, activePage, findingDriverData, publicPage])
+
+  useEffect(() => {
+    const theme = PAGE_THEME[currentThemeKey] || PAGE_THEME.home
+    document.documentElement.style.setProperty('--app-bg', theme.bg)
+    document.documentElement.style.setProperty('--app-bg-glow', theme.glow)
+  }, [currentThemeKey])
 
   const setPublicView = useCallback((view, push = true) => {
     setPublicPage(view)
