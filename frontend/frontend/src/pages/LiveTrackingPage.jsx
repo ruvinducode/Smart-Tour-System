@@ -52,6 +52,7 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
   const [route, setRoute] = useState([])
   const [eta, setEta] = useState(null)
   const [distKm, setDistKm] = useState(null)
+  const [distanceIsLive, setDistanceIsLive] = useState(false)
   const [status, setStatus] = useState('Locating your driver...')
   const [panelOpen, setPanelOpen] = useState(true)
   const [showCancelModal, setShowCancelModal] = useState(false)
@@ -98,24 +99,41 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
             setDriverLoc(loc)
             
             if (userLat && userLng) {
-              const km = haversineKm(locData.latitude, locData.longitude, userLat, userLng)
-              setDistKm(km.toFixed(1))
-              const mins = Math.round((km / 35) * 60)
-              
-              if (details.status === 'arrived') setEta('At Pickup')
-              else if (details.status === 'ongoing') setEta('On Trip')
-              else setEta(mins < 1 ? 'Arriving' : `${mins} min`)
-              
+              if (details.status === 'arrived') {
+                setEta('At Pickup')
+              } else if (details.status === 'ongoing') {
+                setEta('On Trip')
+              }
+
               if (details.status !== 'ongoing') {
+                // Real road-routed distance/duration from OSRM — a straight-line
+                // haversine estimate with an assumed flat speed understated the
+                // real driving distance/time on Sri Lanka's winding roads.
                 const url = `https://router.project-osrm.org/route/v1/driving/${locData.longitude},${locData.latitude};${userLng},${userLat}?overview=full&geometries=geojson`
                 fetch(url)
-                  .then(r => r.json())
+                  .then(r => { if (!r.ok) throw new Error(`OSRM error: ${r.status}`); return r.json() })
                   .then(res => {
-                    const route = res?.routes?.[0]
-                    if (route && route.geometry?.coordinates) {
-                      setRoute(route.geometry.coordinates.map(([lng, lat]) => [lat, lng]))
+                    const routeResult = res?.routes?.[0]
+                    if (!routeResult) throw new Error('No route found')
+                    setRoute(routeResult.geometry?.coordinates ? routeResult.geometry.coordinates.map(([lng, lat]) => [lat, lng]) : [])
+                    setDistKm((routeResult.distance / 1000).toFixed(1))
+                    setDistanceIsLive(true)
+                    if (details.status !== 'arrived') {
+                      const mins = Math.round(routeResult.duration / 60)
+                      setEta(mins < 1 ? 'Arriving' : `${mins} min`)
                     }
-                  }).catch(() => {})
+                  })
+                  .catch(() => {
+                    // Fall back to a straight-line estimate, clearly marked as such.
+                    const km = haversineKm(locData.latitude, locData.longitude, userLat, userLng)
+                    setDistKm((km * 1.25).toFixed(1))
+                    setDistanceIsLive(false)
+                    if (details.status !== 'arrived') {
+                      const mins = Math.round(((km * 1.25) / 35) * 60)
+                      setEta(mins < 1 ? 'Arriving' : `${mins} min`)
+                    }
+                    setRoute([[locData.latitude, locData.longitude], [userLat, userLng]])
+                  })
               } else {
                 setRoute([])
               }
@@ -229,7 +247,7 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
             <>
               <Marker position={driverLoc} icon={carIcon} />
               {route.length > 0 && (
-                <Polyline positions={route} color="#f97316" weight={5} opacity={0.6} dashArray="10, 15" />
+                <Polyline positions={route} color="#ef4444" weight={5} opacity={0.75} dashArray={distanceIsLive ? undefined : '10, 15'} />
               )}
             </>
           )}
@@ -256,6 +274,12 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
                   <span className="text-xs font-bold text-slate-500 uppercase">{distKm} km away</span>
                 )}
               </div>
+              {tourDetails?.status !== 'ongoing' && distKm && (
+                <p className={`text-[9px] font-bold mt-1 flex items-center gap-1 ${distanceIsLive ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  <i className={`bi ${distanceIsLive ? 'bi-signpost-split-fill' : 'bi-rulers'}`}></i>
+                  {distanceIsLive ? 'Real road route' : 'Estimated'}
+                </p>
+              )}
             </div>
           </div>
         )}

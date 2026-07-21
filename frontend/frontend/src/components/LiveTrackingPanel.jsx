@@ -52,13 +52,33 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
           }
 
           if (userLat && userLng) {
-            const km = haversineKm(locData.latitude, locData.longitude, userLat, userLng)
-            setDistanceKm(km.toFixed(1))
-            const mins = Math.round((km / 30) * 60)
-            
             if (tourData.status === 'arrived') setEta('At Pickup')
             else if (tourData.status === 'ongoing') setEta('On Trip')
-            else setEta(mins < 1 ? 'Arriving' : `${mins} min`)
+
+            if (tourData.status !== 'ongoing') {
+              // Real road-routed distance/duration via OSRM, not a straight-line
+              // haversine estimate with an assumed flat speed.
+              const url = `https://router.project-osrm.org/route/v1/driving/${locData.longitude},${locData.latitude};${userLng},${userLat}?overview=false`
+              fetch(url)
+                .then((r) => { if (!r.ok) throw new Error(`OSRM error: ${r.status}`); return r.json() })
+                .then((res) => {
+                  const route = res?.routes?.[0]
+                  if (!route) throw new Error('No route found')
+                  setDistanceKm((route.distance / 1000).toFixed(1))
+                  if (tourData.status !== 'arrived') {
+                    const mins = Math.round(route.duration / 60)
+                    setEta(mins < 1 ? 'Arriving' : `${mins} min`)
+                  }
+                })
+                .catch(() => {
+                  const km = haversineKm(locData.latitude, locData.longitude, userLat, userLng)
+                  setDistanceKm((km * 1.25).toFixed(1))
+                  if (tourData.status !== 'arrived') {
+                    const mins = Math.round(((km * 1.25) / 30) * 60)
+                    setEta(mins < 1 ? 'Arriving' : `${mins} min`)
+                  }
+                })
+            }
           }
         }
       } catch {
