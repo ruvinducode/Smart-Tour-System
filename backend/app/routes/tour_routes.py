@@ -894,6 +894,36 @@ def get_all_feedbacks():
     except Exception as e:
         return jsonify({"message": str(e)}), 500
 
+@tour_bp.route('/admin/feedbacks/analytics', methods=['GET'])
+@jwt_required()
+def get_feedback_analytics():
+    try:
+        claims = get_jwt()
+        if claims.get("role") != "admin":
+            return jsonify({"message": "Unauthorized"}), 403
+            
+        from app.models import Feedback, Driver
+        from app import db
+        
+        total_feedbacks = db.session.query(db.func.count(Feedback.id)).scalar() or 0
+        overall_avg = db.session.query(db.func.avg(Feedback.rating)).scalar() or 0
+        
+        drivers_with_ratings = Driver.query.filter(Driver.total_ratings > 0).all()
+        avg_per_driver = sum([d.rating for d in drivers_with_ratings]) / len(drivers_with_ratings) if drivers_with_ratings else 0
+        
+        highest_driver = Driver.query.filter(Driver.total_ratings > 0).order_by(Driver.rating.desc(), Driver.total_ratings.desc()).first()
+        lowest_driver = Driver.query.filter(Driver.total_ratings > 0).order_by(Driver.rating.asc(), Driver.total_ratings.desc()).first()
+
+        return jsonify({
+            "total_feedbacks": total_feedbacks,
+            "overall_avg": round(overall_avg, 1),
+            "avg_per_driver": round(avg_per_driver, 1),
+            "highest_rated_driver": highest_driver.full_name if highest_driver else "N/A",
+            "lowest_rated_driver": lowest_driver.full_name if lowest_driver else "N/A"
+        }), 200
+    except Exception as e:
+        return jsonify({"message": str(e)}), 500
+
 
 # =========================
 # DELETE TOUR (PROTECTED)

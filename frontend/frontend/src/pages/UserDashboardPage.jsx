@@ -27,11 +27,12 @@ import {
   Menu,
   Trash2
 } from 'lucide-react'
-import { getUserNotifications, getUserTours, cancelTour, deleteTour, acceptDriverPrice, rejectDriverPrice, getApiBaseUrl, replyToDriver, markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications } from '../services/api.js'
+import { getUserNotifications, getUserTours, cancelTour, deleteTour, acceptDriverPrice, rejectDriverPrice, getApiBaseUrl, replyToDriver, markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications, submitFeedback } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import LiveTrackingPage from './LiveTrackingPage.jsx'
 import LiveTrackingPanel from '../components/LiveTrackingPanel.jsx'
 import CancellationModal from '../components/CancellationModal.jsx'
+import FeedbackModal from '../components/FeedbackModal.jsx'
 import DashboardChart from '../components/DashboardChart.jsx'
 import DashboardStatCard from '../components/DashboardStatCard.jsx'
 import Footer from '../components/Footer.jsx'
@@ -109,6 +110,13 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
   const [liveTrackingTour, setLiveTrackingTour] = useState(null)
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+
+  // ── Panel Feedback State (for driver-cancelled or user-cancelled from panel) ──
+  const [showPanelFeedback, setShowPanelFeedback] = useState(false)
+  const [panelFeedbackTourId, setPanelFeedbackTourId] = useState(null)
+  const [panelFeedbackDriverName, setPanelFeedbackDriverName] = useState('')
+  const [submittingPanelFeedback, setSubmittingPanelFeedback] = useState(false)
+  const panelFeedbackShownRef = { current: false }
 
   // ── New Dashboard & Deletion States ──
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
@@ -251,13 +259,20 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
 
       if (liveTrackingTourId) {
         const trackedTour = toursArr.find((t) => t.id === liveTrackingTourId)
-        if (!trackedTour || !canUserStartLiveTracking(trackedTour)) {
+        if (!trackedTour) {
           setLiveTrackingMode(null)
           setLiveTrackingTourId(null)
           setLiveTrackingTour(null)
         } else if (trackedTour.status === 'completed' || trackedTour.status === 'cancelled') {
-          setLiveTrackingMode('full')
+          // If tour ended and we're still in panel mode, switch to full mode so FeedbackModal can show
+          if (liveTrackingMode === 'panel') {
+            setLiveTrackingMode('full')
+          }
           setLiveTrackingTour(trackedTour)
+        } else if (!canUserStartLiveTracking(trackedTour)) {
+          setLiveTrackingMode(null)
+          setLiveTrackingTourId(null)
+          setLiveTrackingTour(null)
         } else {
           setLiveTrackingTour(trackedTour)
         }
@@ -303,7 +318,9 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
     [tours, scheduleTick]
   )
 
-  if (liveTrackingMode === 'full' && liveTrackingTourId && canUserStartLiveTracking(liveTrackingTour)) {
+  const isEndedTour = liveTrackingTour && (liveTrackingTour.status === 'completed' || liveTrackingTour.status === 'cancelled')
+
+  if (liveTrackingMode === 'full' && liveTrackingTourId && (canUserStartLiveTracking(liveTrackingTour) || isEndedTour)) {
     return (
       <LiveTrackingPage
         tourId={liveTrackingTourId}
@@ -328,13 +345,35 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
     try {
       await cancelTour(liveTrackingTourId, reason, token)
       setShowCancelModal(false)
-      setLiveTrackingMode(null)
-      setLiveTrackingTourId(null)
+      // If driver was assigned, switch to full mode so FeedbackModal shows
+      // Otherwise just clear the tracking state
+      if (liveTrackingTour?.driver_name) {
+        setLiveTrackingMode('full')
+      } else {
+        setLiveTrackingMode(null)
+        setLiveTrackingTourId(null)
+      }
       loadDashboardData()
     } catch (err) {
       alert(err.message || 'Failed to cancel tour')
     } finally {
       setCancelling(false)
+    }
+  }
+
+  const handlePanelFeedbackSubmit = async (rating, comment) => {
+    setSubmittingPanelFeedback(true)
+    try {
+      await submitFeedback(panelFeedbackTourId, rating, comment, token)
+      setShowPanelFeedback(false)
+      setPanelFeedbackTourId(null)
+      setLiveTrackingMode(null)
+      setLiveTrackingTourId(null)
+      setLiveTrackingTour(null)
+    } catch (err) {
+      alert(err.message || 'Failed to submit feedback')
+    } finally {
+      setSubmittingPanelFeedback(false)
     }
   }
 

@@ -1,8 +1,8 @@
 function normalizeApiBase(raw) {
-  const fallback = import.meta.env.DEV ? '' : 'http://127.0.0.1:5001'
+  const fallback = import.meta.env.DEV ? '' : '/api'
   const base = (raw || fallback).trim().replace(/\/$/, '')
   if (!base) return ''
-  if (/^https?:\/\//i.test(base)) return base
+  if (/^https?:\/\//i.test(base) || base.startsWith('/')) return base
   return `http://${base}`
 }
 
@@ -726,4 +726,34 @@ export async function syncFinanceBookings(token) {
     headers: financeHeaders(token),
   })
   return financeJson(res)
+}
+
+// =========================
+// FEEDBACKS
+// =========================
+export async function getAdminFeedbacks(token) {
+  const res = await fetch(apiUrl('/admin/feedbacks'), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ([]))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function getAdminFeedbacksAnalytics(token) {
+  const res = await fetch(apiUrl('/admin/feedbacks/analytics'), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function getDriverFeedbacks(token) {
+  const res = await fetch(apiUrl('/driver/feedbacks'), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
 }

@@ -28,7 +28,7 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
   const [isResizing, setIsResizing] = useState(false)
   const resizeStart = useRef({ w: size.width, x: 0 })
 
-  const imgUrl = (path) => path ? `http://127.0.0.1:5001/uploads/drivers/${path}` : null
+  const imgUrl = (path) => path ? `/api/uploads/drivers/${path}` : null
 
   useEffect(() => {
     const fetchLocation = async () => {

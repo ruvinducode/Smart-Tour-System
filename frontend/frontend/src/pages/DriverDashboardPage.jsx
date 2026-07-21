@@ -11,6 +11,7 @@ import {
   markAllNotificationsRead,
   deleteNotification,
   clearAllNotifications,
+  getDriverFeedbacks,
 } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import ConfirmationModal from '../components/ConfirmationModal.jsx'
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
   { id: 'approved',    label: 'Approved',    icon: 'bi bi-check-circle-fill', countKey: 'approved' },
   { id: 'price_sent',  label: 'Negotiating', icon: 'bi bi-arrow-left-right', countKey: 'negotiating' },
   { id: 'payments',    label: 'Payments',    icon: 'bi bi-wallet2' },
+  { id: 'feedbacks',   label: 'My Feedbacks',icon: 'bi bi-star-fill' },
   { id: 'profile',     label: 'My Profile',  icon: 'bi bi-person-circle' },
 ]
 
@@ -45,6 +47,7 @@ const TAB_TITLES = {
   approved: 'Approved Tours',
   price_sent: 'Negotiating Requests',
   payments: 'Payments',
+  feedbacks: 'My Feedbacks',
   profile: 'My Profile',
 }
 
@@ -78,6 +81,8 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
   const [activeRideTourId, setActiveRideTourId] = useState(null)
   const [notifications, setNotifications] = useState([])
   const [showNotifications, setShowNotifications] = useState(false)
+  const [feedbacks, setFeedbacks] = useState([])
+  const [feedbackSummary, setFeedbackSummary] = useState(null)
 
   const handleMarkNotifRead = async (id) => {
     try {
@@ -120,12 +125,17 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
     setError('')
     if (!silent) setLoading(true)
     try {
-      const [tourData, notifData] = await Promise.all([
+      const [tourData, notifData, feedbackData] = await Promise.all([
         getDriverTourRequests(token),
-        getDriverNotifications(token)
+        getDriverNotifications(token),
+        getDriverFeedbacks(token)
       ])
       setTourRequests(Array.isArray(tourData) ? tourData : [])
       setNotifications(Array.isArray(notifData) ? notifData : [])
+      if (feedbackData) {
+        setFeedbacks(Array.isArray(feedbackData.feedbacks) ? feedbackData.feedbacks : [])
+        setFeedbackSummary(feedbackData.summary || null)
+      }
     } catch (err) {
       if (!silent) setError(err.message || 'Could not load dashboard data')
     } finally {
@@ -617,6 +627,58 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
 
           {activeTab === 'payments' && (
             <DriverPaymentsSection token={token} tourRequests={tourRequests} analytics={analytics} />
+          )}
+
+          {activeTab === 'feedbacks' && (
+            <div className="space-y-6">
+              <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#1a2e6f] via-[#243b88] to-indigo-900 p-6 sm:p-8 text-white shadow-2xl">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,rgba(249,115,22,0.25),transparent_55%)]" />
+                <div className="relative grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200/80 mb-2">My Ratings</p>
+                    <p className="text-4xl sm:text-5xl font-black">{feedbackSummary?.average_rating || 0} ★</p>
+                    <p className="text-sm text-blue-100/70 mt-2">From {feedbackSummary?.total_feedbacks || 0} reviews</p>
+                  </div>
+                  <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {[5, 4, 3, 2, 1].map((stars) => (
+                      <div key={stars} className="rounded-2xl bg-white/10 border border-white/10 px-3 py-2 text-center backdrop-blur-sm">
+                        <p className="text-[10px] font-black text-amber-400">{stars} ★</p>
+                        <p className="text-lg font-black mt-1 text-white">{feedbackSummary?.breakdown?.[stars] || 0}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-sm p-6">
+                <h3 className="text-lg font-black text-slate-800 mb-4">Recent Reviews</h3>
+                {feedbacks.length === 0 ? (
+                  <div className="text-center py-10">
+                    <i className="bi bi-star text-4xl text-slate-200 mb-3 block"></i>
+                    <p className="text-slate-500 font-medium">You don't have any feedback yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {feedbacks.map(fb => (
+                      <div key={fb.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 hover:shadow-sm transition">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <p className="font-bold text-slate-800">{fb.user_name}</p>
+                            <p className="text-[10px] text-slate-400 font-semibold">{new Date(fb.created_at).toLocaleDateString()}</p>
+                          </div>
+                          <div className="flex items-center gap-1 text-amber-500 text-sm">
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <i key={i} className={`bi bi-star${i < fb.rating ? '-fill' : ''}`}></i>
+                            ))}
+                          </div>
+                        </div>
+                        <p className="text-slate-600 text-sm mt-2">{fb.comment || <span className="italic text-slate-400">No comment</span>}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {activeTab === 'profile' && (

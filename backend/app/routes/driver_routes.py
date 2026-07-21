@@ -934,3 +934,51 @@ def get_my_driver_payments():
         .all()
     )
     return jsonify([enrich_driver_payment(p) for p in payments]), 200
+
+# =========================
+# DRIVER: GET MY FEEDBACKS
+# =========================
+@driver_bp.route("/driver/feedbacks", methods=["GET"])
+@jwt_required()
+def get_my_driver_feedbacks():
+    claims = get_jwt()
+    if claims.get("role") != "driver":
+        return jsonify({"message": "Unauthorized"}), 403
+
+    try:
+        driver_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"message": "Invalid driver identity"}), 401
+
+    driver = Driver.query.get(driver_id)
+    if not driver:
+        return jsonify({"message": "Driver not found"}), 404
+
+    from app.models import Feedback, User
+    feedbacks = Feedback.query.filter_by(driver_id=driver_id).order_by(Feedback.created_at.desc()).all()
+    
+    breakdown = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    results = []
+    
+    for f in feedbacks:
+        if f.rating in breakdown:
+            breakdown[f.rating] += 1
+        
+        user = User.query.get(f.user_id) if f.user_id else None
+        results.append({
+            "id": f.id,
+            "tour_id": f.tour_id,
+            "user_name": user.full_name if user else "Guest",
+            "rating": f.rating,
+            "comment": f.comment,
+            "created_at": f.created_at.isoformat()
+        })
+        
+    return jsonify({
+        "summary": {
+            "total_feedbacks": driver.total_ratings,
+            "average_rating": driver.rating,
+            "breakdown": breakdown
+        },
+        "feedbacks": results
+    }), 200

@@ -17,6 +17,8 @@ import {
   markAllNotificationsRead,
   deleteNotification,
   clearAllNotifications,
+  getAdminFeedbacks,
+  getAdminFeedbacksAnalytics,
 } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import DriverDetailsModal from '../components/DriverDetailsModal.jsx'
@@ -73,6 +75,7 @@ const NAV_ITEMS = [
   { id: 'pending',            icon: 'bi bi-person-plus-fill',     label: 'Pending Drivers'  },
   { id: 'tours',              icon: 'bi bi-map-fill',            label: 'Tour Requests'    },
   { id: 'finance',            icon: 'bi bi-currency-dollar',     label: 'Finance'          },
+  { id: 'feedbacks',          icon: 'bi bi-star-fill',           label: 'Feedbacks'        },
   { id: 'notifications',      icon: 'bi bi-bell-fill',           label: 'Notifications'    },
 ]
 
@@ -84,6 +87,8 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
   const [users, setUsers]                   = useState([])
   const [tourPlans, setTourPlans]           = useState([])
   const [notifications, setNotifications]   = useState([])
+  const [feedbacks, setFeedbacks]           = useState([])
+  const [feedbackAnalytics, setFeedbackAnalytics] = useState({})
   const [loading, setLoading]               = useState(true)
   const [error, setError]                   = useState('')
   const [info, setInfo]                     = useState('')
@@ -130,9 +135,11 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         getAllUsers(token),
         getTourPlans(token),
         getAdminNotifications(token),
+        getAdminFeedbacks(token),
+        getAdminFeedbacksAnalytics(token),
       ])
 
-      const [pending, approved, allD, allU, tours, notes] = results.map(r => r.status === 'fulfilled' ? r.value : [])
+      const [pending, approved, allD, allU, tours, notes, fb, fbStats] = results.map(r => r.status === 'fulfilled' ? r.value : [])
       
       // Check if any request failed with 401
       const isUnauthorized = results.some(r => r.status === 'rejected' && r.reason?.message?.includes('401'))
@@ -148,6 +155,8 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
       setUsers(Array.isArray(allU) ? allU : [])
       setTourPlans(Array.isArray(tours) ? tours : [])
       setNotifications(Array.isArray(notes) ? notes : [])
+      setFeedbacks(Array.isArray(fb) ? fb : [])
+      setFeedbackAnalytics(fbStats || {})
 
       if (results.every(r => r.status === 'rejected')) {
         setError('Could not load any dashboard data. Please check your connection or backend status.')
@@ -839,6 +848,69 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
           {activeTab === 'finance' && (
             <FinanceAdminPage token={token} />
           )}
+
+          {/* ── FEEDBACKS ── */}
+          {activeTab === 'feedbacks' && (
+            <div className="space-y-6">
+              <AdminSectionHeader
+                title="System Feedbacks"
+                subtitle="Monitor user ratings and reviews for all tours and drivers."
+                count={feedbacks.length}
+                countLabel="Total feedbacks"
+                accent="amber"
+              />
+
+              {/* Analytics Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <DashboardStatCard label="Total Feedback" value={feedbackAnalytics?.total_feedbacks || 0} icon="bi-chat-left-text-fill" accent="blue" />
+                <DashboardStatCard label="Overall Avg" value={`${feedbackAnalytics?.overall_avg || 0} ★`} icon="bi-star-fill" accent="amber" />
+                <DashboardStatCard label="Avg per Driver" value={`${feedbackAnalytics?.avg_per_driver || 0} ★`} icon="bi-person-badge-fill" accent="emerald" />
+                <DashboardStatCard label="Highest Rated" value={feedbackAnalytics?.highest_rated_driver || 'N/A'} icon="bi-trophy-fill" accent="violet" />
+                <DashboardStatCard label="Lowest Rated" value={feedbackAnalytics?.lowest_rated_driver || 'N/A'} icon="bi-exclamation-octagon-fill" accent="rose" />
+              </div>
+
+              {/* Feedback List */}
+              <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-sm">
+                {feedbacks.length === 0 ? (
+                   <AdminEmptyState icon="bi-star" title="No feedbacks yet" message="There are currently no feedbacks submitted by users." />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm whitespace-nowrap">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                        <tr>
+                          <th className="px-6 py-4">Date</th>
+                          <th className="px-6 py-4">User</th>
+                          <th className="px-6 py-4">Driver</th>
+                          <th className="px-6 py-4">Rating</th>
+                          <th className="px-6 py-4 w-full">Comment</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {feedbacks.map(fb => (
+                          <tr key={fb.id} className="hover:bg-slate-50/50 transition">
+                            <td className="px-6 py-4 text-slate-500">{new Date(fb.created_at).toLocaleDateString()}</td>
+                            <td className="px-6 py-4 font-bold text-slate-700">{fb.user_name}</td>
+                            <td className="px-6 py-4 font-bold text-slate-700">{fb.driver_name}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-1 text-amber-500">
+                                {Array.from({ length: 5 }).map((_, i) => (
+                                  <i key={i} className={`bi bi-star${i < fb.rating ? '-fill' : ''}`}></i>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-normal min-w-[300px]">
+                              <p className="text-slate-600 line-clamp-2">{fb.comment || <span className="text-slate-400 italic">No comment provided</span>}</p>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
 
           {/* ── NOTIFICATIONS ── */}
           {activeTab === 'notifications' && (() => {
