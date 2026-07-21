@@ -386,6 +386,50 @@ const SRI_LANKA_BOUNDS = [
   [10.0, 82.1]  // North-East
 ]
 
+/** Quick client-side check so we don't need a network call just to reject an obviously out-of-country GPS fix. */
+function isWithinSriLanka(lat, lng) {
+  const [[minLat, minLng], [maxLat, maxLng]] = SRI_LANKA_BOUNDS
+  return lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng
+}
+
+// Photon (komoot's open geocoder) indexes OSM place names more granularly than
+// Nominatim, so small towns/villages that Nominatim misses are found here —
+// biased and bounded to Sri Lanka so results stay relevant.
+async function searchSriLankaPlaces(query) {
+  const params = new URLSearchParams({
+    q: query,
+    limit: '8',
+    lang: 'en',
+    lat: String(SRI_LANKA_CENTER[0]),
+    lon: String(SRI_LANKA_CENTER[1]),
+    bbox: '79.3,5.7,82.1,10.0',
+  })
+
+  const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`)
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`)
+  }
+
+  const data = await response.json()
+  const features = Array.isArray(data.features) ? data.features : []
+
+  return features
+    .filter((f) => (f.properties?.countrycode || '').toUpperCase() === 'LK')
+    .map((f) => {
+      const p = f.properties || {}
+      const [lon, lat] = f.geometry?.coordinates || []
+      const nameParts = [p.name, p.street, p.district, p.city || p.county, p.state].filter(Boolean)
+      const display = [...new Set(nameParts)].join(', ') || p.name || 'Unnamed location'
+      return {
+        place_id: p.osm_id ? `${p.osm_type || 'osm'}-${p.osm_id}` : `${lat}-${lon}`,
+        display_name: display,
+        lat: String(lat),
+        lon: String(lon),
+      }
+    })
+    .filter((r) => Number.isFinite(parseFloat(r.lat)) && Number.isFinite(parseFloat(r.lon)))
+}
+
 // Custom Zoom Controls component with user-friendly labels
 function ZoomControls({ mapRef, onUndo, canUndo, onClear, hasLocations }) {
   if (!mapRef) return null
@@ -745,6 +789,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
   const [mapRef, setMapRef] = useState(null)
   const [isStartCollapsed, setIsStartCollapsed] = useState(false)
   const [isStopsCollapsed, setIsStopsCollapsed] = useState(false)
+  const [showOutsideSriLankaModal, setShowOutsideSriLankaModal] = useState(false)
 
   // Live GPS detection
   const handleGetLiveLocation = useCallback(() => {
@@ -756,6 +801,14 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords
+
+        // Reject obviously out-of-country fixes before spending a network call.
+        if (!isWithinSriLanka(lat, lng)) {
+          setGpsLoading(false)
+          setShowOutsideSriLankaModal(true)
+          return
+        }
+
         try {
           const name = await getLocationName(lat, lng)
           const loc = { id: 'live-start', lat, lng, name, isStart: true }
@@ -767,7 +820,11 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
           })
           setMessage('')
         } catch (err) {
-          setMessage(err.message || 'Could not resolve live location.')
+          if (/sri lanka/i.test(err.message || '')) {
+            setShowOutsideSriLankaModal(true)
+          } else {
+            setMessage(err.message || 'Could not resolve live location.')
+          }
         } finally {
           setGpsLoading(false)
         }
@@ -788,11 +845,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     }
     setIsStartSearching(true)
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=lk`,
-        { headers: { 'User-Agent': 'SmartTour/1.0' } }
-      )
-      setStartSearchResults(await res.json())
+      setStartSearchResults(await searchSriLankaPlaces(query))
     } catch {
       // ignore
     } finally {
@@ -835,11 +888,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     }
     setIsSearching(true)
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=lk`, {
-        headers: { 'User-Agent': 'SmartTour/1.0' }
-      })
-      const data = await response.json()
-      setSearchResults(data)
+      setSearchResults(await searchSriLankaPlaces(query))
     } catch (error) {
       console.error('Search failed:', error)
     } finally {
@@ -1858,6 +1907,33 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
               className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black shadow-xl shadow-emerald-500/30 transition-all hover:scale-[1.02] active:scale-95"
             >
               Confirm Schedule
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showOutsideSriLankaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative text-center">
+            <button
+              onClick={() => setShowOutsideSriLankaModal(false)}
+              className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition"
+            >
+              <i className="bi bi-x-lg"></i>
+            </button>
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-orange-100 text-orange-600 flex items-center justify-center mb-6">
+              <i className="bi bi-geo-alt-fill text-2xl"></i>
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">You're Outside Sri Lanka</h3>
+            <p className="text-sm text-slate-500 mb-8 font-medium leading-relaxed">
+              Live location detection only works within Sri Lanka, since that's where our tours operate.
+              Please search for your starting point manually instead.
+            </p>
+            <button
+              onClick={() => setShowOutsideSriLankaModal(false)}
+              className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black shadow-xl transition-all hover:scale-[1.02] active:scale-95"
+            >
+              Got It
             </button>
           </div>
         </div>
