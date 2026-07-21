@@ -11,15 +11,35 @@ const PAGE_THEME = {
   dashboard: { bg: '#f8fafc', glow: 'rgba(51, 65, 85, 0.12)' },
 }
 
-const Home = lazy(() => import('./Home.jsx'))
-const HomePage = lazy(() => import('./pages/HomePage.jsx'))
-const AboutPage = lazy(() => import('./pages/AboutPage.jsx'))
-const LandingPage = lazy(() => import('./pages/LandingPage.jsx'))
-const LoginPage = lazy(() => import('./pages/LoginPage.jsx'))
-const AdminDashboardPage = lazy(() => import('./pages/AdminDashboardPage.jsx'))
-const DriverDashboardPage = lazy(() => import('./pages/DriverDashboardPage.jsx'))
-const FindingDriverPage = lazy(() => import('./pages/FindingDriverPage.jsx'))
-const UserDashboardPage = lazy(() => import('./pages/UserDashboardPage.jsx'))
+// Wraps lazy() so that if a page chunk 404s (e.g. the user had the app open
+// across a new deploy, so old chunk filenames no longer exist on the server),
+// we reload once to fetch the current build instead of leaving a blank screen.
+function lazyWithReload(factory) {
+  return lazy(async () => {
+    try {
+      return await factory()
+    } catch (err) {
+      const key = 'chunk-reload-attempted'
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, '1')
+        window.location.reload()
+        return new Promise(() => {}) // reloading; never resolve
+      }
+      sessionStorage.removeItem(key)
+      throw err
+    }
+  })
+}
+
+const Home = lazyWithReload(() => import('./Home.jsx'))
+const HomePage = lazyWithReload(() => import('./pages/HomePage.jsx'))
+const AboutPage = lazyWithReload(() => import('./pages/AboutPage.jsx'))
+const LandingPage = lazyWithReload(() => import('./pages/LandingPage.jsx'))
+const LoginPage = lazyWithReload(() => import('./pages/LoginPage.jsx'))
+const AdminDashboardPage = lazyWithReload(() => import('./pages/AdminDashboardPage.jsx'))
+const DriverDashboardPage = lazyWithReload(() => import('./pages/DriverDashboardPage.jsx'))
+const FindingDriverPage = lazyWithReload(() => import('./pages/FindingDriverPage.jsx'))
+const UserDashboardPage = lazyWithReload(() => import('./pages/UserDashboardPage.jsx'))
 
 const API_BASE_URL = getApiBaseUrl()
 
