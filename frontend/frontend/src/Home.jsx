@@ -563,6 +563,127 @@ const SEARCH_ACCENT = {
   },
 }
 
+const DATE_FIELD_ACCENTS = {
+  orange: { ring: 'focus:border-orange-500', bg: 'bg-orange-500', text: 'text-orange-600' },
+  emerald: { ring: 'focus:border-emerald-500', bg: 'bg-emerald-500', text: 'text-emerald-600' },
+}
+
+const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+
+function parseDateOnly(value) {
+  return value ? new Date(`${value}T00:00:00`) : null
+}
+
+function formatDateOnly(date) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+function isSameDay(a, b) {
+  return !!a && !!b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+/** Elegant popover calendar replacing the plain native date input. */
+function DateField({ label, value, onChange, minDate, maxDate, accent = 'orange' }) {
+  const [open, setOpen] = useState(false)
+  const selected = useMemo(() => parseDateOnly(value), [value])
+  const min = useMemo(() => parseDateOnly(minDate), [minDate])
+  const max = useMemo(() => parseDateOnly(maxDate), [maxDate])
+  const [viewDate, setViewDate] = useState(() => selected || min || new Date())
+  const containerRef = useRef(null)
+  const c = DATE_FIELD_ACCENTS[accent] || DATE_FIELD_ACCENTS.orange
+
+  useEffect(() => {
+    if (open) setViewDate(selected || min || new Date())
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!open) return
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [open])
+
+  const year = viewDate.getFullYear()
+  const month = viewDate.getMonth()
+  const startWeekday = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const cells = [...Array(startWeekday).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
+  const minAtMidnight = min ? new Date(min.getFullYear(), min.getMonth(), min.getDate()) : null
+  const maxAtMidnight = max ? new Date(max.getFullYear(), max.getMonth(), max.getDate()) : null
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full flex items-center justify-between gap-2 rounded-xl border-2 border-slate-100 bg-white px-3 py-2.5 font-bold text-sm text-slate-800 ${c.ring} outline-none transition`}
+      >
+        <span>{selected ? selected.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select date'}</span>
+        <i className="bi bi-calendar3 text-slate-400 text-xs"></i>
+      </button>
+
+      {open && (
+        <div className="absolute z-[2000] mt-2 w-72 bg-white rounded-[1.5rem] shadow-2xl shadow-slate-900/20 border border-slate-100 p-4 left-0 animate-fade-in">
+          <div className="flex items-center justify-between mb-3">
+            <button
+              type="button"
+              onClick={() => setViewDate(new Date(year, month - 1, 1))}
+              className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors"
+            >
+              <i className="bi bi-chevron-left text-xs"></i>
+            </button>
+            <p className="text-sm font-black text-slate-900">{viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
+            <button
+              type="button"
+              onClick={() => setViewDate(new Date(year, month + 1, 1))}
+              className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors"
+            >
+              <i className="bi bi-chevron-right text-xs"></i>
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {WEEKDAY_LABELS.map((d, i) => (
+              <div key={i} className="text-[9px] font-black text-slate-300 text-center py-1">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, i) => {
+              if (day === null) return <div key={`blank-${i}`} />
+              const cellDate = new Date(year, month, day)
+              const disabled = (minAtMidnight && cellDate < minAtMidnight) || (maxAtMidnight && cellDate > maxAtMidnight)
+              const active = isSameDay(cellDate, selected)
+              return (
+                <button
+                  type="button"
+                  key={day}
+                  disabled={disabled}
+                  onClick={() => {
+                    onChange(formatDateOnly(cellDate))
+                    setOpen(false)
+                  }}
+                  className={`h-8 rounded-lg text-xs font-bold transition-colors ${
+                    disabled
+                      ? 'text-slate-200 cursor-not-allowed'
+                      : active
+                        ? `${c.bg} text-white shadow-md`
+                        : 'text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  {day}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function LocationSearchInput({
   value,
   onChange,
@@ -1157,6 +1278,16 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     setEndDate(value < startDate ? startDate : value)
   }, [startDate])
 
+  // Computed straight from the picked dates so Duration updates the instant a
+  // date changes, rather than waiting on the backend estimate (which only
+  // runs once a vehicle is selected in step 2).
+  const tripDurationDays = useMemo(() => {
+    const start = parseDateOnly(startDate)
+    const end = parseDateOnly(endDate)
+    if (!start || !end || end < start) return null
+    return Math.round((end.getTime() - start.getTime()) / 86400000) + 1
+  }, [startDate, endDate])
+
   // Fetch pricing estimate from backend whenever route, vehicle, or travel dates change
   useEffect(() => {
     if (!selectedVehicle || locations.length < 2 || endDate < startDate) {
@@ -1535,32 +1666,26 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                 {locations.length >= 2 && (
                   <div className="glass rounded-[2rem] p-6 shadow-2xl shadow-slate-900/10 pointer-events-auto border-slate-900/10">
                     <div className="grid grid-cols-2 gap-4 mb-6">
-                      <div>
-                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
-                        <input
-                          type="date"
-                          value={startDate}
-                          min={todayDateString()}
-                          onChange={(e) => handleStartDateChange(e.target.value)}
-                          className="w-full rounded-xl border-2 border-slate-100 bg-white px-3 py-2 font-bold text-sm text-slate-800 focus:border-orange-500 outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">End Date</label>
-                        <input
-                          type="date"
-                          value={endDate}
-                          min={startDate}
-                          onChange={(e) => handleEndDateChange(e.target.value)}
-                          className="w-full rounded-xl border-2 border-slate-100 bg-white px-3 py-2 font-bold text-sm text-slate-800 focus:border-orange-500 outline-none"
-                        />
-                      </div>
+                      <DateField
+                        label="Start Date"
+                        value={startDate}
+                        minDate={todayDateString()}
+                        onChange={handleStartDateChange}
+                        accent="orange"
+                      />
+                      <DateField
+                        label="End Date"
+                        value={endDate}
+                        minDate={startDate}
+                        onChange={handleEndDateChange}
+                        accent="orange"
+                      />
                     </div>
                     <div className="flex justify-between items-center mb-6">
                       <div className="text-center flex-1 border-r border-slate-100">
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Duration</p>
                         <div className="flex items-baseline justify-center gap-1">
-                          <span className="text-2xl font-black text-slate-900">{estimatedPrice?.total_days ?? '—'}</span>
+                          <span className="text-2xl font-black text-slate-900">{estimatedPrice?.total_days ?? tripDurationDays ?? '—'}</span>
                           <span className="text-[10px] font-bold text-slate-400">DAYS</span>
                         </div>
                       </div>
@@ -1641,28 +1766,22 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                   <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 mb-8">Price Breakdown</h3>
 
                   <div className="grid grid-cols-2 gap-4 mb-6">
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
-                      <input
-                        type="date"
-                        value={startDate}
-                        min={todayDateString()}
-                        onChange={(e) => handleStartDateChange(e.target.value)}
-                        className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 px-3 py-2.5 font-bold text-sm text-slate-800 focus:border-orange-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">End Date</label>
-                      <input
-                        type="date"
-                        value={endDate}
-                        min={startDate}
-                        onChange={(e) => handleEndDateChange(e.target.value)}
-                        className="w-full rounded-xl border-2 border-slate-100 bg-slate-50 px-3 py-2.5 font-bold text-sm text-slate-800 focus:border-orange-500 outline-none"
-                      />
-                    </div>
+                    <DateField
+                      label="Start Date"
+                      value={startDate}
+                      minDate={todayDateString()}
+                      onChange={handleStartDateChange}
+                      accent="orange"
+                    />
+                    <DateField
+                      label="End Date"
+                      value={endDate}
+                      minDate={startDate}
+                      onChange={handleEndDateChange}
+                      accent="orange"
+                    />
                   </div>
-                  
+
                   <div className="space-y-6 mb-10">
                     <div className="flex justify-between items-end">
                       <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Estimated Price</span>
@@ -1682,7 +1801,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                     </div>
                     <div className="bg-slate-50 rounded-2xl p-4">
                       <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Duration</p>
-                      <p className="text-sm font-black text-slate-900">{estimatedPrice?.total_days ?? '—'} Days</p>
+                      <p className="text-sm font-black text-slate-900">{estimatedPrice?.total_days ?? tripDurationDays ?? '—'} Days</p>
                     </div>
                   </div>
 
@@ -1783,7 +1902,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                     </div>
                     <div className="bg-white/10 rounded-xl p-4 border border-white/20 text-center hover:bg-white/15 transition-all">
                       <p className="text-[11px] font-black uppercase tracking-widest text-white/50 mb-2">Duration</p>
-                      <p className="text-2xl font-black">{estimatedPrice?.total_days ?? '—'}<span className="text-sm text-white/60 ml-1">days</span></p>
+                      <p className="text-2xl font-black">{estimatedPrice?.total_days ?? tripDurationDays ?? '—'}<span className="text-sm text-white/60 ml-1">days</span></p>
                     </div>
                   </div>
 
@@ -1887,27 +2006,21 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
             <p className="text-sm text-slate-500 mb-6 font-medium">Select a future date and time for your journey.</p>
             
             <div className="space-y-4 mb-8">
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Date</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  min={todayDateString()}
-                  max={new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-                  onChange={(e) => handleStartDateChange(e.target.value)}
-                  className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">End Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  min={startDate}
-                  onChange={(e) => handleEndDateChange(e.target.value)}
-                  className="w-full rounded-2xl border-2 border-slate-100 bg-slate-50 px-4 py-3 font-bold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition text-sm text-slate-800"
-                />
-              </div>
+              <DateField
+                label="Start Date"
+                value={startDate}
+                minDate={todayDateString()}
+                maxDate={new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+                onChange={handleStartDateChange}
+                accent="emerald"
+              />
+              <DateField
+                label="End Date"
+                value={endDate}
+                minDate={startDate}
+                onChange={handleEndDateChange}
+                accent="emerald"
+              />
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Start Time</label>
                 <input
