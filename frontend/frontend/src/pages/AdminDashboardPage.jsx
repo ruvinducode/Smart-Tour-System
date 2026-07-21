@@ -89,6 +89,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
   const [notifications, setNotifications]   = useState([])
   const [feedbacks, setFeedbacks]           = useState([])
   const [feedbackAnalytics, setFeedbackAnalytics] = useState({})
+  const [averageDriverRating, setAverageDriverRating] = useState(0.0)
   const [loading, setLoading]               = useState(true)
   const [error, setError]                   = useState('')
   const [info, setInfo]                     = useState('')
@@ -135,11 +136,11 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         getAllUsers(token),
         getTourPlans(token),
         getAdminNotifications(token),
-        getAdminFeedbacks(token),
-        getAdminFeedbacksAnalytics(token),
+        getAdminFeedbacks(token).catch(() => ({ feedbacks: [], average_rating: 0.0 })),
+        getAdminFeedbacksAnalytics(token).catch(() => ({})),
       ])
 
-      const [pending, approved, allD, allU, tours, notes, fb, fbStats] = results.map(r => r.status === 'fulfilled' ? r.value : [])
+      const [pending, approved, allD, allU, tours, notes, fbsData, fbStats] = results.map(r => r.status === 'fulfilled' ? r.value : [])
       
       // Check if any request failed with 401
       const isUnauthorized = results.some(r => r.status === 'rejected' && r.reason?.message?.includes('401'))
@@ -155,7 +156,8 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
       setUsers(Array.isArray(allU) ? allU : [])
       setTourPlans(Array.isArray(tours) ? tours : [])
       setNotifications(Array.isArray(notes) ? notes : [])
-      setFeedbacks(Array.isArray(fb) ? fb : [])
+      setFeedbacks(Array.isArray(fbsData?.feedbacks) ? fbsData.feedbacks : [])
+      setAverageDriverRating(fbsData?.average_rating || 0.0)
       setFeedbackAnalytics(fbStats || {})
 
       if (results.every(r => r.status === 'rejected')) {
@@ -565,11 +567,12 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
               </div>
 
               {/* Stat cards */}
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
                 <DashboardStatCard label="Total Users" value={analytics.totalUsers} icon="bi-people-fill" accent="blue" sub="Registered travelers" />
                 <DashboardStatCard label="Active Drivers" value={analytics.activeDrivers} icon="bi-truck-front-fill" accent="emerald" sub={`${analytics.totalDrivers} total drivers`} />
                 <DashboardStatCard label="Pending Drivers" value={analytics.pendingDrivers} icon="bi-hourglass-split" accent="orange" sub="Awaiting approval" />
                 <DashboardStatCard label="Tour Requests" value={analytics.totalTours} icon="bi-map-fill" accent="violet" sub={`${analytics.confirmed} confirmed`} />
+                <DashboardStatCard label="Avg Rating" value={`${averageDriverRating}/5`} icon="bi-star-fill" accent="amber" sub={`${feedbacks.length} feedbacks`} />
               </div>
 
               {/* Analytics Charts */}

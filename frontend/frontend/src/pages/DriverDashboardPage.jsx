@@ -128,7 +128,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
       const [tourData, notifData, feedbackData] = await Promise.all([
         getDriverTourRequests(token),
         getDriverNotifications(token),
-        getDriverFeedbacks(token)
+        getDriverFeedbacks(token).catch(() => null)
       ])
       setTourRequests(Array.isArray(tourData) ? tourData : [])
       setNotifications(Array.isArray(notifData) ? notifData : [])

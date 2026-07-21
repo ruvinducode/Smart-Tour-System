@@ -935,6 +935,7 @@ def get_my_driver_payments():
     )
     return jsonify([enrich_driver_payment(p) for p in payments]), 200
 
+
 # =========================
 # DRIVER: GET MY FEEDBACKS
 # =========================
@@ -956,14 +957,14 @@ def get_my_driver_feedbacks():
 
     from app.models import Feedback, User
     feedbacks = Feedback.query.filter_by(driver_id=driver_id).order_by(Feedback.created_at.desc()).all()
-    
+
     breakdown = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
     results = []
-    
+
     for f in feedbacks:
         if f.rating in breakdown:
             breakdown[f.rating] += 1
-        
+
         user = User.query.get(f.user_id) if f.user_id else None
         results.append({
             "id": f.id,
@@ -971,9 +972,9 @@ def get_my_driver_feedbacks():
             "user_name": user.full_name if user else "Guest",
             "rating": f.rating,
             "comment": f.comment,
-            "created_at": f.created_at.isoformat()
+            "created_at": f.created_at.isoformat() if f.created_at else None
         })
-        
+
     return jsonify({
         "summary": {
             "total_feedbacks": driver.total_ratings,

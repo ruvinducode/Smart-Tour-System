@@ -890,7 +890,13 @@ def get_all_feedbacks():
                 "comment": f.comment,
                 "created_at": f.created_at.isoformat()
             })
-        return jsonify(results), 200
+        
+        avg_rating = round(sum(f.rating for f in feedbacks) / len(feedbacks), 1) if feedbacks else 0.0
+        
+        return jsonify({
+            "feedbacks": results,
+            "average_rating": avg_rating
+        }), 200
     except Exception as e:
         return jsonify({"message": str(e)}), 500
 
