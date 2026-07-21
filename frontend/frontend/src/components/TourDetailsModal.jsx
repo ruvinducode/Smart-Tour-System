@@ -294,7 +294,7 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
                     <Marker key={loc.id || idx} position={[loc.latitude, loc.longitude]} 
                       icon={new L.divIcon({
                         className: 'custom-stop-icon',
-                        html: `<div style="background-color: ${idx === 0 ? '#10b981' : '#1a2e6f'}; width: 28px; height: 28px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; font-size: 12px; color: white; font-weight: 900;">${idx === 0 ? '<i class="bi bi-house-fill"></i>' : idx}</div>`,
+                        html: `<div style="background-color: ${idx === 0 ? '#10b981' : '#1a2e6f'}; width: 28px; height: 28px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; font-size: 12px; color: white; font-weight: 900;">${idx === 0 ? '<i class="bi bi-person-fill"></i>' : idx}</div>`,
                         iconSize: [28, 28],
                         iconAnchor: [14, 14]
                       })}
