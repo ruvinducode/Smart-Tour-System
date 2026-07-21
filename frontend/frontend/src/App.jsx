@@ -71,6 +71,10 @@ export default function App() {
     const theme = PAGE_THEME[currentThemeKey] || PAGE_THEME.home
     document.documentElement.style.setProperty('--app-bg', theme.bg)
     document.documentElement.style.setProperty('--app-bg-glow', theme.glow)
+    // This app swaps pages by re-rendering rather than real navigation, so the
+    // browser keeps whatever scroll position the previous page was at (e.g.
+    // landing on the Home page still scrolled down from the login screen).
+    window.scrollTo(0, 0)
   }, [currentThemeKey])
 
   const setPublicView = useCallback((view, push = true) => {
