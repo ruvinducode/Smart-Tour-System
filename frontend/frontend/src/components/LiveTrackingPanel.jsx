@@ -18,15 +18,26 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
   const [status, setStatus] = useState('Locating driver...')
   const intervalRef = useRef(null)
 
-  // ── Dragging State ──
+  // ── Dragging State ── (desktop only — see isMobile below)
   const [position, setPosition] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const dragStart = useRef({ x: 0, y: 0 })
 
-  // ── Resizing State ──
+  // ── Resizing State ── (desktop only)
   const [size, setSize] = useState({ width: 420, height: 'auto' }) // Increased default width to 420px
   const [isResizing, setIsResizing] = useState(false)
   const resizeStart = useRef({ w: size.width, x: 0 })
+
+  // Below this width the fixed-pixel drag/resize widget doesn't fit the
+  // screen at all — dock it full-width instead and skip mouse-only
+  // drag/resize (there's no touch equivalent wired up anyway).
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640)
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 639px)')
+    const handler = (e) => setIsMobile(e.matches)
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [])
 
   const imgUrl = (path) => path ? `/api/uploads/drivers/${path}` : null
 
@@ -119,8 +130,9 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
     return () => clearInterval(intervalRef.current)
   }, [tourId, token, userLat, userLng])
 
-  // ── Drag Handlers ──
+  // ── Drag Handlers ── (no-op on mobile: no room to drag, and no touch support wired up)
   const handleMouseDown = (e) => {
+    if (isMobile) return
     if (e.target.closest('button') || e.target.closest('a') || e.target.closest('.resize-handle')) return
     setIsDragging(true)
     dragStart.current = { x: e.clientX - position.x, y: e.clientY - position.y }
@@ -128,6 +140,7 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
 
   // ── Resize Handlers ──
   const handleResizeDown = (e) => {
+    if (isMobile) return
     e.stopPropagation()
     setIsResizing(true)
     resizeStart.current = { w: size.width, x: e.clientX }
@@ -162,22 +175,22 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
   }, [isDragging, isResizing])
 
   const containerStyles = {
-    transform: `translate(${position.x}px, ${position.y}px)`,
-    width: minimized ? 'auto' : `${size.width}px`,
+    transform: isMobile ? 'none' : `translate(${position.x}px, ${position.y}px)`,
+    width: isMobile ? 'auto' : (minimized ? 'auto' : `${size.width}px`),
     transition: (isDragging || isResizing) ? 'none' : 'transform 0.1s ease-out, width 0.3s ease',
     cursor: isDragging ? 'grabbing' : 'auto'
   }
 
   if (minimized) {
     return (
-      <div 
+      <div
         style={containerStyles}
         onMouseDown={handleMouseDown}
-        className="fixed bottom-6 right-6 z-[1100] animate-in fade-in slide-in-from-bottom-4 duration-300 font-['Inter',sans-serif]"
+        className="fixed bottom-4 right-4 left-4 sm:left-auto sm:bottom-6 sm:right-6 z-[1100] animate-in fade-in slide-in-from-bottom-4 duration-300 font-['Inter',sans-serif]"
       >
         <button
           onClick={() => setMinimized(false)}
-          className="flex items-center gap-4 bg-slate-900 text-white p-2 pr-6 rounded-2xl shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)] hover:bg-slate-800 transition-all border border-slate-700 active:scale-95 group cursor-move"
+          className="flex w-full sm:w-auto items-center gap-4 bg-slate-900 text-white p-2 pr-6 rounded-2xl shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)] hover:bg-slate-800 transition-all border border-slate-700 active:scale-95 group cursor-move"
         >
           <div className="relative">
             <div className="h-12 w-12 rounded-xl bg-orange-500 flex items-center justify-center text-xl shadow-lg shadow-orange-500/20 group-hover:rotate-12 transition-transform">
@@ -195,23 +208,25 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
   }
 
   return (
-    <div 
+    <div
       style={containerStyles}
       onMouseDown={handleMouseDown}
-      className="fixed bottom-6 right-6 z-[1100] animate-in fade-in slide-in-from-bottom-6 duration-500 font-['Inter',sans-serif]"
+      className="fixed bottom-4 right-4 left-4 sm:left-auto sm:bottom-6 sm:right-6 z-[1100] animate-in fade-in slide-in-from-bottom-6 duration-500 font-['Inter',sans-serif] max-h-[85vh] overflow-y-auto"
     >
-      <div className="bg-white rounded-[2.5rem] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.2)] border border-slate-100 overflow-hidden relative">
-        
-        {/* Resize Handle (Bottom-right) */}
-        <div 
-          onMouseDown={handleResizeDown}
-          className="resize-handle absolute bottom-3 right-3 w-6 h-6 flex items-end justify-end cursor-nwse-resize z-50 text-slate-300 hover:text-orange-500 transition-colors"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="22" y1="6" x2="6" y2="22"></line><line x1="22" y1="14" x2="14" y2="22"></line></svg>
-        </div>
+      <div className="bg-white rounded-[1.75rem] sm:rounded-[2.5rem] shadow-[0_40px_80px_-20px_rgba(0,0,0,0.2)] border border-slate-100 overflow-hidden relative w-full">
+
+        {/* Resize Handle (Bottom-right) — desktop only, no touch equivalent */}
+        {!isMobile && (
+          <div
+            onMouseDown={handleResizeDown}
+            className="resize-handle absolute bottom-3 right-3 w-6 h-6 flex items-end justify-end cursor-nwse-resize z-50 text-slate-300 hover:text-orange-500 transition-colors"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="22" y1="6" x2="6" y2="22"></line><line x1="22" y1="14" x2="14" y2="22"></line></svg>
+          </div>
+        )}
 
         {/* Header */}
-        <div className="bg-slate-900 px-7 py-5 flex items-center justify-between cursor-move">
+        <div className="bg-slate-900 px-5 sm:px-7 py-4 sm:py-5 flex items-center justify-between cursor-move">
           <div className="flex items-center gap-3">
             <div className="relative">
               <div className="h-10 w-10 rounded-xl bg-orange-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
@@ -241,19 +256,19 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
         </div>
 
         {/* Status Line */}
-        <div className={`px-7 py-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] ${driverLoc ? 'bg-emerald-50 text-emerald-600' : 'bg-orange-50 text-orange-600'}`}>
+        <div className={`px-5 sm:px-7 py-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.15em] ${driverLoc ? 'bg-emerald-50 text-emerald-600' : 'bg-orange-50 text-orange-600'}`}>
           <i className={`bi ${driverLoc ? 'bi-broadcast' : 'bi-hourglass-split'} ${driverLoc ? 'animate-pulse' : ''}`}></i>
           {status}
         </div>
 
         {/* Content Area */}
-        <div className="px-8 py-8 space-y-7">
-          
+        <div className="px-5 sm:px-8 py-5 sm:py-8 space-y-5 sm:space-y-7">
+
           {/* Driver & Vehicle Circles Row */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4 min-w-0">
+          <div className="flex items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-3 sm:gap-4 min-w-0">
               <div className="relative flex-shrink-0">
-                <div className="h-14 w-14 rounded-full bg-slate-50 border-2 border-white shadow-md overflow-hidden">
+                <div className="h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-slate-50 border-2 border-white shadow-md overflow-hidden">
                   {driverImg ? (
                     <img src={imgUrl(driverImg)} alt="Driver" className="h-full w-full object-cover" />
                   ) : (
@@ -274,7 +289,7 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
 
             {/* Vehicle Circle */}
             <div className="relative flex-shrink-0">
-              <div className="h-14 w-14 rounded-full bg-slate-50 border-2 border-white shadow-md overflow-hidden">
+              <div className="h-12 w-12 sm:h-14 sm:w-14 rounded-full bg-slate-50 border-2 border-white shadow-md overflow-hidden">
                 {vehicleImg ? (
                   <img 
                     src={imgUrl(vehicleImg)} 
@@ -295,25 +310,25 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
           </div>
 
           {/* Vehicle Plate Badge (Single Row Force) */}
-          <div className="bg-slate-900 rounded-2xl py-4 px-6 flex items-center justify-between border border-slate-800 shadow-inner overflow-hidden">
-             <div className="flex items-center gap-3 flex-shrink-0">
-                <div className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center text-orange-400">
-                  <i className="bi bi-card-text"></i>
+          <div className="bg-slate-900 rounded-2xl py-3 sm:py-4 px-4 sm:px-6 flex items-center justify-between border border-slate-800 shadow-inner overflow-hidden">
+             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+                <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-lg bg-white/10 flex items-center justify-center text-orange-400">
+                  <i className="bi bi-card-text text-sm sm:text-base"></i>
                 </div>
-                <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">License Plate</p>
+                <p className="text-[8px] sm:text-[9px] font-semibold text-slate-400 uppercase tracking-widest">License Plate</p>
              </div>
-             <p className="text-xl font-black text-white tracking-widest font-mono whitespace-nowrap ml-4">
+             <p className="text-base sm:text-xl font-black text-white tracking-widest font-mono whitespace-nowrap ml-3 sm:ml-4">
                {vehicleNumber || 'WP XXX-XXXX'}
              </p>
           </div>
 
           {/* Info Cards */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-orange-50/50 rounded-2xl p-4 border border-orange-100/50 text-center">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="bg-orange-50/50 rounded-2xl p-3 sm:p-4 border border-orange-100/50 text-center">
               <p className="text-[9px] font-semibold text-orange-400 uppercase tracking-widest mb-1">Time Away</p>
               <p className="text-lg font-bold text-orange-700 leading-none">{eta || '--'}</p>
             </div>
-            <div className="bg-slate-50/50 rounded-2xl p-4 border border-slate-100/50 text-center">
+            <div className="bg-slate-50/50 rounded-2xl p-3 sm:p-4 border border-slate-100/50 text-center">
               <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest mb-1">Distance</p>
               <p className="text-lg font-bold text-slate-800 leading-none">{distanceKm ? `${distanceKm}km` : '--'}</p>
             </div>
