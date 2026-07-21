@@ -1205,26 +1205,13 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
       const resolvedVehicleType = VEHICLE_ALIASES[selectedVehicle] ?? selectedVehicle
       const vehicleId = estimatedPrice?.vehicle?.id
 
-      // Compute dates based on booking type (pass overrides — state updates are async)
-      const type = bookingOverride.bookingType ?? bookingType
-      const scheduledDate = bookingOverride.startDate ?? startDate
-      const scheduledEndDate = bookingOverride.endDate ?? endDate
-      const scheduledTime = bookingOverride.startTime ?? startTime
-
-      let startDateStr
-      let timeStr
-      let endDateStr
-
-      if (type === 'now') {
-        const now = new Date()
-        startDateStr = formatLocalDate(now)
-        timeStr = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`
-        endDateStr = endDate
-      } else {
-        startDateStr = scheduledDate
-        timeStr = scheduledTime
-        endDateStr = scheduledEndDate
-      }
+      // Start Date, End Date, and Pickup Time are chosen up front in step 1's
+      // Trip Summary — use them as-is instead of overwriting with "now", so a
+      // future date the user picked (e.g. for a scheduled tour) actually
+      // reaches the backend and shows correctly in the driver's tour details.
+      const startDateStr = bookingOverride.startDate ?? startDate
+      const timeStr = bookingOverride.startTime ?? startTime
+      const endDateStr = bookingOverride.endDate ?? endDate
 
       if (endDateStr < startDateStr) {
         setMessage('End date cannot be earlier than start date.')
