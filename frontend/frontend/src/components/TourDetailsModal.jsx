@@ -38,10 +38,13 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [driverLocation, setDriverLocation] = useState(null)
+  const [locationError, setLocationError] = useState('')
   const [replyMessage, setReplyMessage] = useState('')
   const [showReplyInput, setShowReplyInput] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [routeCoords, setRouteCoords] = useState([])
+  const [pickupDistanceKm, setPickupDistanceKm] = useState(null)
+  const [pickupDistanceLive, setPickupDistanceLive] = useState(false)
 
   const handleAccept = async () => {
     setActionLoading(true)
@@ -88,6 +91,7 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
     // SECURITY/UX FIX: Only attempt to get GPS if the viewer is the DRIVER.
     // Users should not be prompted for GPS inside this details modal.
     if (isOpen && userRole === 'driver' && navigator.geolocation) {
+      setLocationError('')
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setDriverLocation({
@@ -97,16 +101,53 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
         },
         (error) => {
           console.warn("Could not get driver geolocation:", error)
-          // Fallback to a mock location nearby Colombo for demonstration if denied/fails
-          setDriverLocation({ lat: 6.9271, lng: 79.8612 }) 
+          // No fake fallback location — a substituted position would silently
+          // produce a wrong "distance to pickup" with no indication it's fake.
+          setDriverLocation(null)
+          setLocationError('Enable location access to see distance to pickup.')
         },
         { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
       )
     } else {
       // Clear location state if user is not driver so it doesn't show the user's location as the driver's!
       setDriverLocation(null)
+      setLocationError('')
     }
   }, [isOpen, userRole])
+
+  // Real road-routed distance from the driver's current location to the pickup
+  // point, via OSRM — replaces the old straight-line haversine estimate, which
+  // under-reports actual driving distance (especially around Sri Lanka's
+  // winding roads/coastline) and was showing as "inaccurate".
+  useEffect(() => {
+    const pickup = locations.filter((loc) => loc.latitude && loc.longitude)[0]
+    if (!driverLocation || !pickup) {
+      setPickupDistanceKm(null)
+      setPickupDistanceLive(false)
+      return undefined
+    }
+
+    let cancelled = false
+    const url = `https://router.project-osrm.org/route/v1/driving/${driverLocation.lng},${driverLocation.lat};${pickup.longitude},${pickup.latitude}?overview=false`
+    fetch(url)
+      .then((res) => { if (!res.ok) throw new Error(`OSRM error: ${res.status}`); return res.json() })
+      .then((data) => {
+        if (cancelled) return
+        const route = data?.routes?.[0]
+        if (!route) throw new Error('No route found')
+        setPickupDistanceKm((route.distance / 1000).toFixed(1))
+        setPickupDistanceLive(true)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.warn('Pickup routing failed, falling back to straight-line estimate:', err)
+        const straightLineKm = calculateDistance(driverLocation.lat, driverLocation.lng, pickup.latitude, pickup.longitude)
+        setPickupDistanceKm((straightLineKm * 1.25).toFixed(1))
+        setPickupDistanceLive(false)
+      })
+
+    return () => { cancelled = true }
+  }, [driverLocation, locations])
 
   useEffect(() => {
     if (!isOpen || !tourId || !token) return
@@ -146,17 +187,6 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
 
   const validLocations = locations.filter(loc => loc.latitude && loc.longitude);
   const polylinePositions = validLocations.map(loc => [loc.latitude, loc.longitude]);
-  
-  let distanceToPickup = null;
-  if (driverLocation && validLocations.length > 0) {
-    const pickup = validLocations[0];
-    distanceToPickup = calculateDistance(
-      driverLocation.lat,
-      driverLocation.lng,
-      pickup.latitude,
-      pickup.longitude
-    ).toFixed(2);
-  }
 
   // Adjust map center: focus on driver location or pickup location
   let mapCenter = [7.8731, 80.7718]; // Default
@@ -251,7 +281,7 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
             <div className="w-full lg:w-[400px] bg-white overflow-y-auto p-8 space-y-8">
               
               {/* Distance to Pickup (Driver Only) */}
-              {userRole === 'driver' && distanceToPickup && (
+              {userRole === 'driver' && pickupDistanceKm && (
                 <div className="bg-orange-50 rounded-2xl p-6 border-2 border-orange-100 flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div className="h-12 w-12 rounded-xl bg-orange-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
@@ -259,12 +289,25 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
                     </div>
                     <div>
                       <p className="text-xs font-bold text-orange-600 uppercase tracking-widest">To Pickup</p>
-                      <p className="text-xl font-black text-slate-900">{distanceToPickup} km</p>
+                      <p className="text-xl font-black text-slate-900">{pickupDistanceKm} km</p>
                     </div>
                   </div>
                   <div className="text-right">
                     <span className="text-xs font-bold text-slate-400 uppercase">Approaching</span>
+                    <p className={`text-[10px] font-bold mt-1 flex items-center justify-end gap-1 ${pickupDistanceLive ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      <i className={`bi ${pickupDistanceLive ? 'bi-signpost-split-fill' : 'bi-rulers'}`}></i>
+                      {pickupDistanceLive ? 'Real road route' : 'Estimated'}
+                    </p>
                   </div>
+                </div>
+              )}
+
+              {userRole === 'driver' && !pickupDistanceKm && locationError && (
+                <div className="bg-amber-50 rounded-2xl p-6 border-2 border-amber-100 flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-xl bg-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-500/20">
+                    <i className="bi bi-geo-alt-fill text-xl"></i>
+                  </div>
+                  <p className="text-sm font-bold text-amber-700">{locationError}</p>
                 </div>
               )}
 
