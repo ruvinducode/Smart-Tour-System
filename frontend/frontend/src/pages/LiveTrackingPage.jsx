@@ -71,6 +71,7 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
   const prevLocRef = useRef(null) // { lat, lng, time }
   const speedKmhRef = useRef(30) // sensible default until we have real samples
   const speedSamplesRef = useRef(0)
+  const lastRouteFetchRef = useRef(0)
 
   // 1. Fetch Tour Details (includes driver & stops)
   useEffect(() => {
@@ -78,6 +79,7 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
     getTourDetails(tourId, token).then(setTourDetails).catch(console.error)
     // Reset speed tracking for the new tour
     prevLocRef.current = null
+    lastRouteFetchRef.current = 0
     speedKmhRef.current = 30
     speedSamplesRef.current = 0
   }, [tourId, token])
@@ -137,10 +139,12 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
                 setEta('On Trip')
               }
 
-              if (details.status !== 'ongoing') {
+              if (details.status !== 'ongoing' && Date.now() - lastRouteFetchRef.current >= 10000) {
                 // Real road-routed distance via our backend (OpenRouteService) —
                 // a straight-line haversine estimate understated real driving
-                // distance on winding roads.
+                // distance on winding roads. Throttled to once every 10s so the
+                // 4s location poll doesn't hit the routing API on every tick.
+                lastRouteFetchRef.current = Date.now()
                 getRoute([[locData.longitude, locData.latitude], [userLng, userLat]])
                   .then(routeResult => {
                     if (!routeResult.geometry?.length) throw new Error('No route found')

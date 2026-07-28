@@ -46,11 +46,13 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
   const prevLocRef = useRef(null) // { lat, lng, time }
   const speedKmhRef = useRef(30)
   const speedSamplesRef = useRef(0)
+  const lastRouteFetchRef = useRef(0)
 
   useEffect(() => {
     prevLocRef.current = null
     speedKmhRef.current = 30
     speedSamplesRef.current = 0
+    lastRouteFetchRef.current = 0
   }, [tourId])
 
   useEffect(() => {
@@ -95,9 +97,11 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
             if (tourData.status === 'arrived') setEta('At Pickup')
             else if (tourData.status === 'ongoing') setEta('On Trip')
 
-            if (tourData.status !== 'ongoing') {
+            if (tourData.status !== 'ongoing' && Date.now() - lastRouteFetchRef.current >= 10000) {
               // Real road-routed distance via our backend (OpenRouteService),
-              // not a straight-line estimate.
+              // not a straight-line estimate. Throttled to once every 10s so
+              // the 5s poll doesn't hit the routing API on every tick.
+              lastRouteFetchRef.current = Date.now()
               getRoute([[locData.longitude, locData.latitude], [userLng, userLat]])
                 .then((route) => {
                   const routeKm = route.distance_km

@@ -186,6 +186,7 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
   const [resetViewTrigger, setResetViewTrigger] = useState(0);
   const [scheduleTick, setScheduleTick] = useState(0);
   const latestLocRef = useRef(null);
+  const lastRouteFetchRef = useRef(0);
 
   // Memoize driver icon – updates only when headingAngle changes
   const driverIcon = useMemo(() => {
@@ -307,6 +308,12 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
       setApproachRoute([])
       return
     }
+    // Recompute the approach route at most once every 6s — currentLoc changes
+    // on nearly every GPS fix (throttled to 500ms), which would otherwise
+    // hit the routing API far more often than the route line needs to update.
+    const now = Date.now()
+    if (now - lastRouteFetchRef.current < 6000) return
+    lastRouteFetchRef.current = now
     const target = locations[0]
     getRoute([[currentLoc[1], currentLoc[0]], [target.longitude, target.latitude]])
       .then(route => {
@@ -316,7 +323,14 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
             setDistanceToPickup(route.distance_km);
           }
         }
-      }).catch(() => {})
+      }).catch(() => {
+        // Routing service unavailable (e.g. rate-limited) — show a straight
+        // line so the driver always sees some path rather than a blank map.
+        setApproachRoute([currentLoc, [target.latitude, target.longitude]])
+        if (rideStatus === 'Heading to Pickup') {
+          setDistanceToPickup(haversineKm(currentLoc[0], currentLoc[1], target.latitude, target.longitude))
+        }
+      })
   }, [currentLoc, locations, rideStatus])
 
   useEffect(() => {
@@ -324,7 +338,11 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
     getRoute(locations.map(l => [l.longitude, l.latitude]))
       .then(route => {
         if (route.geometry?.length) setTourRoute(route.geometry)
-      }).catch(() => {})
+      }).catch(() => {
+        // Routing service unavailable — fall back to straight lines between
+        // stops so the tour path is never left blank.
+        setTourRoute(locations.map(l => [l.latitude, l.longitude]))
+      })
   }, [locations])
 
   const memoizedTourRoute = useMemo(() => tourRoute, [tourRoute]);
