@@ -6,7 +6,7 @@ import uuid
 import math
 
 # JWT IMPORTS
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 
 booking_bp = Blueprint("booking_bp", __name__)
 
@@ -239,6 +239,12 @@ def driver_accept_booking(booking_id):
     if not booking:
         return jsonify({"message": "Booking not found"}), 404
 
+    # This had no authorization check at all — any authenticated account,
+    # regardless of role or assignment, could confirm someone else's booking.
+    raw_id = get_jwt_identity()
+    if get_jwt().get("role") != "driver" or str(booking.driver_id) != str(raw_id):
+        return jsonify({"message": "Unauthorized"}), 403
+
     if booking.status != "pending":
         return jsonify({"message": "Booking already processed"}), 400
 
@@ -262,6 +268,12 @@ def driver_reject_booking(booking_id):
 
     if not booking:
         return jsonify({"message": "Booking not found"}), 404
+
+    # Same missing check as accept above — any account could cancel any
+    # driver's booking without being the assigned driver.
+    raw_id = get_jwt_identity()
+    if get_jwt().get("role") != "driver" or str(booking.driver_id) != str(raw_id):
+        return jsonify({"message": "Unauthorized"}), 403
 
     if booking.status != "pending":
         return jsonify({"message": "Booking already processed"}), 400

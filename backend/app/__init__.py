@@ -2,6 +2,9 @@ from flask import Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.config import Config
 
@@ -11,9 +14,18 @@ db = SQLAlchemy()
 # Initialize JWT
 jwt = JWTManager()
 
+# Rate limiter — real per-client limits depend on ProxyFix below so the app
+# sees each visitor's real IP instead of nginx's own address for every request.
+limiter = Limiter(key_func=get_remote_address, default_limits=["200 per minute"])
+
 
 def create_app():
     app = Flask(__name__)
+
+    # nginx proxies every request, so without this Flask would see every
+    # visitor as 127.0.0.1 — rate limiting would then lump all real users
+    # into one shared bucket instead of limiting abusive callers individually.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     # Load configuration
     app.config.from_object(Config)
@@ -26,6 +38,9 @@ def create_app():
 
     # Initialize JWT
     jwt.init_app(app)
+
+    # Initialize rate limiter
+    limiter.init_app(app)
 
     # =========================
     # JWT ERROR HANDLERS
@@ -41,6 +56,13 @@ def create_app():
     @jwt.expired_token_loader
     def expired_token_callback(jwt_header, jwt_payload):
         return jsonify({"message": "Token has expired"}), 401
+
+    # Every other error response in this API is JSON — the default rate-limit
+    # page is plain HTML, which would fail res.json() parsing on the frontend
+    # and show a confusing generic error instead of "too many attempts".
+    @app.errorhandler(429)
+    def ratelimit_handler(error):
+        return jsonify({"message": "Too many attempts. Please try again shortly."}), 429
 
     # =========================
     # REGISTER ROUTES
@@ -65,43 +87,6 @@ def create_app():
     @app.route("/")
     def home():
         return "Smart Tour Backend Running 🚀"
-    
-    @app.route("/vehicles-test")
-    def vehicles_test():
-        from app.models import Vehicle
-        vehicles = Vehicle.query.all()
-        return jsonify([
-            {"id": v.id, "type": v.type}
-            for v in vehicles
-        ])
-    
-    @app.route("/seed-all-vehicles", methods=["POST"])
-    def seed_all_vehicles():
-        from app.models import Vehicle
-        
-        # Vehicle pricing — sourced from finance_service (single source of truth)
-        from app.services.finance_service import VEHICLE_PRICING_SEEDS
-        vehicle_data = VEHICLE_PRICING_SEEDS
-        
-        added = 0
-        for type_name, base_fare, price_per_km, price_per_day, max_passengers in vehicle_data:
-            if not Vehicle.query.filter_by(type=type_name).first():
-                db.session.add(
-                    Vehicle(
-                        type=type_name,
-                        base_fare=base_fare,
-                        price_per_km=price_per_km,
-                        price_per_day=price_per_day,
-                        max_passengers=max_passengers,
-                    )
-                )
-                added += 1
-        
-        if added > 0:
-            db.session.commit()
-            return jsonify({"message": f"Added {added} new vehicle types"}), 201
-        else:
-            return jsonify({"message": "All vehicle types already exist"}), 200
 
     with app.app_context():
         db.create_all()

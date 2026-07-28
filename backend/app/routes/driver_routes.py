@@ -11,7 +11,8 @@ from flask_jwt_extended import (
     get_jwt_identity,
 )
 
-from app import db
+from app import db, limiter
+from app.decorators import password_policy_error
 from app.models import Driver, TourPlan, User, Notification, Booking, Vehicle, Location, DriverPayment
 from app.services.vehicle_matching_service import normalize_vehicle_type, vehicle_ids_for_type
 from app.services.notification_service import (
@@ -66,6 +67,7 @@ def serve_driver_upload(filename):
 # DRIVER REGISTER  (multipart/form-data)
 # =========================
 @driver_bp.route("/driver/register", methods=["POST"])
+@limiter.limit("5 per minute")
 def register_driver():
     # Accept both JSON (legacy) and multipart form data
     if request.content_type and "multipart/form-data" in request.content_type:
@@ -82,6 +84,10 @@ def register_driver():
 
     if not full_name or not phone or not password:
         return jsonify({"message": "full_name, phone and password are required"}), 400
+
+    pw_error = password_policy_error(password)
+    if pw_error:
+        return jsonify({"message": pw_error}), 400
 
     # ── Optional / conditional fields ────────────
     email           = (form.get("email") or "").strip().lower() or None
@@ -183,6 +189,7 @@ def register_driver():
 # DRIVER LOGIN (JWT TOKEN)
 # =========================
 @driver_bp.route("/driver/login", methods=["POST"])
+@limiter.limit("10 per minute")
 def driver_login():
     data = request.get_json()
 
@@ -246,6 +253,14 @@ def driver_login():
 @driver_bp.route("/driver/profile", methods=["GET"])
 @jwt_required()
 def get_driver_profile():
+    # Driver and User rows are separate auto-increment sequences, so their IDs
+    # regularly collide (e.g. user #1 and driver #1 both exist) — without this
+    # check, any authenticated non-driver whose JWT id happens to match a
+    # driver's row could read (and via the PUT sibling, overwrite) that
+    # driver's private profile, license, and vehicle data.
+    if get_jwt().get("role") != "driver":
+        return jsonify({"message": "Unauthorized"}), 403
+
     driver_id = get_jwt_identity()
     driver = Driver.query.get(driver_id)
 
@@ -289,6 +304,9 @@ def get_driver_profile():
 @driver_bp.route("/driver/profile", methods=["PUT"])
 @jwt_required()
 def update_driver_profile():
+    if get_jwt().get("role") != "driver":
+        return jsonify({"message": "Unauthorized"}), 403
+
     driver_id = get_jwt_identity()
     driver = Driver.query.get(driver_id)
 
@@ -738,14 +756,26 @@ def approve_tour_request_as_driver(tour_id):
     if not tour:
         return jsonify({"message": "Tour request not found"}), 404
 
-    tour.status = "driver_approved"
-
-    user = User.query.get(tour.user_id) if tour.user_id else None
     raw_id = get_jwt_identity()
     try:
         driver_id = int(raw_id)
     except (TypeError, ValueError):
         driver_id = None
+
+    # A tour is only approvable while it's a fresh, unclaimed request — once any
+    # driver has already been assigned (or the trip has moved past that stage),
+    # this must not be re-approvable by a *different* driver. Without this check,
+    # any authenticated driver could call this endpoint with an arbitrary tour_id
+    # and hijack a booking already assigned to someone else, including a tour
+    # that's already ongoing or completed.
+    from app.models import Booking
+    booking = Booking.query.filter_by(tour_id=tour_id).first()
+    if tour.status != "planned" or (booking and booking.driver_id not in (None, driver_id)):
+        return jsonify({"message": "This tour is no longer available to approve"}), 409
+
+    tour.status = "driver_approved"
+
+    user = User.query.get(tour.user_id) if tour.user_id else None
     driver = Driver.query.get(driver_id) if driver_id else None
     driver_name = driver.full_name if driver else "Driver"
 
@@ -758,8 +788,6 @@ def approve_tour_request_as_driver(tour_id):
         )
 
     # ✅ CREATE OR UPDATE BOOKING TO LINK DRIVER TO TOUR
-    from app.models import Booking
-    booking = Booking.query.filter_by(tour_id=tour_id).first()
     if not booking:
         booking = Booking(
             tour_id=tour_id,
@@ -828,13 +856,21 @@ def negotiate_price_as_driver(tour_id):
     driver = Driver.query.get(driver_id) if driver_id else None
     driver_name = driver.full_name if driver else "Driver"
 
+    # Same hijack risk as the approve endpoint: without this guard, any driver
+    # could send a "counter-price" on an arbitrary tour_id — including one
+    # already assigned to someone else, or already underway — and take it over.
+    booking = Booking.query.filter_by(tour_id=tour_id).first()
+    if tour.status not in ("planned", "driver_approved") or (
+        booking and booking.driver_id not in (None, driver_id)
+    ):
+        return jsonify({"message": "This tour is no longer available to negotiate"}), 409
+
     # Keep the original platform estimate intact (tour.estimated_price) — the
     # driver's counter-offer belongs on the booking only, so the user can see
     # both numbers and the gap between them, not two copies of the same value.
     tour.status = "price_sent_by_driver"
 
     # Create or update booking for this tour
-    booking = Booking.query.filter_by(tour_id=tour_id).first()
     if not booking:
         booking = Booking(
             tour_id=tour_id,

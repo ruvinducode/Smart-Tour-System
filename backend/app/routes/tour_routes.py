@@ -1,7 +1,7 @@
 from datetime import datetime, date, timedelta
 
 from flask import Blueprint, request, jsonify
-from app import db
+from app import db, limiter
 from app.models import TourPlan, Vehicle, Location, Booking, User, Notification, Driver
 
 # JWT IMPORTS
@@ -11,9 +11,28 @@ from app.services.tour_pricing_service import (
     build_tour_estimate,
     parse_date,
     serialize_vehicle,
+    haversine,
 )
+from app.services.routing_service import get_route, RoutingError
 
 tour_bp = Blueprint("tour_bp", __name__)
+
+
+def _authoritative_distance_km(locations):
+    """
+    Recompute road distance server-side from the trip's own stop coordinates —
+    never trust a client-supplied total_distance_km for the price that's
+    actually charged, since it's just a number in the request body an
+    attacker can edit before booking. Returns None on routing failure so the
+    caller can fall back to the haversine estimate instead of blocking booking.
+    """
+    if not locations or len(locations) < 2:
+        return None
+    try:
+        coords = [[loc.get("longitude"), loc.get("latitude")] for loc in locations]
+        return get_route(coords)["distance_km"]
+    except (RoutingError, Exception):
+        return None
 
 
 def _resolve_vehicle(data):
@@ -89,6 +108,7 @@ def calculate_tour():
 # =========================
 @tour_bp.route("/create-tour", methods=["POST"])
 @jwt_required()   # 🔥 PROTECTED ROUTE
+@limiter.limit("20 per minute")
 def create_tour():
 
     data = request.get_json()
@@ -125,12 +145,14 @@ def create_tour():
         start_date = parse_date(start_date_str, "start_date")
         end_date = parse_date(end_date_str, "end_date")
         _validate_start_date_window(start_date)
+        # The price actually charged must never depend on a client-supplied
+        # number — always recompute distance from the trip's real coordinates.
         estimate = build_tour_estimate(
             vehicle=vehicle,
             locations=locations,
             start_date=start_date,
             end_date=end_date,
-            total_distance_km=data.get("total_distance_km"),
+            total_distance_km=_authoritative_distance_km(locations),
         )
     except ValueError as exc:
         return jsonify({"message": str(exc)}), 400
@@ -201,10 +223,25 @@ def create_tour():
 def get_tour_details(tour_id):
     try:
         tour = TourPlan.query.get(tour_id)
-        
+
         if not tour:
             return jsonify({"message": "Tour not found"}), 404
-        
+
+        claims = get_jwt()
+        current_id = get_jwt_identity()
+        is_admin = claims.get("role") == "admin"
+        is_owner = tour.user_id is not None and str(tour.user_id) == str(current_id)
+        is_assigned_driver = False
+        if claims.get("role") == "driver":
+            from app.models import Booking as _Booking
+            existing_booking = _Booking.query.filter_by(tour_id=tour_id).first()
+            is_assigned_driver = bool(
+                existing_booking and str(existing_booking.driver_id) == str(current_id)
+            )
+
+        if not (is_admin or is_owner or is_assigned_driver):
+            return jsonify({"message": "Unauthorized"}), 403
+
         # Get locations for this tour
         locations = Location.query.filter_by(tour_id=tour_id).order_by(Location.order_index).all()
         
@@ -507,8 +544,17 @@ def update_driver_location(tour_id):
     # Calculate distance if ongoing
     if tour.status == 'ongoing' and tour.driver_lat and tour.driver_lng:
         dist = haversine(tour.driver_lat, tour.driver_lng, new_lat, new_lng)
-        # Avoid huge jumps (GPS glitches)
-        if dist < 5.0: # If more than 5km in 4s, something is wrong
+        # Bound by implied speed, not just raw distance — a fixed "< 5km" cap
+        # doesn't account for how much time actually passed, so without a
+        # time check a rapid stream of sub-5km jumps could accumulate
+        # unlimited fake distance (this feeds a real extra-distance charge
+        # billed to the customer at trip completion).
+        elapsed_hours = (
+            (datetime.utcnow() - tour.last_location_update).total_seconds() / 3600.0
+            if tour.last_location_update else None
+        )
+        implied_speed_kmh = (dist / elapsed_hours) if elapsed_hours and elapsed_hours > 0 else 0
+        if dist < 5.0 and implied_speed_kmh <= 150:
             tour.actual_distance_km = (tour.actual_distance_km or 0.0) + dist
 
     # Update the coordinates
@@ -821,6 +867,7 @@ def cancel_tour(tour_id):
 # =========================
 @tour_bp.route('/<int:tour_id>/feedback', methods=['POST'])
 @jwt_required()
+@limiter.limit("10 per minute")
 def submit_feedback(tour_id):
     try:
         current_user_id = get_jwt_identity()
@@ -830,11 +877,27 @@ def submit_feedback(tour_id):
 
         if not rating:
             return jsonify({"message": "Rating is required"}), 400
+        try:
+            rating = int(rating)
+        except (TypeError, ValueError):
+            return jsonify({"message": "Rating must be a number"}), 400
+        if rating < 1 or rating > 5:
+            return jsonify({"message": "Rating must be between 1 and 5"}), 400
 
         from app.models import TourPlan, Booking, Driver, Feedback
         tour = TourPlan.query.get(tour_id)
         if not tour:
             return jsonify({"message": "Tour not found"}), 404
+
+        # Without this, any authenticated account could rate a driver on a
+        # tour that wasn't theirs — directly manipulating a real driver's
+        # public average rating with fake reviews.
+        if str(tour.user_id) != str(current_user_id):
+            return jsonify({"message": "Unauthorized"}), 403
+        if tour.status != "completed":
+            return jsonify({"message": "You can only review a completed tour"}), 400
+        if Feedback.query.filter_by(tour_id=tour_id, user_id=current_user_id).first():
+            return jsonify({"message": "You have already reviewed this tour"}), 409
 
         booking = Booking.query.filter_by(tour_id=tour_id).first()
         if not booking or not booking.driver_id:
@@ -862,7 +925,8 @@ def submit_feedback(tour_id):
         return jsonify({"message": "Feedback submitted successfully", "new_rating": driver.rating}), 201
     except Exception as e:
         db.session.rollback()
-        return jsonify({"message": str(e)}), 500
+        app.logger.error(f"Error submitting feedback: {str(e)}")
+        return jsonify({"message": "Error submitting feedback"}), 500
 
 # =========================
 # 5. ADMIN FEEDBACK VIEW

@@ -17,8 +17,11 @@ class Config:
     # =========================
     # SECRET KEYS
     # =========================
-    SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret-jwt-key")
+    # No hardcoded fallback: a guessable default here would let anyone forge
+    # valid JWTs (including admin ones) if the env var is ever left unset.
+    # Failing loudly at startup beats failing open silently.
+    SECRET_KEY = os.environ["SECRET_KEY"]
+    JWT_SECRET_KEY = os.environ["JWT_SECRET_KEY"]
     
     # Set token expiration to 24 hours
     from datetime import timedelta

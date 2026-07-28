@@ -3,7 +3,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt, get_jwt_identity
 
-from app import db
+from app import db, limiter
+from app.decorators import password_policy_error
 from app.models import User, Driver, Notification
 
 auth_bp = Blueprint("auth_bp", __name__)
@@ -39,6 +40,7 @@ def account_role_lookup():
 # USER REGISTER
 # =========================
 @auth_bp.route("/register", methods=["POST"])
+@limiter.limit("5 per minute")
 def register():
     data = request.get_json()
 
@@ -53,6 +55,10 @@ def register():
 
     if not full_name or not email or not password:
         return jsonify({"message": "Missing required fields"}), 400
+
+    pw_error = password_policy_error(password)
+    if pw_error:
+        return jsonify({"message": pw_error}), 400
 
     email = email.lower()
 
@@ -84,6 +90,7 @@ def register():
 # USER LOGIN (WITH JWT)
 # =========================
 @auth_bp.route("/login", methods=["POST"])
+@limiter.limit("10 per minute")
 def login():
     data = request.get_json()
 
