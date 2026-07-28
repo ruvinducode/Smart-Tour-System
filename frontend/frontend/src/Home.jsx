@@ -18,15 +18,18 @@ import Footer from './components/Footer.jsx'
 import { calculateTourEstimate, createTour as createTourRequest, getRoute } from './services/api.js'
 import SEO from './components/SEO.jsx'
 import appLogo from '../images/WhatsApp Image 2026-03-31 at 23.38.56.jpeg'
-import sigiriyaImg from '../images/sigiriya.png'
-import galleImg from '../images/galle.png'
-import nineArchImg from '../images/nine_arch.png'
-import nallurImg from '../images/nallur.png'
-import arugamBayImg from '../images/arugam_bay.png'
-import anuradhapuraImg from '../images/anuradhapura.png'
-import kandyImg from '../images/kandy.png'
-import mirissaImg from '../images/mirissa.png'
-import trincomaleeImg from '../images/trincomalee.png'
+// .webp thumbnails: these render at 44px on the map, so a compressed 176px
+// square crop (~8KB each) replaces the original ~1MB full-resolution photos
+// used here previously — same look at map-marker size, ~99% less data.
+import sigiriyaImg from '../images/sigiriya.webp'
+import galleImg from '../images/galle.webp'
+import nineArchImg from '../images/nine_arch.webp'
+import nallurImg from '../images/nallur.webp'
+import arugamBayImg from '../images/arugam_bay.webp'
+import anuradhapuraImg from '../images/anuradhapura.webp'
+import kandyImg from '../images/kandy.webp'
+import mirissaImg from '../images/mirissa.webp'
+import trincomaleeImg from '../images/trincomalee.webp'
 
 const pad2 = (n) => String(n).padStart(2, '0')
 const formatLocalDate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
@@ -310,6 +313,13 @@ const FAMOUS_PLACES = [
   }
 ]
 
+// Built once at module load — FAMOUS_PLACES never changes, so there's no need
+// to rebuild these divIcons on every map re-render (e.g. each time a stop is
+// added and the memoized map block recomputes).
+const FAMOUS_PLACE_ICONS = Object.fromEntries(
+  FAMOUS_PLACES.map((place) => [place.id, createSuggestionIcon(place.image)])
+)
+
 // Function to get location name from coordinates using OpenStreetMap Nominatim
 async function getLocationName(lat, lng) {
   const response = await fetch(
@@ -413,8 +423,14 @@ async function searchSriLankaPlaces(query) {
   const data = await response.json()
   const features = Array.isArray(data.features) ? data.features : []
 
+  // Broad administrative areas (whole provinces/districts/countries) geocode to a
+  // centroid that can sit in the middle of a forest with no nearby road — ORS then
+  // can't snap a route to it. Only offer results specific enough to sit on a real road.
+  const NON_ROUTABLE_TYPES = new Set(['state', 'county', 'country', 'region'])
+
   return features
     .filter((f) => (f.properties?.countrycode || '').toUpperCase() === 'LK')
+    .filter((f) => !NON_ROUTABLE_TYPES.has(f.properties?.type))
     .map((f) => {
       const p = f.properties || {}
       const [lon, lat] = f.geometry?.coordinates || []
@@ -1399,9 +1415,13 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
         center={SRI_LANKA_CENTER} zoom={DEFAULT_ZOOM} minZoom={7} maxZoom={18} maxBounds={SRI_LANKA_BOUNDS}
         maxBoundsViscosity={1.0} scrollWheelZoom={true} zoomControl={false} className="h-full w-full"
       >
-        <TileLayer 
-          url="https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png" 
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' 
+        <TileLayer
+          // CartoDB's CDN-backed tiles — every other map in this app already
+          // uses this provider. The previous tile.openstreetmap.fr server is a
+          // free community mirror with no CDN backing it, which is what was
+          // causing the visible gray-tile flash before tiles arrived.
+          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
         />
         <MapClickHandler onLocationAdd={addLocation} />
         <MapEffect locations={locations} />
@@ -1412,7 +1432,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
         )}
 
         {FAMOUS_PLACES.map((place) => (
-          <Marker key={place.id} position={[place.lat, place.lng]} icon={createSuggestionIcon(place.image)}>
+          <Marker key={place.id} position={[place.lat, place.lng]} icon={FAMOUS_PLACE_ICONS[place.id]}>
             <Popup className="custom-popup">
               <div className="flex flex-col">
                 <div className="h-32 w-full overflow-hidden bg-slate-100">
