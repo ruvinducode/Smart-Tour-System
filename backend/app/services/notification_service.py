@@ -9,6 +9,7 @@ from sqlalchemy import func, or_
 from app import db
 from app.models import Booking, Driver, Notification, TourPlan, User, Vehicle
 from app.services.sms_service import send_sms_notification
+from app.services.email_service import send_email, _wrap_html
 from app.services.vehicle_matching_service import (
     find_approved_drivers_for_vehicle_type,
     normalize_vehicle_type,
@@ -76,6 +77,19 @@ def notify_drivers_new_tour(tour: TourPlan, vehicle_type: str, total_distance_km
                 "Check your dashboard to accept or bid."
             )
             send_sms_notification(driver.phone, sms_msg)
+
+        driver_email = _driver_recipient_email(driver)
+        if driver_email:
+            send_email(
+                driver_email,
+                "New Tour Request Available",
+                _wrap_html(
+                    "New Tour Request",
+                    f"<p>Hi {driver.full_name},</p>"
+                    f"<p>{message}</p>",
+                    theme="neutral",
+                ),
+            )
         sent += 1
 
     return sent
@@ -123,6 +137,110 @@ def notify_driver_pending_tours(driver: Driver) -> int:
         )
         sent += 1
     return sent
+
+
+def notify_driver_registered(driver: Driver) -> bool:
+    """Sent once at registration — confirms receipt, sets pending-approval expectation."""
+    email = _driver_recipient_email(driver)
+    if not email:
+        return False
+    return send_email(
+        email,
+        "Application Received — airbnctours",
+        _wrap_html(
+            "Application Received",
+            f"<p>Hi {driver.full_name},</p>"
+            "<p>Thanks for registering as a driver. Your application is now "
+            "waiting for admin approval — we'll email you as soon as it's reviewed.</p>",
+            theme="green",
+        ),
+    )
+
+
+def notify_driver_approved(driver: Driver) -> bool:
+    """Sent when an admin approves a driver — the account becomes usable."""
+    email = _driver_recipient_email(driver)
+    if not email:
+        return False
+    return send_email(
+        email,
+        "You're Approved! — airbnctours",
+        _wrap_html(
+            "You're Approved",
+            f"<p>Hi {driver.full_name},</p>"
+            "<p>Your driver account has been approved. You can now log in and "
+            "start accepting tour requests.</p>",
+            theme="blue",
+        ),
+    )
+
+
+def notify_driver_rejected(driver_name: str, driver_email: str | None) -> bool:
+    """Sent when an admin rejects/removes a driver application."""
+    if not driver_email:
+        return False
+    return send_email(
+        driver_email,
+        "Application Update — airbnctours",
+        _wrap_html(
+            "Application Not Approved",
+            f"<p>Hi {driver_name},</p>"
+            "<p>Thanks for your interest in driving with us. After review, we're "
+            "unable to approve your application at this time.</p>",
+            theme="red",
+            badge="REJECTED",
+        ),
+    )
+
+
+def notify_user_registered(user: User) -> bool:
+    """Welcome email sent once at customer registration."""
+    if not user.email:
+        return False
+    return send_email(
+        user.email,
+        "Welcome to airbnctours",
+        _wrap_html(
+            f"Welcome, {user.full_name}",
+            "<p>Your account has been created. You're ready to start planning "
+            "your Sri Lanka trip.</p>",
+            theme="green",
+        ),
+    )
+
+
+def notify_tour_assigned(tour: TourPlan, user: User | None, driver: Driver) -> None:
+    """
+    Sent once a driver claims a tour request (Booking.driver_id set) — tells
+    the customer who their driver is, and confirms the assignment to the
+    driver. Each recipient's email failing must not affect the other.
+    """
+    if user and user.email:
+        send_email(
+            user.email,
+            f"Driver Assigned — Tour #{tour.id}",
+            _wrap_html(
+                "Driver Assigned",
+                f"<p>Hi {user.full_name},</p>"
+                f"<p>{driver.full_name} has accepted your tour request #{tour.id} "
+                "and will be in touch shortly.</p>",
+                theme="blue",
+            ),
+        )
+
+    driver_email = _driver_recipient_email(driver)
+    if driver_email:
+        send_email(
+            driver_email,
+            f"Tour Assignment Confirmed — #{tour.id}",
+            _wrap_html(
+                "Tour Assigned to You",
+                f"<p>Hi {driver.full_name},</p>"
+                f"<p>You're now assigned to tour #{tour.id}. Check your dashboard "
+                "for pickup details.</p>",
+                theme="blue",
+            ),
+        )
 
 
 def get_notifications_for_driver(driver: Driver) -> list[Notification]:

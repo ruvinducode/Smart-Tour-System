@@ -18,7 +18,15 @@ jwt = JWTManager()
 
 # Rate limiter — real per-client limits depend on ProxyFix below so the app
 # sees each visitor's real IP instead of nginx's own address for every request.
-limiter = Limiter(key_func=get_remote_address, default_limits=["200 per minute"])
+# Backed by Redis (not the default in-memory store) so counters are shared
+# correctly across gunicorn's worker processes — with in-memory storage each
+# worker keeps its own separate count, letting the real per-client limit run
+# up to N-workers-times higher than configured.
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per minute"],
+    storage_uri="redis://127.0.0.1:6379",
+)
 
 
 def create_app():
@@ -78,14 +86,14 @@ def create_app():
         return jsonify({"message": "Too many attempts. Please try again shortly."}), 429
 
     # =========================
-    # REGISTER ROUTES
+    # REGISTER CONTROLLERS
     # =========================
-    from app.routes.auth_routes import auth_bp
-    from app.routes.driver_routes import driver_bp
-    from app.routes.tour_routes import tour_bp
-    from app.routes.booking_routes import booking_bp
-    from app.routes.finance_routes import finance_bp
-    from app.routes.routing_routes import routing_bp
+    from app.controllers.auth_controller import auth_bp
+    from app.controllers.driver_controller import driver_bp
+    from app.controllers.tour_controller import tour_bp
+    from app.controllers.booking_controller import booking_bp
+    from app.controllers.finance_controller import finance_bp
+    from app.controllers.routing_controller import routing_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(driver_bp)
