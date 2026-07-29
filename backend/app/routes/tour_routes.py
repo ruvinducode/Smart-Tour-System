@@ -576,6 +576,8 @@ def update_driver_location(tour_id):
 @tour_bp.route('/<int:tour_id>/en-route', methods=['PUT'])
 @jwt_required()
 def mark_en_route(tour_id):
+    if get_jwt().get('role') != 'driver':
+        return jsonify({"message": "Only drivers can update trip status"}), 403
     current_driver_id = get_jwt_identity()
     tour = TourPlan.query.get(tour_id)
     booking = Booking.query.filter_by(tour_id=tour_id, driver_id=current_driver_id).first()
@@ -605,6 +607,8 @@ def mark_en_route(tour_id):
 @tour_bp.route('/<int:tour_id>/arrived', methods=['PUT'])
 @jwt_required()
 def mark_arrived(tour_id):
+    if get_jwt().get('role') != 'driver':
+        return jsonify({"message": "Only drivers can update trip status"}), 403
     current_driver_id = get_jwt_identity()
     tour = TourPlan.query.get(tour_id)
     booking = Booking.query.filter_by(tour_id=tour_id, driver_id=current_driver_id).first()
@@ -634,6 +638,8 @@ def mark_arrived(tour_id):
 @tour_bp.route('/<int:tour_id>/start', methods=['PUT'])
 @jwt_required()
 def mark_ongoing(tour_id):
+    if get_jwt().get('role') != 'driver':
+        return jsonify({"message": "Only drivers can update trip status"}), 403
     current_driver_id = get_jwt_identity()
     tour = TourPlan.query.get(tour_id)
     booking = Booking.query.filter_by(tour_id=tour_id, driver_id=current_driver_id).first()
@@ -664,6 +670,8 @@ def mark_ongoing(tour_id):
 @tour_bp.route('/<int:tour_id>/complete', methods=['PUT'])
 @jwt_required()
 def mark_completed(tour_id):
+    if get_jwt().get('role') != 'driver':
+        return jsonify({"message": "Only drivers can update trip status"}), 403
     current_driver_id = get_jwt_identity()
     tour = TourPlan.query.get(tour_id)
     booking = Booking.query.filter_by(tour_id=tour_id, driver_id=current_driver_id).first()
@@ -752,6 +760,8 @@ def get_driver_location(tour_id):
 @tour_bp.route('/<int:tour_id>/driver-cancel', methods=['POST'])
 @jwt_required()
 def driver_cancel_tour(tour_id):
+    if get_jwt().get('role') != 'driver':
+        return jsonify({"message": "Only drivers can cancel as the assigned driver"}), 403
     current_driver_id = get_jwt_identity()
     data = request.get_json()
     reason = data.get('reason', 'No reason provided')
@@ -857,8 +867,7 @@ def cancel_tour(tour_id):
         
     db.session.commit()
     return jsonify({
-        "message": "Tour cancelled successfully",
-        "debug_notif_count": notif_count
+        "message": "Tour cancelled successfully"
     }), 200
 
 

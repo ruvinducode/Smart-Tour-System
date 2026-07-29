@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from PIL import Image, UnidentifiedImageError
 import os, uuid
 from datetime import datetime
 
@@ -38,7 +39,19 @@ def save_upload(file_obj, subfolder=""):
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     ext = file_obj.filename.rsplit(".", 1)[1].lower()
     unique_name = f"{uuid.uuid4().hex}.{ext}"
-    file_obj.save(os.path.join(UPLOAD_FOLDER, unique_name))
+    dest_path = os.path.join(UPLOAD_FOLDER, unique_name)
+    file_obj.save(dest_path)
+
+    # The extension check above only looks at the client-supplied filename,
+    # which is trivial to fake — confirm the bytes we actually wrote are a
+    # real, decodable image before letting anything reference this file.
+    try:
+        with Image.open(dest_path) as img:
+            img.verify()
+    except (UnidentifiedImageError, OSError):
+        os.remove(dest_path)
+        return None
+
     return unique_name
 
 
@@ -59,7 +72,10 @@ def create_notification(recipient_email, subject, message, tour_id=None):
 # SERVE UPLOADED IMAGES
 # =========================
 @driver_bp.route("/uploads/drivers/<path:filename>", methods=["GET"])
+@jwt_required()
 def serve_driver_upload(filename):
+    # These are identity documents (NIC, license, vehicle papers) — require
+    # any authenticated caller rather than serving them to the public.
     return send_from_directory(UPLOAD_FOLDER, filename)
 
 

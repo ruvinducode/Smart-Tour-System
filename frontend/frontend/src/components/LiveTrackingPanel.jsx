@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getLiveDriverLocation, getTourDetails, getRoute } from '../services/api.js'
+import { getLiveDriverLocation, getTourDetails, getRoute, driverUploadUrl } from '../services/api.js'
 
 // Haversine distance formula to calculate km between two lat/lng points
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -39,7 +39,7 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
     return () => mql.removeEventListener('change', handler)
   }, [])
 
-  const imgUrl = (path) => path ? `/api/uploads/drivers/${path}` : null
+  const imgUrl = (path) => driverUploadUrl(path)
 
   // Tracks the driver's actual recent pace (km/h) from consecutive GPS fixes,
   // so ETA reflects how fast they're really moving instead of a flat guess.

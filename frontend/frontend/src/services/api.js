@@ -18,6 +18,15 @@ export function getApiBaseUrl() {
   return DEFAULT_API
 }
 
+// Driver ID documents (NIC, license, vehicle papers) require an authenticated
+// caller to view — <img> tags can't send an Authorization header, so the
+// backend also accepts the JWT as a query param for this endpoint only.
+export function driverUploadUrl(filename) {
+  if (!filename) return null
+  const token = localStorage.getItem('smart_tour_token') || ''
+  return `${DEFAULT_API}/uploads/drivers/${filename}${token ? `?token=${encodeURIComponent(token)}` : ''}`
+}
+
 export async function rejectDriver(driverId, token) {
   const res = await fetch(apiUrl(`/admin/driver/reject/${driverId}`), {
     method: 'DELETE',

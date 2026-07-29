@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from '../../services/api.js'
+import { driverUploadUrl } from '../../services/api.js'
 
 function Avatar({ name, accent = 'sky', imageUrl }) {
   const accents = {
@@ -138,8 +138,7 @@ export function AdminUserCard({ user, onEdit, onDelete, busy }) {
 }
 
 export function AdminDriverCard({ driver, onEdit, onView, onApprove, onDeactivate, onReject, busy, variant = 'all' }) {
-  const base = getApiBaseUrl()
-  const photoUrl = driver.profile_photo ? `${base}/uploads/drivers/${driver.profile_photo}` : null
+  const photoUrl = driverUploadUrl(driver.profile_photo)
 
   return (
     <article className="group relative overflow-hidden rounded-[1.75rem] bg-white border border-slate-100 shadow-[0_8px_30px_rgba(15,23,42,0.06)] hover:shadow-[0_20px_50px_rgba(15,23,42,0.1)] transition-all duration-300 hover:-translate-y-1">

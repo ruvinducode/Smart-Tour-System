@@ -1,4 +1,5 @@
 import DriverSectionHeader from './DriverSectionHeader.jsx'
+import { driverUploadUrl } from '../../services/api.js'
 
 const DOC_FIELDS = [
   { key: 'license_front_image', label: 'License Front' },
@@ -40,7 +41,6 @@ export default function DriverProfileSection({
   setEditMode,
   updatingProfile,
   onSubmit,
-  getApiBaseUrl,
   userName,
 }) {
   if (!profileData) {
@@ -52,9 +52,7 @@ export default function DriverProfileSection({
     )
   }
 
-  const photoUrl = profileData.profile_photo
-    ? `${getApiBaseUrl()}/uploads/drivers/${profileData.profile_photo}`
-    : null
+  const photoUrl = driverUploadUrl(profileData.profile_photo)
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -169,7 +167,7 @@ export default function DriverProfileSection({
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{doc.label}</p>
                       {img ? (
                         <img
-                          src={`${getApiBaseUrl()}/uploads/drivers/${img}`}
+                          src={driverUploadUrl(img)}
                           alt={doc.label}
                           className="w-full h-28 rounded-2xl object-cover border border-slate-100 group-hover:scale-[1.02] transition-transform cursor-zoom-in shadow-sm"
                         />
@@ -247,7 +245,7 @@ export default function DriverProfileSection({
                   <div key={doc.name} className="space-y-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
                     <label className="text-xs font-bold text-slate-600">{doc.label}</label>
                     {profileData[doc.name] && (
-                      <img src={`${getApiBaseUrl()}/uploads/drivers/${profileData[doc.name]}`} alt="" className="w-full h-16 rounded-xl object-cover opacity-60" />
+                      <img src={driverUploadUrl(profileData[doc.name])} alt="" className="w-full h-16 rounded-xl object-cover opacity-60" />
                     )}
                     <input name={doc.name} type="file" className="w-full text-[10px] text-slate-400 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-orange-50 file:text-orange-600" />
                   </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { getLiveDriverLocation, getTourDetails, getApiBaseUrl, cancelTour, submitFeedback, getRoute } from '../services/api.js'
+import { getLiveDriverLocation, getTourDetails, driverUploadUrl, cancelTour, submitFeedback, getRoute } from '../services/api.js'
 import CancellationModal from '../components/CancellationModal.jsx'
 import FeedbackModal from '../components/FeedbackModal.jsx'
 
@@ -60,8 +60,7 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
   const [cancelling, setCancelling] = useState(false)
   const [submittingFeedback, setSubmittingFeedback] = useState(false)
 
-  const BASE_URL = getApiBaseUrl()
-  const imgUrl = (path) => (path ? `${BASE_URL}/uploads/drivers/${path}` : null)
+  const imgUrl = (path) => driverUploadUrl(path)
 
   const feedbackShownRef = useRef(false)
 

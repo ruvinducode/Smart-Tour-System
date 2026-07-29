@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -30,8 +32,19 @@ def create_app():
     # Load configuration
     app.config.from_object(Config)
 
-    # ✅ FIXED CORS (IMPORTANT)
-    CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+    # CORS: explicit origin allowlist. A wildcard ("*") combined with
+    # supports_credentials=True makes flask-cors reflect any caller's Origin
+    # header instead, which would let any website issue credentialed
+    # cross-origin requests against this API. Set ALLOWED_ORIGINS in the
+    # environment (comma-separated) to the real frontend URL(s) in production.
+    allowed_origins = [
+        o.strip()
+        for o in os.getenv(
+            "ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+        ).split(",")
+        if o.strip()
+    ]
+    CORS(app, resources={r"/*": {"origins": allowed_origins}}, supports_credentials=True)
 
     # Initialize DB
     db.init_app(app)

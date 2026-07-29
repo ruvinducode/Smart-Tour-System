@@ -27,7 +27,7 @@ import {
   Menu,
   Trash2
 } from 'lucide-react'
-import { getUserNotifications, getUserTours, cancelTour, deleteTour, acceptDriverPrice, rejectDriverPrice, getApiBaseUrl, replyToDriver, markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications, submitFeedback } from '../services/api.js'
+import { getUserNotifications, getUserTours, cancelTour, deleteTour, acceptDriverPrice, rejectDriverPrice, driverUploadUrl, replyToDriver, markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications, submitFeedback } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import LiveTrackingPage from './LiveTrackingPage.jsx'
 import LiveTrackingPanel from '../components/LiveTrackingPanel.jsx'
@@ -217,7 +217,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
 
   const [negotiationReply, setNegotiationReply] = useState('')
 
-  const getDriverImageUrl = (path) => path ? `${getApiBaseUrl()}/uploads/drivers/${path}` : null
+  const getDriverImageUrl = (path) => driverUploadUrl(path)
 
   const handleSendReply = async (tourId) => {
     if (!negotiationReply.trim()) return

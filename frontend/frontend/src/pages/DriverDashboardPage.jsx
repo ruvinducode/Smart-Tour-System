@@ -6,7 +6,7 @@ import {
   getDriverProfile,
   updateDriverProfile,
   getDriverNotifications,
-  getApiBaseUrl,
+  driverUploadUrl,
   markNotificationRead,
   markAllNotificationsRead,
   deleteNotification,
@@ -511,7 +511,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
               </div>
               <div className="h-10 w-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center text-slate-600 font-bold border border-slate-200 shadow-sm">
                 {profileData?.profile_photo ? (
-                  <img src={`${getApiBaseUrl()}/uploads/drivers/${profileData.profile_photo}`} alt="Profile" className="w-full h-full object-cover" />
+                  <img src={driverUploadUrl(profileData.profile_photo)} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
                   (userName || 'D').charAt(0).toUpperCase()
                 )}
@@ -688,7 +688,6 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
               setEditMode={setEditMode}
               updatingProfile={updatingProfile}
               onSubmit={handleUpdateProfile}
-              getApiBaseUrl={getApiBaseUrl}
               userName={userName}
             />
           )}

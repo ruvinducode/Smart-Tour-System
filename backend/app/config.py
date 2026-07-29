@@ -27,6 +27,21 @@ class Config:
     from datetime import timedelta
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
 
+    # Accept the JWT via query string too, in addition to the Authorization
+    # header. This is needed only for the driver-upload serving route, whose
+    # <img src> tags cannot carry an Authorization header — everything else
+    # in the app still authenticates via the header.
+    JWT_TOKEN_LOCATION = ["headers", "query_string"]
+    JWT_QUERY_STRING_NAME = "token"
+
+    # =========================
+    # UPLOAD LIMITS
+    # =========================
+    # Reject any request body over 15MB outright (Flask returns 413) so an
+    # attacker can't send an oversized "image" to exhaust disk space via the
+    # unauthenticated driver-registration upload fields.
+    MAX_CONTENT_LENGTH = 15 * 1024 * 1024
+
     # =========================
     # DEBUG MODE
     # =========================

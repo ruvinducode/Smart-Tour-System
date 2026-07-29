@@ -11,25 +11,6 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 booking_bp = Blueprint("booking_bp", __name__)
 
 # =========================
-# DEBUG ENDPOINT - Check JWT Token
-# =========================
-@booking_bp.route("/debug-token", methods=["GET"])
-@jwt_required()
-def debug_token():
-    user_id = get_jwt_identity()
-    try:
-        uid = int(user_id) if user_id is not None else None
-    except (TypeError, ValueError):
-        return jsonify({"message": "Invalid user id in token"}), 401
-    user = User.query.get(uid) if uid is not None else None
-    return jsonify({
-        "jwt_user_id": uid,
-        "user_email": user.email if user else "Unknown",
-        "user_name": user.full_name if user else "Unknown"
-    }), 200
-
-
-# =========================
 # CREATE BOOKING (PROTECTED)
 # =========================
 @booking_bp.route("/create-booking/<int:tour_id>", methods=["POST"])
@@ -38,31 +19,19 @@ def create_booking(tour_id):
 
     # Get logged-in user
     user_id = get_jwt_identity()
-    
-    # DEBUG INFO
-    print(f"DEBUG: JWT User ID = {user_id}")
-    print(f"DEBUG: Tour ID = {tour_id}")
 
     # 1. Get tour
     tour = TourPlan.query.get(tour_id)
     if not tour:
         return jsonify({"message": "Tour not found"}), 404
-    
-    print(f"DEBUG: Tour Owner ID = {tour.user_id}")
 
     # SECURITY: ensure user owns this tour
     # Convert both to same type for comparison
     jwt_user_id = int(user_id) if isinstance(user_id, str) else user_id
     tour_owner_id = int(tour.user_id) if isinstance(tour.user_id, str) else tour.user_id
-    
-    print(f"DEBUG: Comparing JWT User ID ({jwt_user_id}) with Tour Owner ID ({tour_owner_id})")
-    print(f"DEBUG: Types - JWT: {type(jwt_user_id)}, Tour: {type(tour_owner_id)}")
-    
+
     if tour_owner_id != jwt_user_id:
-        print(f"DEBUG: AUTH FAILED - Tour owner ({tour_owner_id}) != JWT user ({jwt_user_id})")
         return jsonify({"message": "Unauthorized access to this tour"}), 403
-    
-    print(f"DEBUG: AUTH SUCCESS - User {user_id} can access tour {tour_id}")
 
     # 2. Get vehicle
     vehicle = Vehicle.query.get(tour.vehicle_id)
@@ -208,11 +177,17 @@ def update_booking_status(booking_id):
     if user is None:
         return jsonify({"message": "User not found"}), 404
 
-    if tour.user_id != user_id and user.role != "admin":
-        print(f"DEBUG: User {user_id} (role: {user.role}) cannot update booking for tour {tour.user_id}")
+    is_admin = user.role == "admin"
+    if tour.user_id != user_id and not is_admin:
         return jsonify({"message": "Unauthorized"}), 403
 
-    allowed_statuses = ["pending", "confirmed", "ongoing", "completed", "cancelled"]
+    # The tour owner may only cancel — "confirmed"/"ongoing"/"completed" are
+    # driver/admin-driven lifecycle transitions handled by the dedicated
+    # /tour/<id>/en-route, /arrived, /start, /complete endpoints, which apply
+    # their own business rules (fare calc, schedule locks, etc). Letting the
+    # paying customer set those directly would desync booking state from what
+    # actually happened on the trip.
+    allowed_statuses = ["pending", "confirmed", "ongoing", "completed", "cancelled"] if is_admin else ["cancelled"]
 
     if status not in allowed_statuses:
         return jsonify({"message": "Invalid status"}), 400

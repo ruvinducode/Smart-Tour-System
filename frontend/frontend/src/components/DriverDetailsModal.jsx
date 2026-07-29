@@ -1,10 +1,9 @@
-import { getApiBaseUrl } from '../services/api.js'
+import { driverUploadUrl } from '../services/api.js'
 
 export default function DriverDetailsModal({ driver, isOpen, onClose, onApprove, approving }) {
   if (!isOpen || !driver) return null
 
-  const baseUrl = getApiBaseUrl()
-  const getImageUrl = (filename) => filename ? `${baseUrl}/uploads/drivers/${filename}` : null
+  const getImageUrl = (filename) => driverUploadUrl(filename)
 
   const DetailSection = ({ title, icon, children }) => (
     <div className="mb-6 last:mb-0">
