@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
-import { getLiveDriverLocation, getTourDetails } from '../../services/api.js'
+import { getLiveDriverLocation, getRoute, getTourDetails } from '../../services/api.js'
 
 const POLL_MS = 5000
 const ROUTE_REFRESH_MS = 45000
@@ -44,16 +44,27 @@ function coordsToOsrmString(latLngPoints) {
   return latLngPoints.map(([lat, lng]) => `${lng},${lat}`).join(';')
 }
 
-async function fetchOsrmRoute(latLngPoints) {
+// Routed (road-following) path between stops — goes through the backend's
+// own /routing/route endpoint (server-side OpenRouteService), the same
+// reliable path every other tracking view in the app uses. The old version
+// of this called public OSRM demo servers directly from the browser via a
+// "/osrm" prefix that only exists as a local Vite dev-server proxy — in
+// production there's no such route, so those requests silently failed and,
+// unlike other pages, nothing here drew a fallback line, leaving the route
+// blank with no visible error.
+async function fetchBackendRoute(latLngPoints) {
   if (!latLngPoints || latLngPoints.length < 2) return null
-  const coordStr = coordsToOsrmString(latLngPoints)
-  const data = await osrmJson(`/route/v1/driving/${coordStr}?overview=full&geometries=geojson&steps=false`)
-  const route = data?.routes?.[0]
-  if (!route?.geometry?.coordinates) return null
-  return {
-    positions: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
-    distanceKm: (route.distance || 0) / 1000,
-    durationMin: Math.round((route.duration || 0) / 60),
+  try {
+    const coords = latLngPoints.map(([lat, lng]) => [lng, lat])
+    const data = await getRoute(coords)
+    if (!data?.geometry?.length) return null
+    return {
+      positions: data.geometry,
+      distanceKm: data.distance_km || 0,
+      durationMin: Math.round(data.duration_min || 0),
+    }
+  } catch {
+    return null
   }
 }
 
@@ -70,8 +81,8 @@ async function fetchOsrmMatch(latLngPoints) {
   return match.geometry.coordinates.map(([lng, lat]) => [lat, lng])
 }
 
-async function fetchOsrmLeg(from, to) {
-  return fetchOsrmRoute([[from[0], from[1]], [to[0], to[1]]])
+async function fetchRouteLeg(from, to) {
+  return fetchBackendRoute([[from[0], from[1]], [to[0], to[1]]])
 }
 
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -224,7 +235,7 @@ export default function AdminTourTrackingModal({ tour, token, isOpen, onClose })
         }
         const legs = []
         for (let i = 1; i < points.length; i += 1) {
-          const leg = await fetchOsrmLeg(points[i - 1], points[i])
+          const leg = await fetchRouteLeg(points[i - 1], points[i])
           if (leg?.positions?.length >= 2) {
             legs.push(...(legs.length ? leg.positions.slice(1) : leg.positions))
           }
@@ -286,12 +297,15 @@ export default function AdminTourTrackingModal({ tour, token, isOpen, onClose })
     return () => { cancelled = true }
   }, [isOpen, tour?.id, token, applyStatus])
 
-  // Full tour route — fetch once when stops are known
+  // Full tour route — fetch once when stops are known. Falls back to a
+  // straight line between stops if routing is unavailable, so the map is
+  // never left with no path drawn at all.
   useEffect(() => {
     if (!isOpen || stopPositions.length < 2) return undefined
     let cancelled = false
-    fetchOsrmRoute(stopPositions).then((route) => {
-      if (!cancelled && route) setFullTourRoute(route.positions)
+    fetchBackendRoute(stopPositions).then((route) => {
+      if (cancelled) return
+      setFullTourRoute(route ? route.positions : stopPositions)
     })
     return () => { cancelled = true }
   }, [isOpen, stopPositions])
@@ -316,18 +330,22 @@ export default function AdminTourTrackingModal({ tour, token, isOpen, onClose })
       ? [driverPt, ...pts.slice(1)]
       : [driverPt, pts[0]]
 
-    const route = await fetchOsrmRoute(waypoints)
+    const route = await fetchBackendRoute(waypoints)
     if (route) {
       setActiveRoute(route.positions)
       setEtaMin(route.durationMin)
       setDistToNextKm(+route.distanceKm.toFixed(1))
     } else {
       const dest = waypoints[waypoints.length - 1]
-      const leg = await fetchOsrmLeg(driverPt, dest)
+      const leg = await fetchRouteLeg(driverPt, dest)
       if (leg) {
         setActiveRoute(leg.positions)
         setEtaMin(leg.durationMin)
         setDistToNextKm(+leg.distanceKm.toFixed(1))
+      } else {
+        // Routing unavailable — still draw a straight line so "to next
+        // stop" is never left completely blank.
+        setActiveRoute([driverPt, dest])
       }
     }
   }, [activeRoute.length])

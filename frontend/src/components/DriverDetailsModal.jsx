@@ -1,6 +1,28 @@
-import { driverUploadUrl } from '../services/api.js'
+import { useEffect, useState } from 'react'
+import { driverUploadUrl, getDriverFeedbacksAdmin } from '../services/api.js'
+import RatingStars from './RatingStars.jsx'
 
-export default function DriverDetailsModal({ driver, isOpen, onClose, onApprove, approving }) {
+export default function DriverDetailsModal({ driver, isOpen, onClose, onApprove, approving, token, variant = 'pending' }) {
+  // Approve only ever makes sense for a driver who isn't approved yet — the
+  // caller tells us which list this driver came from (pending vs.
+  // approved), since not every driver-list endpoint includes `is_approved`
+  // on the object itself.
+  const isPending = variant !== 'approved'
+  const [feedbackData, setFeedbackData] = useState(null)
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen || !driver?.id) {
+      setFeedbackData(null)
+      return
+    }
+    setFeedbackLoading(true)
+    getDriverFeedbacksAdmin(driver.id, token)
+      .then(setFeedbackData)
+      .catch(() => setFeedbackData(null))
+      .finally(() => setFeedbackLoading(false))
+  }, [isOpen, driver?.id, token])
+
   if (!isOpen || !driver) return null
 
   const getImageUrl = (filename) => driverUploadUrl(filename)
@@ -81,7 +103,49 @@ export default function DriverDetailsModal({ driver, isOpen, onClose, onApprove,
 
         {/* Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          
+
+          <DetailSection title="Ratings & Feedback" icon="⭐">
+            <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-slate-50 border border-slate-100 p-4">
+              <div>
+                <p className="text-2xl font-black text-slate-900">
+                  {feedbackData?.summary?.total_feedbacks ? (feedbackData.summary.average_rating || 0).toFixed(1) : (driver.rating || 0).toFixed(1)}
+                  <span className="text-sm font-bold text-slate-400"> / 5</span>
+                </p>
+                <RatingStars
+                  rating={feedbackData?.summary?.average_rating ?? driver.rating}
+                  totalRatings={feedbackData?.summary?.total_feedbacks ?? driver.total_ratings}
+                />
+              </div>
+              {feedbackData?.summary?.breakdown && (
+                <div className="flex gap-3 text-center">
+                  {[5, 4, 3, 2, 1].map((star) => (
+                    <div key={star}>
+                      <p className="text-xs font-black text-slate-700">{feedbackData.summary.breakdown[star] || 0}</p>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase">{star}★</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="md:col-span-2 space-y-3 mt-1 max-h-64 overflow-y-auto">
+              {feedbackLoading && <p className="text-xs text-slate-400">Loading reviews…</p>}
+              {!feedbackLoading && feedbackData?.feedbacks?.length === 0 && (
+                <p className="text-xs text-slate-400">No reviews yet for this driver.</p>
+              )}
+              {feedbackData?.feedbacks?.map((fb) => (
+                <div key={fb.id} className="rounded-xl border border-slate-100 p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs font-bold text-slate-700">{fb.user_name}</p>
+                    <RatingStars rating={fb.rating} totalRatings={1} showCount={false} />
+                  </div>
+                  {fb.comment && <p className="text-xs text-slate-500">{fb.comment}</p>}
+                  <p className="text-[10px] text-slate-300 mt-1">{fb.created_at ? new Date(fb.created_at).toLocaleDateString() : ''}</p>
+                </div>
+              ))}
+            </div>
+          </DetailSection>
+
           <DetailSection title="Personal Information" icon="👤">
             <DetailItem label="Full Name" value={driver.name} />
             <DetailItem label="NIC Number" value={driver.nic_number} />
@@ -125,25 +189,31 @@ export default function DriverDetailsModal({ driver, isOpen, onClose, onApprove,
         <footer className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0">
           <div className="text-xs text-slate-400">
             <p>Applied on: {driver.created_at ? new Date(driver.created_at).toLocaleString() : 'N/A'}</p>
-            <p>Status: <span className="text-orange-500 font-bold uppercase">Pending Review</span></p>
+            <p>Status: {isPending ? (
+              <span className="text-orange-500 font-bold uppercase">Pending Review</span>
+            ) : (
+              <span className="text-emerald-600 font-bold uppercase">Approved</span>
+            )}</p>
           </div>
           <div className="flex items-center gap-3">
-            <button 
+            <button
               onClick={onClose}
               className="px-6 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-white transition"
             >
               Cancel
             </button>
-            <button 
-              onClick={() => {
-                onApprove(driver.id)
-                onClose()
-              }}
-              disabled={approving}
-              className="px-8 py-2.5 rounded-xl bg-emerald-500 text-white text-sm font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition disabled:opacity-50"
-            >
-              {approving ? 'Approving...' : 'Approve Driver'}
-            </button>
+            {isPending && (
+              <button
+                onClick={() => {
+                  onApprove(driver.id)
+                  onClose()
+                }}
+                disabled={approving}
+                className="px-8 py-2.5 rounded-xl bg-emerald-500 text-white text-sm font-bold shadow-lg shadow-emerald-500/20 hover:bg-emerald-600 transition disabled:opacity-50"
+              >
+                {approving ? 'Approving...' : 'Approve Driver'}
+              </button>
+            )}
           </div>
         </footer>
 

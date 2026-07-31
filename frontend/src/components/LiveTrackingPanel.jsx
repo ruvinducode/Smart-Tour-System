@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getLiveDriverLocation, getTourDetails, getRoute, driverUploadUrl } from '../services/api.js'
+import RatingStars from './RatingStars.jsx'
 
 // Haversine distance formula to calculate km between two lat/lng points
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -16,6 +17,7 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
   const [eta, setEta] = useState(null)
   const [distanceKm, setDistanceKm] = useState(null)
   const [status, setStatus] = useState('Locating driver...')
+  const [driverRating, setDriverRating] = useState(null)
   const intervalRef = useRef(null)
 
   // ── Dragging State ── (desktop only — see isMobile below)
@@ -74,6 +76,10 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
             setStatus('Driver is on the way')
           } else {
             setStatus(tourData.status.replace(/_/g, ' '))
+          }
+
+          if (tourData.driver) {
+            setDriverRating({ rating: tourData.driver.rating, total_ratings: tourData.driver.total_ratings })
           }
 
           const now = Date.now()
@@ -287,7 +293,8 @@ export default function LiveTrackingPanel({ tourId, token, userLat, userLng, dri
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest leading-none mb-1.5">Your Driver</p>
-                <p className="font-bold text-slate-900 text-base leading-none truncate">{driverName || 'Verified Pro'}</p>
+                <p className="font-bold text-slate-900 text-base leading-none truncate mb-1">{driverName || 'Verified Pro'}</p>
+                {driverRating && <RatingStars rating={driverRating.rating} totalRatings={driverRating.total_ratings} showCount={false} />}
               </div>
             </div>
 

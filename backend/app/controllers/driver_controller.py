@@ -16,13 +16,13 @@ from app import db, limiter
 from app.decorators import password_policy_error
 from app.models import Driver, TourPlan, User, Notification, Booking, Vehicle, Location, DriverPayment
 from app.services.vehicle_matching_service import normalize_vehicle_type, vehicle_ids_for_type
+from app.services.tour_pricing_service import haversine
 from app.services.notification_service import (
     get_notifications_for_driver,
     notify_driver_pending_tours,
     notify_driver_registered,
     notify_driver_approved,
     notify_driver_rejected,
-    notify_tour_assigned,
 )
 from app.services.finance_service import enrich_driver_payment
 
@@ -434,6 +434,8 @@ def get_pending_drivers():
             "vehicle_rear_image": d.vehicle_rear_image,
             "vehicle_side_image": d.vehicle_side_image,
             "created_at": str(d.created_at) if d.created_at else None,
+            "rating": d.rating,
+            "total_ratings": d.total_ratings,
         })
 
     return jsonify(result), 200
@@ -463,7 +465,9 @@ def get_approved_drivers():
             "phone": d.phone,
             "vehicle": d.vehicle_type,
             "capacity": d.capacity,
-            "is_available": d.is_available
+            "is_available": d.is_available,
+            "rating": d.rating,
+            "total_ratings": d.total_ratings,
         })
 
     return jsonify(result), 200
@@ -512,6 +516,8 @@ def get_all_drivers():
             "vehicle_front_image": d.vehicle_front_image,
             "vehicle_rear_image": d.vehicle_rear_image,
             "vehicle_side_image": d.vehicle_side_image,
+            "rating": d.rating,
+            "total_ratings": d.total_ratings,
         })
 
     return jsonify(result), 200
@@ -745,10 +751,14 @@ def get_driver_tour_requests():
         .all()
     )
 
+    from app.models import TourOffer
+
     result = []
     for t in tours:
         user = User.query.get(t.user_id) if t.user_id else None
         booking = Booking.query.filter_by(tour_id=t.id).first()
+        my_offer = TourOffer.query.filter_by(tour_id=t.id, driver_id=driver_id_int).first()
+        offer_count = TourOffer.query.filter_by(tour_id=t.id, status="pending").count()
         result.append({
             "id": t.id,
             "user_id": t.user_id,
@@ -762,6 +772,111 @@ def get_driver_tour_requests():
             "total_days": t.total_days,
             "estimated_price": t.estimated_price,
             "driver_price": booking.total_price if booking else None,
+            "my_offer": {
+                "id": my_offer.id,
+                "price": my_offer.price,
+                "status": my_offer.status,
+                "offer_type": my_offer.offer_type,
+            } if my_offer else None,
+            "offer_count": offer_count,
+            "status": t.status,
+            "created_at": str(t.created_at) if t.created_at else None,
+        })
+
+    return jsonify(result), 200
+
+
+# A driver actively driving/confirmed on a trip shouldn't be interrupted by a
+# new-request popup — except when they're on an ongoing tour and nearly done,
+# in which case a heads-up about upcoming work is genuinely useful to them.
+DRIVER_BUSY_STATUSES = ["driver_approved", "confirmed", "en_route", "arrived"]
+NEAR_COMPLETION_KM = 1.0
+
+
+# =========================
+# DRIVER: GET INCOMING (POPUP-ELIGIBLE) TOUR REQUESTS
+# =========================
+@driver_bp.route("/driver/incoming-tour-requests", methods=["GET"])
+@jwt_required()
+def get_driver_incoming_tour_requests():
+    claims = get_jwt()
+    if claims.get("role") != "driver":
+        return jsonify({"message": "Unauthorized"}), 403
+
+    try:
+        driver_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return jsonify({"message": "Invalid driver identity"}), 401
+
+    driver = Driver.query.get(driver_id)
+    if not driver or not driver.is_approved:
+        return jsonify([]), 200
+
+    # Block the popup while genuinely busy; allow it through for an ongoing
+    # tour that's within ~1km of its final stop (about to free up).
+    active_booking = (
+        Booking.query.join(TourPlan, Booking.tour_id == TourPlan.id)
+        .filter(
+            Booking.driver_id == driver_id,
+            TourPlan.status.in_(DRIVER_BUSY_STATUSES + ["ongoing"]),
+        )
+        .first()
+    )
+    if active_booking:
+        active_tour = TourPlan.query.get(active_booking.tour_id)
+        if active_tour.status in DRIVER_BUSY_STATUSES:
+            return jsonify([]), 200
+        if active_tour.status == "ongoing":
+            near_completion = False
+            if active_tour.driver_lat is not None and active_tour.driver_lng is not None:
+                final_stop = (
+                    Location.query.filter_by(tour_id=active_tour.id)
+                    .order_by(Location.order_index.desc())
+                    .first()
+                )
+                if final_stop:
+                    dist = haversine(
+                        active_tour.driver_lat, active_tour.driver_lng,
+                        final_stop.latitude, final_stop.longitude,
+                    )
+                    near_completion = dist <= NEAR_COMPLETION_KM
+            if not near_completion:
+                return jsonify([]), 200
+
+    matching_vehicle_ids = vehicle_ids_for_type(driver.vehicle_type)
+    if not matching_vehicle_ids:
+        return jsonify([]), 200
+
+    # Strictly open requests only — untouched by any driver yet. The moment
+    # any driver accepts or negotiates, a Booking row exists and it drops out
+    # of this query for everyone (including the driver who acted), which is
+    # exactly the "remove automatically once someone picks it up" behavior.
+    open_tours = (
+        TourPlan.query.outerjoin(Booking, Booking.tour_id == TourPlan.id)
+        .filter(
+            TourPlan.vehicle_id.in_(matching_vehicle_ids),
+            TourPlan.status == "planned",
+            Booking.id.is_(None),
+        )
+        .order_by(TourPlan.created_at.desc())
+        .all()
+    )
+
+    result = []
+    for t in open_tours:
+        user = User.query.get(t.user_id) if t.user_id else None
+        locs = Location.query.filter_by(tour_id=t.id).order_by(Location.order_index.asc()).all()
+        result.append({
+            "id": t.id,
+            "user_name": user.full_name if user else "Guest",
+            "start_date": str(t.start_date) if t.start_date else None,
+            "end_date": str(t.end_date) if t.end_date else None,
+            "total_distance_km": t.total_distance_km,
+            "total_days": t.total_days,
+            "estimated_price": t.estimated_price,
+            "pickup_name": locs[0].place_name if locs else None,
+            "destination_name": locs[-1].place_name if len(locs) > 1 else None,
+            "stops_count": len(locs),
             "status": t.status,
             "created_at": str(t.created_at) if t.created_at else None,
         })
@@ -791,62 +906,60 @@ def approve_tour_request_as_driver(tour_id):
     except (TypeError, ValueError):
         driver_id = None
 
-    # A tour is only approvable while it's a fresh, unclaimed request — once any
-    # driver has already been assigned (or the trip has moved past that stage),
-    # this must not be re-approvable by a *different* driver. Without this check,
-    # any authenticated driver could call this endpoint with an arbitrary tour_id
-    # and hijack a booking already assigned to someone else, including a tour
-    # that's already ongoing or completed.
-    from app.models import Booking
+    # Multiple drivers can each have a live offer on the same open tour — the
+    # only thing that actually locks a tour to one driver is the traveler
+    # accepting a specific offer, which creates a real Booking. So the only
+    # thing that must block this call is a Booking already existing for a
+    # *different* driver (tour already won) — not another driver's pending
+    # offer, and not this driver's own prior offer (re-accepting is a no-op).
+    from app.models import Booking, TourOffer
     booking = Booking.query.filter_by(tour_id=tour_id).first()
-    if tour.status != "planned" or (booking and booking.driver_id not in (None, driver_id)):
+    if booking and booking.driver_id != driver_id:
+        return jsonify({"message": "This tour is no longer available to approve"}), 409
+    if tour.status not in ("planned", "price_sent_by_driver", "rejected"):
         return jsonify({"message": "This tour is no longer available to approve"}), 409
 
-    tour.status = "driver_approved"
-
-    user = User.query.get(tour.user_id) if tour.user_id else None
     driver = Driver.query.get(driver_id) if driver_id else None
     driver_name = driver.full_name if driver else "Driver"
 
+    offer = TourOffer.query.filter_by(tour_id=tour_id, driver_id=driver_id).first()
+    if offer and offer.status == "pending":
+        return jsonify({"message": "You already have a pending offer on this tour"}), 200
+    if not offer:
+        offer = TourOffer(
+            tour_id=tour_id, driver_id=driver_id,
+            offer_type="direct", price=tour.estimated_price, status="pending",
+        )
+        db.session.add(offer)
+    else:
+        offer.offer_type = "direct"
+        offer.price = tour.estimated_price
+        offer.status = "pending"
+
+    tour.status = "price_sent_by_driver"
+
+    user = User.query.get(tour.user_id) if tour.user_id else None
     if user:
         create_notification(
             user.email,
-            "Driver accepted your tour request",
-            f"{driver_name} accepted your tour request #{tour.id}.",
+            "A driver wants to accept your tour request",
+            f"{driver_name} is ready to accept tour #{tour.id} at the listed price "
+            f"(Rs. {tour.estimated_price:.2f}). Review and confirm in your dashboard.",
             tour.id
         )
-
-    # ✅ CREATE OR UPDATE BOOKING TO LINK DRIVER TO TOUR
-    if not booking:
-        booking = Booking(
-            tour_id=tour_id,
-            driver_id=driver_id,
-            total_price=tour.estimated_price, # Use current estimated price as default
-            status="driver_approved"
-        )
-        db.session.add(booking)
-    else:
-        booking.driver_id = driver_id
-        booking.status = "driver_approved"
-        # total_price stays as is or updates to estimated_price
-        if not booking.total_price:
-            booking.total_price = tour.estimated_price
 
     admins = User.query.filter_by(role="admin").all()
     for admin in admins:
         create_notification(
             admin.email,
-            "Driver accepted a tour request",
-            f"{driver_name} accepted tour request #{tour.id}.",
+            "Driver offered to accept a tour request",
+            f"{driver_name} offered to accept tour request #{tour.id}.",
             tour.id
         )
 
-    if driver:
-        notify_tour_assigned(tour, user, driver)
-
     db.session.commit()
 
-    return jsonify({"message": "Tour request approved by driver"}), 200
+    return jsonify({"message": "Offer sent to traveler for confirmation"}), 200
 
 
 # =========================
@@ -889,32 +1002,35 @@ def negotiate_price_as_driver(tour_id):
     driver_name = driver.full_name if driver else "Driver"
 
     # Same hijack risk as the approve endpoint: without this guard, any driver
-    # could send a "counter-price" on an arbitrary tour_id — including one
-    # already assigned to someone else, or already underway — and take it over.
+    # could send a "counter-price" on a tour already won by someone else (a
+    # real Booking exists) and take it over. But multiple drivers negotiating
+    # in parallel on a still-open tour is exactly the point now, so a *pending
+    # offer from another driver* is not itself a reason to block this one.
+    # "rejected" is included because that's the state after the traveler
+    # turns down every current offer — any driver, including this one, must
+    # be able to send a new one, or the negotiation dead-ends.
+    from app.models import TourOffer
     booking = Booking.query.filter_by(tour_id=tour_id).first()
-    if tour.status not in ("planned", "driver_approved") or (
-        booking and booking.driver_id not in (None, driver_id)
-    ):
+    if booking and booking.driver_id != driver_id:
+        return jsonify({"message": "This tour is no longer available to negotiate"}), 409
+    if tour.status not in ("planned", "price_sent_by_driver", "rejected"):
         return jsonify({"message": "This tour is no longer available to negotiate"}), 409
 
-    # Keep the original platform estimate intact (tour.estimated_price) — the
-    # driver's counter-offer belongs on the booking only, so the user can see
-    # both numbers and the gap between them, not two copies of the same value.
     tour.status = "price_sent_by_driver"
 
-    # Create or update booking for this tour
-    if not booking:
-        booking = Booking(
-            tour_id=tour_id,
-            driver_id=driver_id,
-            total_price=driver_price,
-            status="pending"
+    # Create or update this driver's own offer — other drivers' offers on the
+    # same tour are untouched.
+    offer = TourOffer.query.filter_by(tour_id=tour_id, driver_id=driver_id).first()
+    if not offer:
+        offer = TourOffer(
+            tour_id=tour_id, driver_id=driver_id,
+            offer_type="negotiated", price=driver_price, status="pending",
         )
-        db.session.add(booking)
+        db.session.add(offer)
     else:
-        booking.total_price = driver_price
-        booking.driver_id = driver_id
-        booking.status = "pending"
+        offer.price = driver_price
+        offer.offer_type = "negotiated"
+        offer.status = "pending"
 
     user = User.query.get(tour.user_id) if tour.user_id else None
 
@@ -1006,6 +1122,40 @@ def get_my_driver_payments():
     return jsonify([enrich_driver_payment(p) for p in payments]), 200
 
 
+def _build_driver_feedback_payload(driver):
+    """Shared shape for a single driver's rating summary + feedback list —
+    used by both the driver's own dashboard and the admin driver-detail view,
+    so the two can never drift apart."""
+    from app.models import Feedback, User
+    feedbacks = Feedback.query.filter_by(driver_id=driver.id).order_by(Feedback.created_at.desc()).all()
+
+    breakdown = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    results = []
+
+    for f in feedbacks:
+        if f.rating in breakdown:
+            breakdown[f.rating] += 1
+
+        user = User.query.get(f.user_id) if f.user_id else None
+        results.append({
+            "id": f.id,
+            "tour_id": f.tour_id,
+            "user_name": user.full_name if user else "Guest",
+            "rating": f.rating,
+            "comment": f.comment,
+            "created_at": f.created_at.isoformat() if f.created_at else None
+        })
+
+    return {
+        "summary": {
+            "total_feedbacks": driver.total_ratings,
+            "average_rating": driver.rating,
+            "breakdown": breakdown
+        },
+        "feedbacks": results
+    }
+
+
 # =========================
 # DRIVER: GET MY FEEDBACKS
 # =========================
@@ -1025,31 +1175,21 @@ def get_my_driver_feedbacks():
     if not driver:
         return jsonify({"message": "Driver not found"}), 404
 
-    from app.models import Feedback, User
-    feedbacks = Feedback.query.filter_by(driver_id=driver_id).order_by(Feedback.created_at.desc()).all()
+    return jsonify(_build_driver_feedback_payload(driver)), 200
 
-    breakdown = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-    results = []
 
-    for f in feedbacks:
-        if f.rating in breakdown:
-            breakdown[f.rating] += 1
+# =========================
+# ADMIN: GET A SPECIFIC DRIVER'S FEEDBACKS
+# =========================
+@driver_bp.route("/admin/driver/<int:driver_id>/feedbacks", methods=["GET"])
+@jwt_required()
+def get_driver_feedbacks_admin(driver_id):
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"message": "Unauthorized"}), 403
 
-        user = User.query.get(f.user_id) if f.user_id else None
-        results.append({
-            "id": f.id,
-            "tour_id": f.tour_id,
-            "user_name": user.full_name if user else "Guest",
-            "rating": f.rating,
-            "comment": f.comment,
-            "created_at": f.created_at.isoformat() if f.created_at else None
-        })
+    driver = Driver.query.get(driver_id)
+    if not driver:
+        return jsonify({"message": "Driver not found"}), 404
 
-    return jsonify({
-        "summary": {
-            "total_feedbacks": driver.total_ratings,
-            "average_rating": driver.rating,
-            "breakdown": breakdown
-        },
-        "feedbacks": results
-    }), 200
+    return jsonify(_build_driver_feedback_payload(driver)), 200

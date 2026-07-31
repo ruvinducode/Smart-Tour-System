@@ -1,34 +1,35 @@
 import DriverSectionHeader from './DriverSectionHeader.jsx'
 import DriverTourCard from './DriverTourCard.jsx'
+import { useDriverLang } from '../../i18n/DriverLanguageContext.jsx'
 
 const SECTION_META = {
   all: {
-    title: 'Recent Tour Requests',
-    subtitle: 'Latest assignments matching your vehicle — accept or negotiate in one tap.',
+    titleKey: 'section.all.title',
+    subtitleKey: 'section.all.subtitle',
     icon: 'bi-clipboard-data',
     accent: 'orange',
-    countLabel: 'requests',
+    countLabelKey: 'section.countLabel.requests',
   },
   upcoming: {
-    title: 'Upcoming Tours',
-    subtitle: 'New tour requests awaiting your action, plus confirmed trips ready to start.',
+    titleKey: 'section.upcoming.title',
+    subtitleKey: 'section.upcoming.subtitle',
     icon: 'bi-calendar-event-fill',
     accent: 'violet',
-    countLabel: 'upcoming',
+    countLabelKey: 'section.countLabel.upcoming',
   },
   approved: {
-    title: 'Approved Requests',
-    subtitle: 'Tours you accepted — confirmed, en route, or in progress.',
+    titleKey: 'section.approved.title',
+    subtitleKey: 'section.approved.subtitle',
     icon: 'bi-check-circle-fill',
     accent: 'emerald',
-    countLabel: 'approved',
+    countLabelKey: 'section.countLabel.approved',
   },
   price_sent: {
-    title: 'Negotiating Requests',
-    subtitle: 'Counter-offers awaiting passenger response. Update your price anytime.',
+    titleKey: 'section.price_sent.title',
+    subtitleKey: 'section.price_sent.subtitle',
     icon: 'bi-arrow-left-right',
     accent: 'blue',
-    countLabel: 'negotiating',
+    countLabelKey: 'section.countLabel.negotiating',
   },
 }
 
@@ -51,6 +52,7 @@ export default function DriverTourListSection({
   onStartDriving,
   token,
 }) {
+  const { t } = useDriverLang()
   const meta = SECTION_META[tab] || SECTION_META.all
   const variant = VARIANT_MAP[tab] || 'recent'
 
@@ -58,28 +60,28 @@ export default function DriverTourListSection({
     <div className="space-y-6">
       {tab !== 'all' && (
         <DriverSectionHeader
-          title={meta.title}
-          subtitle={meta.subtitle}
+          title={t(meta.titleKey)}
+          subtitle={t(meta.subtitleKey)}
           icon={meta.icon}
           accent={meta.accent}
           count={loading ? '—' : tours.length}
-          countLabel={meta.countLabel}
+          countLabel={t(meta.countLabelKey)}
         />
       )}
 
       {loading ? (
         <div className="py-24 text-center">
           <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-orange-500 mb-4" />
-          <p className="text-slate-500 font-bold text-sm">Loading tour requests…</p>
+          <p className="text-slate-500 font-bold text-sm">{t('section.loading')}</p>
         </div>
       ) : tours.length === 0 ? (
         <div className="rounded-[2rem] border-2 border-dashed border-slate-200 bg-white/60 py-20 text-center px-8">
           <div className="h-20 w-20 rounded-3xl bg-slate-100 flex items-center justify-center mx-auto mb-5">
             <i className={`bi ${meta.icon} text-3xl text-slate-300`} />
           </div>
-          <p className="text-lg font-black text-slate-700">No {meta.countLabel} found</p>
+          <p className="text-lg font-black text-slate-700">{t('section.noneFound', { label: t(meta.countLabelKey) })}</p>
           <p className="text-sm text-slate-400 font-medium mt-2 max-w-sm mx-auto">
-            New tour requests matching your vehicle will appear here automatically.
+            {t('section.noneFoundHint')}
           </p>
         </div>
       ) : (

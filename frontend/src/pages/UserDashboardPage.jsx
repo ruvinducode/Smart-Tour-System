@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   LayoutDashboard, 
@@ -27,21 +27,24 @@ import {
   Menu,
   Trash2
 } from 'lucide-react'
-import { getUserNotifications, getUserTours, cancelTour, deleteTour, acceptDriverPrice, rejectDriverPrice, driverUploadUrl, replyToDriver, markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications, submitFeedback } from '../services/api.js'
+import { getUserNotifications, getUserTours, cancelTour, deleteTour, acceptOffer, rejectOffer, driverUploadUrl, replyToDriver, markNotificationRead, markAllNotificationsRead, deleteNotification, clearAllNotifications, submitFeedback, getMyProfile, updateMyProfile } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
 import LiveTrackingPage from './LiveTrackingPage.jsx'
 import LiveTrackingPanel from '../components/LiveTrackingPanel.jsx'
 import CancellationModal from '../components/CancellationModal.jsx'
+import ConfirmationModal from '../components/ConfirmationModal.jsx'
 import FeedbackModal from '../components/FeedbackModal.jsx'
 import DashboardChart from '../components/DashboardChart.jsx'
 import DashboardStatCard from '../components/DashboardStatCard.jsx'
 import Footer from '../components/Footer.jsx'
+import CountrySelect from '../components/CountrySelect.jsx'
 import { buildLast7DaysChart, computeUserAnalytics, formatCurrency } from '../utils/dashboardAnalytics.js'
 import {
   canUserStartLiveTracking,
   formatTourSchedule,
   isUserAwaitingScheduleStart,
 } from '../utils/tourSchedule.js'
+import { normaliseProfileUpdate, validateProfileUpdate } from '../utils/validation.js'
 
 // --- Professional Design Tokens ---
 const THEME = {
@@ -96,13 +99,13 @@ const itemVariants = {
   }
 }
 
-export default function UserDashboardPage({ token, userName, onLogout, onGoToPlanner }) {
+export default function UserDashboardPage({ token, userName, onLogout, onGoToPlanner, initialTab }) {
   const [tours, setTours] = useState([])
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedTourId, setSelectedTourId] = useState(null)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState(initialTab || 'overview')
 
   // ── Live Tracking State ──
   const [liveTrackingTourId, setLiveTrackingTourId] = useState(null)
@@ -111,12 +114,19 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
 
-  // ── Panel Feedback State (for driver-cancelled or user-cancelled from panel) ──
-  const [showPanelFeedback, setShowPanelFeedback] = useState(false)
-  const [panelFeedbackTourId, setPanelFeedbackTourId] = useState(null)
-  const [panelFeedbackDriverName, setPanelFeedbackDriverName] = useState('')
-  const [submittingPanelFeedback, setSubmittingPanelFeedback] = useState(false)
-  const panelFeedbackShownRef = { current: false }
+  // ── Dashboard-level feedback prompt ──────────────────────────────────────
+  // Safety net for the case where the traveler wasn't on the live-tracking
+  // screen when their driver finished a tour (that screen has its own
+  // immediate prompt, unchanged) — catches any completed tour with a driver
+  // assigned that still has no feedback, and asks again here. `dismissed`
+  // is deliberately session-only (not persisted anywhere): skipping just
+  // silences it until the next fresh page load/login, which is exactly the
+  // "reappear on relogin" behavior — a new session starts with nothing
+  // dismissed, so anything still unrated shows again.
+  const [pendingFeedbackTourId, setPendingFeedbackTourId] = useState(null)
+  const [pendingFeedbackDriverName, setPendingFeedbackDriverName] = useState('')
+  const [dismissedFeedbackIds, setDismissedFeedbackIds] = useState(() => new Set())
+  const [submittingPendingFeedback, setSubmittingPendingFeedback] = useState(false)
 
   // ── New Dashboard & Deletion States ──
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
@@ -125,18 +135,103 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
   const [deleting, setDeleting] = useState(false)
   const [activeSubTab, setActiveSubTab] = useState('active')
 
-  // Account Settings States
+  // ── Account Settings / Profile State ──
+  // `profile` is the last-known-saved server state; the settings* fields are
+  // the editable draft. Keeping both lets "Cancel Changes" revert cleanly and
+  // lets the Save button disable itself when nothing has actually changed.
+  const [profile, setProfile] = useState(null)
+  const [profileLoading, setProfileLoading] = useState(true)
+  const [profileLoadError, setProfileLoadError] = useState('')
   const [settingsName, setSettingsName] = useState(userName || '')
-  const [settingsPhone, setSettingsPhone] = useState('+94 77 123 4567')
-  const [settingsCountry, setSettingsCountry] = useState('Sri Lanka')
+  const [settingsPhone, setSettingsPhone] = useState('')
+  const [settingsCountry, setSettingsCountry] = useState('')
+  const [profileFieldErrors, setProfileFieldErrors] = useState({})
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [saveSuccess, setSaveSuccess] = useState(false)
   const [emailNotifs, setEmailNotifs] = useState(true)
   const [smsNotifs, setSmsNotifs] = useState(false)
-  const [settingsSaved, setSettingsSaved] = useState(false)
   const [scheduleTick, setScheduleTick] = useState(0)
+  const settingsFormRef = useRef(null)
+
+  const applyProfile = useCallback((p) => {
+    setProfile(p)
+    setSettingsName(p.full_name || '')
+    setSettingsPhone(p.phone || '')
+    setSettingsCountry(p.country || '')
+  }, [])
 
   useEffect(() => {
-    if (userName) setSettingsName(userName)
-  }, [userName])
+    let cancelled = false
+    setProfileLoading(true)
+    setProfileLoadError('')
+    getMyProfile(token)
+      .then((data) => { if (!cancelled) applyProfile(data) })
+      .catch((err) => {
+        if (cancelled) return
+        if (err.message?.toLowerCase().includes('token has expired') || err.message?.includes('401')) {
+          onLogout()
+          return
+        }
+        setProfileLoadError(err.message || 'Could not load your profile')
+      })
+      .finally(() => { if (!cancelled) setProfileLoading(false) })
+    return () => { cancelled = true }
+  }, [token, applyProfile, onLogout])
+
+  const isProfileDirty = !!profile && (
+    settingsName.trim() !== (profile.full_name || '') ||
+    settingsPhone.trim() !== (profile.phone || '') ||
+    settingsCountry.trim() !== (profile.country || '')
+  )
+
+  const handleCancelProfileChanges = () => {
+    if (profile) applyProfile(profile)
+    setProfileFieldErrors({})
+    setSaveError('')
+  }
+
+  const PROFILE_FIELD_ORDER = ['full_name', 'phone', 'country']
+
+  const handleRequestSaveProfile = () => {
+    setSaveError('')
+    const errors = validateProfileUpdate({
+      full_name: settingsName,
+      phone: settingsPhone,
+      country: settingsCountry,
+    })
+    if (Object.keys(errors).length > 0) {
+      setProfileFieldErrors(errors)
+      const firstInvalid = PROFILE_FIELD_ORDER.find((f) => errors[f])
+      if (firstInvalid) settingsFormRef.current?.querySelector(`[name="${firstInvalid}"]`)?.focus()
+      return
+    }
+    setProfileFieldErrors({})
+    setShowSaveConfirm(true)
+  }
+
+  const handleConfirmSaveProfile = async () => {
+    setSavingProfile(true)
+    setSaveError('')
+    try {
+      const payload = normaliseProfileUpdate({
+        full_name: settingsName,
+        phone: settingsPhone,
+        country: settingsCountry,
+      })
+      const data = await updateMyProfile(payload, token)
+      applyProfile(data.user || payload)
+      setShowSaveConfirm(false)
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 4000)
+    } catch (err) {
+      setShowSaveConfirm(false)
+      setSaveError(err.message || 'Failed to update profile. Please try again.')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
 
   useEffect(() => {
     const interval = setInterval(() => setScheduleTick((t) => t + 1), 30000)
@@ -189,10 +284,10 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
 
   const [negotiationLoading, setNegotiationLoading] = useState(false)
 
-  const handleAcceptOffer = async (tourId) => {
+  const handleAcceptOffer = async (tourId, offerId) => {
     setNegotiationLoading(true)
     try {
-      await acceptDriverPrice(tourId, token)
+      await acceptOffer(tourId, offerId, token)
       alert('Price offer accepted successfully!')
       loadDashboardData()
     } catch (err) {
@@ -202,10 +297,10 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
     }
   }
 
-  const handleRejectOffer = async (tourId) => {
+  const handleRejectOffer = async (tourId, offerId) => {
     setNegotiationLoading(true)
     try {
-      await rejectDriverPrice(tourId, token)
+      await rejectOffer(tourId, offerId, token)
       alert('Price offer rejected.')
       loadDashboardData()
     } catch (err) {
@@ -219,11 +314,11 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
 
   const getDriverImageUrl = (path) => driverUploadUrl(path)
 
-  const handleSendReply = async (tourId) => {
+  const handleSendReply = async (tourId, driverId) => {
     if (!negotiationReply.trim()) return
     setNegotiationLoading(true)
     try {
-      await replyToDriver(tourId, negotiationReply, token)
+      await replyToDriver(tourId, driverId, negotiationReply, token)
       alert('Reply sent to driver successfully!')
       setNegotiationReply('')
       loadDashboardData()
@@ -247,6 +342,26 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
       const toursArr = Array.isArray(tourData) ? tourData : []
       setTours(toursArr)
       setNotifications(Array.isArray(notifData) ? notifData : [])
+
+      // Safety net for feedback missed on the live-tracking screen — find
+      // the first completed, rateable, not-yet-dismissed-this-session tour
+      // with no feedback yet. Runs on both the initial load and every poll,
+      // so it catches a tour completing while idle on the dashboard too,
+      // not just at login.
+      setPendingFeedbackTourId((prevPending) => {
+        if (prevPending) return prevPending
+        const nextTour = toursArr.find((t) =>
+          t.status === 'completed' &&
+          t.driver_name &&
+          !t.feedback_submitted &&
+          !dismissedFeedbackIds.has(t.id)
+        )
+        if (nextTour) {
+          setPendingFeedbackDriverName(nextTour.driver_name)
+          return nextTour.id
+        }
+        return null
+      })
 
       const activeStatuses = ['driver_approved', 'confirmed', 'en_route', 'arrived', 'ongoing']
       const activeTour = toursArr.find((t) => activeStatuses.includes(t.status) && canUserStartLiveTracking(t))
@@ -285,7 +400,7 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [token, onLogout, liveTrackingTourId])
+  }, [token, onLogout, liveTrackingTourId, dismissedFeedbackIds])
 
   useEffect(() => { loadDashboardData() }, [loadDashboardData])
 
@@ -361,20 +476,24 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
     }
   }
 
-  const handlePanelFeedbackSubmit = async (rating, comment) => {
-    setSubmittingPanelFeedback(true)
+  const handlePendingFeedbackSubmit = async (rating, comment) => {
+    setSubmittingPendingFeedback(true)
     try {
-      await submitFeedback(panelFeedbackTourId, rating, comment, token)
-      setShowPanelFeedback(false)
-      setPanelFeedbackTourId(null)
-      setLiveTrackingMode(null)
-      setLiveTrackingTourId(null)
-      setLiveTrackingTour(null)
+      await submitFeedback(pendingFeedbackTourId, rating, comment, token)
+      setPendingFeedbackTourId(null)
+      setPendingFeedbackDriverName('')
+      loadDashboardData()
     } catch (err) {
       alert(err.message || 'Failed to submit feedback')
     } finally {
-      setSubmittingPanelFeedback(false)
+      setSubmittingPendingFeedback(false)
     }
+  }
+
+  const handlePendingFeedbackSkip = () => {
+    setDismissedFeedbackIds((prev) => new Set(prev).add(pendingFeedbackTourId))
+    setPendingFeedbackTourId(null)
+    setPendingFeedbackDriverName('')
   }
 
   const SidebarItem = ({ icon: Icon, label, id, active }) => (
@@ -1150,123 +1269,216 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
           )}
 
           {activeTab === 'settings' && (
-            <div className="max-w-3xl mx-auto space-y-12">
+            <div className="max-w-3xl mx-auto space-y-8 sm:space-y-12">
               <div>
-                <h2 className="text-4xl font-black text-slate-900 tracking-tight">Account Settings</h2>
+                <h2 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">Account Settings</h2>
                 <p className="text-slate-500 font-bold mt-2">Manage your personal details and system preference controls.</p>
               </div>
 
-              {settingsSaved && (
-                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-2xl flex items-center gap-3">
-                  <CheckCircle2 size={18} />
-                  <span className="text-sm font-bold">Profile updates saved successfully!</span>
-                </motion.div>
-              )}
+              <AnimatePresence>
+                {saveSuccess && (
+                  <motion.div
+                    role="status" aria-live="polite"
+                    initial={{ opacity: 0, y: -10, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                    className="p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-2xl flex items-center gap-3 overflow-hidden"
+                  >
+                    <CheckCircle2 size={18} className="shrink-0" />
+                    <span className="text-sm font-bold">Profile updates saved successfully!</span>
+                  </motion.div>
+                )}
+                {saveError && (
+                  <motion.div
+                    role="alert"
+                    initial={{ opacity: 0, y: -10, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                    className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl flex items-center gap-3 overflow-hidden"
+                  >
+                    <AlertCircle size={18} className="shrink-0" />
+                    <span className="text-sm font-bold">{saveError}</span>
+                  </motion.div>
+                )}
+                {profileLoadError && (
+                  <motion.div
+                    role="alert"
+                    initial={{ opacity: 0, y: -10, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                    className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl flex items-center gap-3 overflow-hidden"
+                  >
+                    <AlertCircle size={18} className="shrink-0" />
+                    <span className="text-sm font-bold">Couldn't load your profile: {profileLoadError}</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-              <div className="bg-white border border-slate-100 rounded-[3rem] shadow-sm p-10 space-y-8">
-                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2 border-b border-slate-50 pb-4">
-                  <User size={18} className="text-orange-500" /> Personal Profile
-                </h3>
+              <form
+                ref={settingsFormRef}
+                noValidate
+                onSubmit={(e) => { e.preventDefault(); handleRequestSaveProfile() }}
+              >
+                <div className="bg-white border border-slate-100 rounded-[2rem] sm:rounded-[3rem] shadow-sm p-6 sm:p-10 space-y-8">
+                  <h3 className="text-lg font-black text-slate-900 flex items-center gap-2 border-b border-slate-50 pb-4">
+                    <User size={18} className="text-orange-500" aria-hidden="true" /> Personal Profile
+                  </h3>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Full Name</label>
-                    <input 
-                      type="text" 
-                      value={settingsName}
-                      onChange={(e) => setSettingsName(e.target.value)}
-                      className="w-full bg-slate-50 border-none rounded-2xl px-5 py-3.5 text-sm font-bold text-slate-950 focus:ring-2 focus:ring-orange-500/20 transition-all outline-none"
-                    />
-                  </div>
+                  {profileLoading ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6" aria-busy="true" aria-label="Loading profile">
+                      {[1, 2, 3, 4].map((i) => <div key={i} className="h-[52px] bg-slate-50 rounded-2xl animate-pulse" />)}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label htmlFor="settings-full-name" className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Full Name</label>
+                        <input
+                          id="settings-full-name"
+                          name="full_name"
+                          type="text"
+                          autoComplete="name"
+                          value={settingsName}
+                          onChange={(e) => { setSettingsName(e.target.value); setProfileFieldErrors((p) => (p.full_name ? { ...p, full_name: undefined } : p)) }}
+                          aria-invalid={!!profileFieldErrors.full_name}
+                          aria-describedby={profileFieldErrors.full_name ? 'settings-full-name-error' : undefined}
+                          className={`w-full bg-slate-50 border-none rounded-2xl px-5 py-3.5 text-base sm:text-sm font-bold text-slate-950 focus:ring-2 transition-all outline-none ${profileFieldErrors.full_name ? 'ring-2 ring-rose-300 focus:ring-rose-400' : 'focus:ring-orange-500/20'}`}
+                        />
+                        {profileFieldErrors.full_name && (
+                          <p id="settings-full-name-error" className="mt-1.5 text-xs font-bold text-rose-600 flex items-center gap-1">
+                            <AlertCircle size={12} aria-hidden="true" />{profileFieldErrors.full_name}
+                          </p>
+                        )}
+                      </div>
 
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Email Address</label>
-                    <input 
-                      type="email" 
-                      value={token ? JSON.parse(atob(token.split('.')[1])).sub || 'user@gmail.com' : 'user@gmail.com'} 
-                      disabled
-                      className="w-full bg-slate-50/50 border-none rounded-2xl px-5 py-3.5 text-sm font-bold text-slate-400 cursor-not-allowed outline-none"
-                    />
-                  </div>
+                      <div>
+                        <label htmlFor="settings-email" className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Email Address</label>
+                        <input
+                          id="settings-email"
+                          type="email"
+                          value={profile?.email || ''}
+                          disabled
+                          aria-describedby="settings-email-hint"
+                          className="w-full bg-slate-50/50 border-none rounded-2xl px-5 py-3.5 text-base sm:text-sm font-bold text-slate-400 cursor-not-allowed outline-none"
+                        />
+                        <p id="settings-email-hint" className="mt-1.5 text-[11px] font-medium text-slate-400">Email can't be changed here.</p>
+                      </div>
 
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Phone Number</label>
-                    <input 
-                      type="text" 
-                      value={settingsPhone}
-                      onChange={(e) => setSettingsPhone(e.target.value)}
-                      className="w-full bg-slate-50 border-none rounded-2xl px-5 py-3.5 text-sm font-bold text-slate-950 focus:ring-2 focus:ring-orange-500/20 transition-all outline-none"
-                    />
-                  </div>
+                      <div>
+                        <label htmlFor="settings-phone" className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Phone Number</label>
+                        <input
+                          id="settings-phone"
+                          name="phone"
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          value={settingsPhone}
+                          onChange={(e) => { setSettingsPhone(e.target.value); setProfileFieldErrors((p) => (p.phone ? { ...p, phone: undefined } : p)) }}
+                          aria-invalid={!!profileFieldErrors.phone}
+                          aria-describedby={profileFieldErrors.phone ? 'settings-phone-error' : undefined}
+                          className={`w-full bg-slate-50 border-none rounded-2xl px-5 py-3.5 text-base sm:text-sm font-bold text-slate-950 focus:ring-2 transition-all outline-none ${profileFieldErrors.phone ? 'ring-2 ring-rose-300 focus:ring-rose-400' : 'focus:ring-orange-500/20'}`}
+                        />
+                        {profileFieldErrors.phone && (
+                          <p id="settings-phone-error" className="mt-1.5 text-xs font-bold text-rose-600 flex items-center gap-1">
+                            <AlertCircle size={12} aria-hidden="true" />{profileFieldErrors.phone}
+                          </p>
+                        )}
+                      </div>
 
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Home Country / Origin</label>
-                    <input 
-                      type="text" 
-                      value={settingsCountry}
-                      onChange={(e) => setSettingsCountry(e.target.value)}
-                      className="w-full bg-slate-50 border-none rounded-2xl px-5 py-3.5 text-sm font-bold text-slate-950 focus:ring-2 focus:ring-orange-500/20 transition-all outline-none"
-                    />
+                      <div>
+                        <label htmlFor="settings-country" className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Home Country / Origin</label>
+                        <CountrySelect
+                          id="settings-country"
+                          name="country"
+                          value={settingsCountry}
+                          onChange={(country) => { setSettingsCountry(country); setProfileFieldErrors((p) => (p.country ? { ...p, country: undefined } : p)) }}
+                          invalid={!!profileFieldErrors.country}
+                          describedBy={profileFieldErrors.country ? 'settings-country-error' : undefined}
+                          className="!bg-slate-50 !border-0 !rounded-2xl !px-5 !py-3.5 !text-base sm:!text-sm !font-bold !text-slate-950"
+                        />
+                        {profileFieldErrors.country && (
+                          <p id="settings-country-error" className="mt-1.5 text-xs font-bold text-rose-600 flex items-center gap-1">
+                            <AlertCircle size={12} aria-hidden="true" />{profileFieldErrors.country}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white border border-slate-100 rounded-[2rem] sm:rounded-[3rem] shadow-sm p-6 sm:p-10 space-y-8 mt-8 sm:mt-12">
+                  <h3 className="text-lg font-black text-slate-900 flex items-center gap-2 border-b border-slate-50 pb-4">
+                    <Bell size={18} className="text-orange-500" aria-hidden="true" /> Notifications Settings
+                  </h3>
+
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900">Email Notifications</h4>
+                        <p className="text-slate-500 text-xs font-medium">Receive weekly travel reports, trip receipts, and recommendations.</p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={emailNotifs}
+                        aria-label="Toggle email notifications"
+                        onClick={() => setEmailNotifs(!emailNotifs)}
+                        className={`shrink-0 w-14 h-8 rounded-full transition-all duration-300 relative p-1 ${
+                          emailNotifs ? 'bg-orange-500' : 'bg-slate-200'
+                        }`}
+                      >
+                        <div className={`h-6 w-6 rounded-full bg-white transition-all shadow-sm ${
+                          emailNotifs ? 'translate-x-6' : 'translate-x-0'
+                        }`} />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900">SMS Driver Alerts</h4>
+                        <p className="text-slate-500 text-xs font-medium">Receive instant mobile text alerts when a driver accepts your trip bids.</p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={smsNotifs}
+                        aria-label="Toggle SMS driver alerts"
+                        onClick={() => setSmsNotifs(!smsNotifs)}
+                        className={`shrink-0 w-14 h-8 rounded-full transition-all duration-300 relative p-1 ${
+                          smsNotifs ? 'bg-orange-500' : 'bg-slate-200'
+                        }`}
+                      >
+                        <div className={`h-6 w-6 rounded-full bg-white transition-all shadow-sm ${
+                          smsNotifs ? 'translate-x-6' : 'translate-x-0'
+                        }`} />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="bg-white border border-slate-100 rounded-[3rem] shadow-sm p-10 space-y-8">
-                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2 border-b border-slate-50 pb-4">
-                  <Bell size={18} className="text-orange-500" /> Notifications Settings
-                </h3>
-
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-black text-slate-900">Email Notifications</h4>
-                      <p className="text-slate-500 text-xs font-medium">Receive weekly travel reports, trip receipts, and recommendations.</p>
-                    </div>
-                    <button 
-                      onClick={() => setEmailNotifs(!emailNotifs)}
-                      className={`w-14 h-8 rounded-full transition-all duration-300 relative p-1 ${
-                        emailNotifs ? 'bg-orange-500' : 'bg-slate-200'
-                      }`}
-                    >
-                      <div className={`h-6 w-6 rounded-full bg-white transition-all shadow-sm ${
-                        emailNotifs ? 'translate-x-6' : 'translate-x-0'
-                      }`} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-black text-slate-900">SMS Driver Alerts</h4>
-                      <p className="text-slate-500 text-xs font-medium">Receive instant mobile text alerts when a driver accepts your trip bids.</p>
-                    </div>
-                    <button 
-                      onClick={() => setSmsNotifs(!smsNotifs)}
-                      className={`w-14 h-8 rounded-full transition-all duration-300 relative p-1 ${
-                        smsNotifs ? 'bg-orange-500' : 'bg-slate-200'
-                      }`}
-                    >
-                      <div className={`h-6 w-6 rounded-full bg-white transition-all shadow-sm ${
-                        smsNotifs ? 'translate-x-6' : 'translate-x-0'
-                      }`} />
-                    </button>
-                  </div>
+                <div className="flex flex-col sm:flex-row justify-end gap-4 mt-8">
+                  <button
+                    type="button"
+                    onClick={handleCancelProfileChanges}
+                    disabled={!isProfileDirty || savingProfile}
+                    className="px-8 py-4 bg-slate-50 text-slate-900 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-100 transition-all border border-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Cancel Changes
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!isProfileDirty || savingProfile || profileLoading}
+                    className="px-10 py-4 bg-orange-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-orange-500"
+                  >
+                    Save Profile Settings
+                  </button>
                 </div>
-              </div>
+              </form>
 
-              <div className="flex justify-end gap-4">
-                <button className="px-8 py-4 bg-slate-50 text-slate-900 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-100 transition-all border border-slate-200">
-                  Cancel Changes
-                </button>
-                <button 
-                  onClick={() => {
-                    setSettingsSaved(true);
-                    setTimeout(() => setSettingsSaved(false), 4000);
-                  }}
-                  className="px-10 py-4 bg-orange-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-orange-600 transition-all shadow-lg shadow-blue-600/20"
-                >
-                  Save Profile Settings
-                </button>
-              </div>
+              <ConfirmationModal
+                isOpen={showSaveConfirm}
+                onClose={() => { if (!savingProfile) setShowSaveConfirm(false) }}
+                onConfirm={handleConfirmSaveProfile}
+                title="Save profile changes?"
+                message="This updates the personal details on your account. You can edit them again at any time."
+                confirmLabel="Yes, Save Changes"
+                cancelLabel="Keep Editing"
+                type="info"
+                isLoading={savingProfile}
+              />
             </div>
           )}
 
@@ -1523,6 +1735,18 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
         )}
       </AnimatePresence>
 
+      {/* ── Feedback safety net — catches a completed tour the traveler
+          never rated because they weren't on the live-tracking screen when
+          it finished. Reappears every fresh login until actually rated. ── */}
+      <FeedbackModal
+        isOpen={!!pendingFeedbackTourId}
+        onClose={handlePendingFeedbackSkip}
+        onSubmit={handlePendingFeedbackSubmit}
+        tourId={pendingFeedbackTourId}
+        driverName={pendingFeedbackDriverName}
+        loading={submittingPendingFeedback}
+      />
+
       {/* ── Price Negotiation Interruption Modal ── */}
       <AnimatePresence>
         {negotiationTours.length > 0 && (
@@ -1535,150 +1759,244 @@ export default function UserDashboardPage({ token, userName, onLogout, onGoToPla
               className="absolute inset-0 bg-slate-950/70 backdrop-blur-md"
             />
 
-            {/* Iterating over all offers – show one at a time (first) */}
+            {/* Show one tour's negotiation at a time (first); within that
+                tour, every driver's offer that's still pending is listed —
+                multiple drivers can now respond to the same open tour. */}
             {(() => {
               const tour = negotiationTours[0]
-              const driverImg = getDriverImageUrl(tour.driver_image)
-              const savings = tour.estimated_price - (tour.driver_price || 0)
+              const offers = tour.offers || []
+              const singleOffer = offers.length === 1 ? offers[0] : null
 
+              // Fast-track: exactly one live offer keeps the original,
+              // richer single-card experience rather than a list.
+              if (singleOffer) {
+                const driverImg = getDriverImageUrl(singleOffer.driver?.profile_photo)
+                const savings = tour.estimated_price - (singleOffer.price || 0)
+
+                return (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.92, y: 30 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.92, y: 30 }}
+                    transition={{ type: 'spring', damping: 22, stiffness: 250 }}
+                    className="relative z-10 w-full max-w-lg"
+                  >
+                    {/* Glow ring */}
+                    <div className="absolute -inset-1 rounded-[3.5rem] bg-gradient-to-br from-orange-400 via-amber-300 to-orange-500 opacity-60 blur-xl animate-pulse pointer-events-none" />
+
+                    <div className="relative bg-white rounded-[3rem] overflow-hidden shadow-2xl">
+
+                      {/* Top banner */}
+                      <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-8 pt-8 pb-6 text-white text-center relative overflow-hidden">
+                        <div className="absolute inset-0 opacity-10">
+                          <div className="absolute top-2 right-4 text-[120px] font-black leading-none select-none">₹</div>
+                        </div>
+                        {/* Pulsing alert badge */}
+                        <div className="flex items-center justify-center gap-2 mb-4">
+                          <span className="flex h-2.5 w-2.5 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
+                          </span>
+                          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-100">Price Negotiation Alert</span>
+                        </div>
+
+                        {/* Driver Avatar */}
+                        <div className="relative inline-block mb-4">
+                          {driverImg ? (
+                            <img
+                              src={driverImg}
+                              alt={singleOffer.driver?.name}
+                              className="h-24 w-24 rounded-2xl object-cover border-4 border-white/30 shadow-xl mx-auto"
+                              onError={(e) => {
+                                e.target.style.display = 'none'
+                                e.target.nextSibling.style.display = 'flex'
+                              }}
+                            />
+                          ) : null}
+                          <div
+                            style={{ display: driverImg ? 'none' : 'flex' }}
+                            className="h-24 w-24 rounded-2xl bg-white/20 text-white text-4xl font-black border-4 border-white/30 shadow-xl mx-auto items-center justify-center"
+                          >
+                            {singleOffer.driver?.name?.[0]?.toUpperCase() || 'D'}
+                          </div>
+                          <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[9px] font-black px-3 py-0.5 rounded-full uppercase tracking-widest shadow">
+                            Approved Driver
+                          </span>
+                        </div>
+
+                        <h3 className="text-xl font-black mt-3 tracking-tight">
+                          {singleOffer.driver?.name || 'Your Driver'} sent a fare offer
+                        </h3>
+                        <p className="text-orange-100 text-sm font-medium mt-1">
+                          {tour.total_distance_km} km &bull; {tour.total_days} day{tour.total_days !== 1 ? 's' : ''}
+                          {singleOffer.driver?.vehicle_number ? ` · ${singleOffer.driver.vehicle_number}` : ''}
+                        </p>
+                      </div>
+
+                      {/* Price Comparison */}
+                      <div className="px-8 py-6 bg-slate-50 flex items-center justify-center gap-6">
+                        <div className="text-center">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Your Estimate</p>
+                          <p className="text-2xl font-black text-slate-400 line-through">
+                            Rs. {(tour.estimated_price || 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <div className="h-px w-12 bg-slate-300" />
+                          <span className="text-[9px] text-slate-400 font-black uppercase my-1">vs</span>
+                          <div className="h-px w-12 bg-slate-300" />
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest mb-1">Driver's Offer</p>
+                          <p className="text-3xl font-black text-slate-900">
+                            Rs. {(singleOffer.price || 0).toLocaleString()}
+                          </p>
+                          {savings !== 0 && (
+                            <p className={`text-[10px] font-black mt-1 ${savings > 0 ? 'text-orange-500' : 'text-rose-500'}`}>
+                              {savings > 0 ? `Rs. ${savings.toLocaleString()} less than estimate` : `Rs. ${Math.abs(savings).toLocaleString()} above estimate`}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Reply / Counter area */}
+                      <div className="px-8 py-5 border-t border-slate-100">
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                          Send a counter message (optional)
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={negotiationReply}
+                          onChange={(e) => setNegotiationReply(e.target.value)}
+                          placeholder="e.g. Can you do Rs. 18,000?"
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-medium text-slate-900 resize-none focus:outline-none focus:ring-2 focus:ring-orange-400/30 placeholder:text-slate-400 transition-all"
+                        />
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="px-8 pb-8 space-y-3">
+                        {/* Send reply if typed */}
+                        {negotiationReply.trim() && (
+                          <button
+                            onClick={() => handleSendReply(tour.id, singleOffer.driver?.id)}
+                            disabled={negotiationLoading}
+                            className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-md"
+                          >
+                            <MessageSquare size={15} />
+                            Send Counter Message
+                          </button>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                          <button
+                            onClick={() => handleAcceptOffer(tour.id, singleOffer.offer_id)}
+                            disabled={negotiationLoading}
+                            className="py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/25 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <CheckCircle2 size={15} />
+                            {negotiationLoading ? 'Please wait…' : 'Accept Offer'}
+                          </button>
+                          <button
+                            onClick={() => handleRejectOffer(tour.id, singleOffer.offer_id)}
+                            disabled={negotiationLoading}
+                            className="py-4 bg-white border-2 border-rose-200 hover:bg-rose-600 hover:border-rose-600 text-rose-600 hover:text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+                          >
+                            <XCircle size={15} />
+                            Reject
+                          </button>
+                        </div>
+
+                        {negotiationTours.length > 1 && (
+                          <p className="text-center text-[10px] text-slate-400 font-bold pt-1">
+                            +{negotiationTours.length - 1} more tour{negotiationTours.length - 1 !== 1 ? 's' : ''} with offers waiting
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )
+              }
+
+              // Multiple drivers responded — list every offer so the
+              // traveler can compare and pick.
               return (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.92, y: 30 }}
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.92, y: 30 }}
                   transition={{ type: 'spring', damping: 22, stiffness: 250 }}
-                  className="relative z-10 w-full max-w-lg"
+                  className="relative z-10 w-full max-w-lg max-h-[85vh] overflow-y-auto"
                 >
-                  {/* Glow ring */}
-                  <div className="absolute -inset-1 rounded-[3.5rem] bg-gradient-to-br from-orange-400 via-amber-300 to-orange-500 opacity-60 blur-xl animate-pulse pointer-events-none" />
+                  <div className="absolute -inset-1 rounded-[3rem] bg-gradient-to-br from-orange-400 via-amber-300 to-orange-500 opacity-60 blur-xl animate-pulse pointer-events-none -z-10" />
 
                   <div className="relative bg-white rounded-[3rem] overflow-hidden shadow-2xl">
-
-                    {/* Top banner */}
-                    <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-8 pt-8 pb-6 text-white text-center relative overflow-hidden">
-                      <div className="absolute inset-0 opacity-10">
-                        <div className="absolute top-2 right-4 text-[120px] font-black leading-none select-none">₹</div>
-                      </div>
-                      {/* Pulsing alert badge */}
-                      <div className="flex items-center justify-center gap-2 mb-4">
+                    <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-8 pt-8 pb-6 text-white text-center">
+                      <div className="flex items-center justify-center gap-2 mb-3">
                         <span className="flex h-2.5 w-2.5 relative">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
                           <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
                         </span>
-                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-100">Price Negotiation Alert</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-orange-100">{offers.length} Drivers Responded</span>
                       </div>
-
-                      {/* Driver Avatar */}
-                      <div className="relative inline-block mb-4">
-                        {driverImg ? (
-                          <img
-                            src={driverImg}
-                            alt={tour.driver_name}
-                            className="h-24 w-24 rounded-2xl object-cover border-4 border-white/30 shadow-xl mx-auto"
-                            onError={(e) => {
-                              e.target.style.display = 'none'
-                              e.target.nextSibling.style.display = 'flex'
-                            }}
-                          />
-                        ) : null}
-                        <div
-                          style={{ display: driverImg ? 'none' : 'flex' }}
-                          className="h-24 w-24 rounded-2xl bg-white/20 text-white text-4xl font-black border-4 border-white/30 shadow-xl mx-auto items-center justify-center"
-                        >
-                          {tour.driver_name?.[0]?.toUpperCase() || 'D'}
-                        </div>
-                        <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-blue-500 text-white text-[9px] font-black px-3 py-0.5 rounded-full uppercase tracking-widest shadow">
-                          Approved Driver
-                        </span>
-                      </div>
-
-                      <h3 className="text-xl font-black mt-3 tracking-tight">
-                        {tour.driver_name || 'Your Driver'} sent a fare offer
-                      </h3>
+                      <h3 className="text-xl font-black tracking-tight">Choose your driver</h3>
                       <p className="text-orange-100 text-sm font-medium mt-1">
                         {tour.total_distance_km} km &bull; {tour.total_days} day{tour.total_days !== 1 ? 's' : ''}
-                        {tour.vehicle_number ? ` · ${tour.vehicle_number}` : ''}
+                        {' · '}Your estimate: Rs. {(tour.estimated_price || 0).toLocaleString()}
                       </p>
                     </div>
 
-                    {/* Price Comparison */}
-                    <div className="px-8 py-6 bg-slate-50 flex items-center justify-center gap-6">
-                      <div className="text-center">
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Your Estimate</p>
-                        <p className="text-2xl font-black text-slate-400 line-through">
-                          Rs. {(tour.estimated_price || 0).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="flex flex-col items-center">
-                        <div className="h-px w-12 bg-slate-300" />
-                        <span className="text-[9px] text-slate-400 font-black uppercase my-1">vs</span>
-                        <div className="h-px w-12 bg-slate-300" />
-                      </div>
-                      <div className="text-center">
-                        <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest mb-1">Driver's Offer</p>
-                        <p className="text-3xl font-black text-slate-900">
-                          Rs. {(tour.driver_price || 0).toLocaleString()}
-                        </p>
-                        {savings !== 0 && (
-                          <p className={`text-[10px] font-black mt-1 ${savings > 0 ? 'text-orange-500' : 'text-rose-500'}`}>
-                            {savings > 0 ? `Rs. ${savings.toLocaleString()} less than estimate` : `Rs. ${Math.abs(savings).toLocaleString()} above estimate`}
-                          </p>
-                        )}
-                      </div>
+                    <div className="p-5 space-y-3">
+                      {offers.map((offer) => {
+                        const driverImg = getDriverImageUrl(offer.driver?.profile_photo)
+                        return (
+                          <div key={offer.offer_id} className="rounded-3xl border border-slate-100 bg-slate-50 p-4">
+                            <div className="flex items-center gap-3">
+                              {driverImg ? (
+                                <img src={driverImg} alt={offer.driver?.name} className="h-14 w-14 rounded-2xl object-cover shadow" />
+                              ) : (
+                                <div className="h-14 w-14 rounded-2xl bg-orange-100 text-orange-600 text-xl font-black flex items-center justify-center shadow">
+                                  {offer.driver?.name?.[0]?.toUpperCase() || 'D'}
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="font-black text-slate-900 truncate">{offer.driver?.name || 'Driver'}</p>
+                                <p className="text-[11px] text-slate-500 font-semibold truncate">
+                                  {offer.driver?.vehicle_type || ''}{offer.driver?.vehicle_number ? ` · ${offer.driver.vehicle_number}` : ''}
+                                </p>
+                                <span className={`inline-block mt-1 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${offer.offer_type === 'direct' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {offer.offer_type === 'direct' ? 'Accepted at listed price' : 'Negotiated price'}
+                                </span>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-[9px] font-black text-slate-400 uppercase">Price</p>
+                                <p className="text-lg font-black text-slate-900">Rs. {(offer.price || 0).toLocaleString()}</p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mt-3">
+                              <button
+                                onClick={() => handleAcceptOffer(tour.id, offer.offer_id)}
+                                disabled={negotiationLoading}
+                                className="py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5"
+                              >
+                                <CheckCircle2 size={13} /> Accept
+                              </button>
+                              <button
+                                onClick={() => handleRejectOffer(tour.id, offer.offer_id)}
+                                disabled={negotiationLoading}
+                                className="py-2.5 bg-white border-2 border-rose-200 hover:bg-rose-600 hover:border-rose-600 text-rose-600 hover:text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5"
+                              >
+                                <XCircle size={13} /> Reject
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
 
-                    {/* Reply / Counter area */}
-                    <div className="px-8 py-5 border-t border-slate-100">
-                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">
-                        Send a counter message (optional)
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={negotiationReply}
-                        onChange={(e) => setNegotiationReply(e.target.value)}
-                        placeholder="e.g. Can you do Rs. 18,000?"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-medium text-slate-900 resize-none focus:outline-none focus:ring-2 focus:ring-orange-400/30 placeholder:text-slate-400 transition-all"
-                      />
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="px-8 pb-8 space-y-3">
-                      {/* Send reply if typed */}
-                      {negotiationReply.trim() && (
-                        <button
-                          onClick={() => handleSendReply(tour.id)}
-                          disabled={negotiationLoading}
-                          className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-md"
-                        >
-                          <MessageSquare size={15} />
-                          Send Counter Message
-                        </button>
-                      )}
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          onClick={() => handleAcceptOffer(tour.id)}
-                          disabled={negotiationLoading}
-                          className="py-4 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/25 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
-                        >
-                          <CheckCircle2 size={15} />
-                          {negotiationLoading ? 'Please wait…' : 'Accept Offer'}
-                        </button>
-                        <button
-                          onClick={() => handleRejectOffer(tour.id)}
-                          disabled={negotiationLoading}
-                          className="py-4 bg-white border-2 border-rose-200 hover:bg-rose-600 hover:border-rose-600 text-rose-600 hover:text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
-                        >
-                          <XCircle size={15} />
-                          Reject
-                        </button>
-                      </div>
-
-                      {negotiationTours.length > 1 && (
-                        <p className="text-center text-[10px] text-slate-400 font-bold pt-1">
-                          +{negotiationTours.length - 1} more driver offer{negotiationTours.length - 1 !== 1 ? 's' : ''} waiting
-                        </p>
-                      )}
-                    </div>
+                    {negotiationTours.length > 1 && (
+                      <p className="text-center text-[10px] text-slate-400 font-bold pb-6">
+                        +{negotiationTours.length - 1} more tour{negotiationTours.length - 1 !== 1 ? 's' : ''} with offers waiting
+                      </p>
+                    )}
                   </div>
                 </motion.div>
               )

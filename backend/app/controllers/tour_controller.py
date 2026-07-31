@@ -12,6 +12,8 @@ from app.services.tour_pricing_service import (
     parse_date,
     serialize_vehicle,
     haversine,
+    calculate_route_distance_km,
+    calculate_estimated_price,
 )
 from app.services.routing_service import get_route, RoutingError
 from app.views.driver_view import driver_public_summary
@@ -282,7 +284,7 @@ def get_tour_details(tour_id):
                 guest_name = guest.full_name
                 guest_email = guest.email
               # Check if there's a booking with driver price info and driver details
-        from app.models import Booking, Driver as DriverModel
+        from app.models import Booking, TourOffer, Driver as DriverModel
         booking = Booking.query.filter_by(tour_id=tour_id).first()
         driver_price = booking.total_price if booking else None
 
@@ -292,6 +294,29 @@ def get_tour_details(tour_id):
             drv = DriverModel.query.get(booking.driver_id)
             if drv:
                 driver_info = driver_public_summary(drv)
+
+        # While the tour is still open (no Booking yet), multiple drivers can
+        # each have a pending offer — surfaced here so the traveler can pick
+        # one. Once a Booking exists, the singular driver/driver_price fields
+        # above are the source of truth and this stays empty.
+        offers = []
+        if not booking:
+            pending_offers = (
+                TourOffer.query.filter_by(tour_id=tour_id, status="pending")
+                .order_by(TourOffer.created_at.asc())
+                .all()
+            )
+            for o in pending_offers:
+                drv = DriverModel.query.get(o.driver_id)
+                if not drv:
+                    continue
+                offers.append({
+                    "offer_id": o.id,
+                    "driver": driver_public_summary(drv),
+                    "price": o.price,
+                    "offer_type": o.offer_type,
+                    "created_at": o.created_at.isoformat() if o.created_at else None,
+                })
 
         return jsonify({
             "id": tour.id,
@@ -305,6 +330,7 @@ def get_tour_details(tour_id):
             "estimated_price": tour.estimated_price,
             "driver_price": driver_price,
             "driver": driver_info,
+            "offers": offers,
             "user_name": user_name,
             "user_email": user_email,
             "guest_name": guest_name,
@@ -331,11 +357,11 @@ def get_tour_details(tour_id):
 
 
 # =========================
-# USER: ACCEPT DRIVER PRICE
+# USER: ACCEPT A SPECIFIC DRIVER'S OFFER
 # =========================
-@tour_bp.route("/<int:tour_id>/accept-price", methods=["PUT"])
+@tour_bp.route("/<int:tour_id>/offers/<int:offer_id>/accept", methods=["PUT"])
 @jwt_required()
-def accept_driver_price(tour_id):
+def accept_tour_offer(tour_id, offer_id):
     try:
         raw_id = get_jwt_identity()
         user_id = int(raw_id) if raw_id is not None else None
@@ -344,50 +370,71 @@ def accept_driver_price(tour_id):
         if not tour or tour.user_id != user_id:
             return jsonify({"message": "Tour not found or unauthorized"}), 404
 
+        from app.models import TourOffer
+        offer = TourOffer.query.filter_by(id=offer_id, tour_id=tour_id).first()
+        if not offer or offer.status != "pending":
+            return jsonify({"message": "This offer is no longer available"}), 409
+
         if tour.status != "price_sent_by_driver":
-            return jsonify({"message": "Invalid status for accepting price"}), 400
+            return jsonify({"message": "Invalid status for accepting an offer"}), 409
 
-        # Query Booking table to find driver assignment
-        booking = Booking.query.filter_by(tour_id=tour_id).first()
-        if not booking:
-            return jsonify({"message": "No booking found for this tour"}), 404
+        # Guards against a double-accept race (two offers accepted near-
+        # simultaneously): re-check no Booking exists right before creating
+        # one. Not airtight against a true simultaneous DB-level race (this
+        # app runs on SQLite, which can't add a unique constraint to an
+        # existing table), but closes the realistic window.
+        if Booking.query.filter_by(tour_id=tour_id).first():
+            return jsonify({"message": "This tour has already been assigned to another driver"}), 409
 
-        # Update both TourPlan.status and Booking.status to 'confirmed'
+        booking = Booking(
+            tour_id=tour_id,
+            driver_id=offer.driver_id,
+            total_price=offer.price,
+            status="confirmed",
+        )
+        db.session.add(booking)
+        offer.status = "accepted"
         tour.status = "confirmed"
-        booking.status = "confirmed"
+
+        losing_offers = TourOffer.query.filter(
+            TourOffer.tour_id == tour_id,
+            TourOffer.id != offer.id,
+            TourOffer.status == "pending",
+        ).all()
+        for lo in losing_offers:
+            lo.status = "superseded"
+
+        db.session.flush()
 
         from app.services.finance_service import upsert_payment_records_for_booking
         upsert_payment_records_for_booking(booking)
 
+        winner = Driver.query.get(offer.driver_id)
         user = User.query.get(user_id) if user_id else None
-        user_name = user.full_name if user else "User"
-
-        drivers = Driver.query.filter_by(is_approved=True).all()
-        for d in drivers:
-            note = Notification(
-                recipient_email=d.email,
-                subject=f"User Accepted Tour #{tour.id}",
-                message=f"{user_name} accepted the price for tour #{tour.id}.",
-                status="sent",
-                tour_id=tour.id
-            )
-            db.session.add(note)
+        if winner:
+            from app.services.notification_service import notify_tour_assigned, notify_driver_offer_not_selected
+            notify_tour_assigned(tour, user, winner)
+            for lo in losing_offers:
+                loser = Driver.query.get(lo.driver_id)
+                if loser:
+                    notify_driver_offer_not_selected(tour, loser)
 
         db.session.commit()
-        return jsonify({"message": "Price accepted and tour confirmed."}), 200
+        return jsonify({"message": "Offer accepted and tour confirmed."}), 200
 
     except Exception as e:
+        db.session.rollback()
         import traceback
         traceback.print_exc()
-        return jsonify({"message": f"Error accepting price: {str(e)}"}), 500
+        return jsonify({"message": f"Error accepting offer: {str(e)}"}), 500
 
 
 # =========================
-# USER: REJECT DRIVER PRICE
+# USER: REJECT A SPECIFIC DRIVER'S OFFER
 # =========================
-@tour_bp.route("/<int:tour_id>/reject-price", methods=["PUT"])
+@tour_bp.route("/<int:tour_id>/offers/<int:offer_id>/reject", methods=["PUT"])
 @jwt_required()
-def reject_driver_price(tour_id):
+def reject_tour_offer(tour_id, offer_id):
     raw_id = get_jwt_identity()
     user_id = int(raw_id) if raw_id is not None else None
 
@@ -395,25 +442,33 @@ def reject_driver_price(tour_id):
     if not tour or tour.user_id != user_id:
         return jsonify({"message": "Tour not found or unauthorized"}), 404
 
-    tour.status = "rejected"
-    
-    from app.models import Notification, Driver
-    user = User.query.get(user_id) if user_id else None
-    user_name = user.full_name if user else "User"
+    from app.models import TourOffer
+    offer = TourOffer.query.filter_by(id=offer_id, tour_id=tour_id).first()
+    if not offer or offer.status != "pending":
+        return jsonify({"message": "This offer is no longer available"}), 409
 
-    drivers = Driver.query.filter_by(is_approved=True).all()
-    for d in drivers:
+    offer.status = "declined"
+
+    driver = Driver.query.get(offer.driver_id)
+    if driver:
         note = Notification(
-            recipient_email=d.email,
-            subject=f"User Rejected Tour #{tour.id}",
-            message=f"{user_name} rejected the price for tour #{tour.id}.",
+            recipient_email=driver.email,
+            recipient_driver_id=driver.id,
+            subject=f"Price Rejected — Tour #{tour.id}",
+            message=f"Your price of Rs. {offer.price:.2f} for tour #{tour.id} was rejected. You can send a new offer.",
             status="sent",
-            tour_id=tour.id
+            tour_id=tour.id,
         )
         db.session.add(note)
 
+    # If nothing else is still pending, the tour re-opens for anyone
+    # (including this same driver) to send a fresh offer.
+    remaining_pending = TourOffer.query.filter_by(tour_id=tour_id, status="pending").count()
+    if remaining_pending == 0:
+        tour.status = "rejected"
+
     db.session.commit()
-    return jsonify({"message": "Price rejected."}), 200
+    return jsonify({"message": "Offer rejected."}), 200
 
 
 # =========================
@@ -426,9 +481,12 @@ def reply_to_driver(tour_id):
     user_id = int(raw_id) if raw_id is not None else None
     data = request.get_json() or {}
     message = data.get("message")
+    driver_id = data.get("driver_id")
 
     if not message:
         return jsonify({"message": "Message is required"}), 400
+    if not driver_id:
+        return jsonify({"message": "driver_id is required"}), 400
 
     tour = TourPlan.query.get(tour_id)
     if not tour or tour.user_id != user_id:
@@ -438,19 +496,171 @@ def reply_to_driver(tour_id):
     user = User.query.get(user_id) if user_id else None
     user_name = user.full_name if user else "User"
 
-    drivers = Driver.query.filter_by(is_approved=True).all()
-    for d in drivers:
-        note = Notification(
-            recipient_email=d.email,
-            subject=f"New message from user on Tour #{tour.id}",
-            message=f"{user_name} replied: {message}",
-            status="sent",
-            tour_id=tour.id
-        )
-        db.session.add(note)
+    # Scoped to the one driver this reply is actually about — previously this
+    # broadcast a private negotiation message to every approved driver in the
+    # system, which was already an over-broad bug fixed here as a side effect
+    # of adding per-offer identity.
+    driver = Driver.query.get(driver_id)
+    if not driver:
+        return jsonify({"message": "Driver not found"}), 404
+
+    note = Notification(
+        recipient_email=driver.email,
+        recipient_driver_id=driver.id,
+        subject=f"New message from user on Tour #{tour.id}",
+        message=f"{user_name} replied: {message}",
+        status="sent",
+        tour_id=tour.id
+    )
+    db.session.add(note)
 
     db.session.commit()
     return jsonify({"message": "Reply sent to driver."}), 200
+
+
+def _recompute_tour_pricing(tour):
+    """Recompute total_distance_km/estimated_price after the stop list
+    changes — mirrors the same authoritative-distance approach used at tour
+    creation, so an edited trip's price stays trustworthy rather than frozen
+    at whatever it was before the stop was added/removed."""
+    locations = Location.query.filter_by(tour_id=tour.id).order_by(Location.order_index.asc()).all()
+    loc_dicts = [{"latitude": l.latitude, "longitude": l.longitude} for l in locations]
+    vehicle = Vehicle.query.get(tour.vehicle_id)
+    distance = _authoritative_distance_km(loc_dicts) or calculate_route_distance_km(loc_dicts)
+    tour.total_distance_km = distance
+    tour.estimated_price = calculate_estimated_price(vehicle, distance, tour.total_days)
+
+
+def _serialize_tour_locations_response(tour):
+    locations = Location.query.filter_by(tour_id=tour.id).order_by(Location.order_index.asc()).all()
+    return {
+        "message": "Trip stops updated successfully",
+        "locations": [
+            {"id": l.id, "place_name": l.place_name, "latitude": l.latitude, "longitude": l.longitude, "order_index": l.order_index}
+            for l in locations
+        ],
+        "total_distance_km": tour.total_distance_km,
+        "estimated_price": tour.estimated_price,
+    }
+
+
+def _notify_driver_of_location_change(tour):
+    booking = Booking.query.filter_by(tour_id=tour.id).first()
+    if not booking or not booking.driver_id:
+        return
+    driver = Driver.query.get(booking.driver_id)
+    if not driver:
+        return
+    from app.services.notification_service import notify_driver_locations_changed
+    notify_driver_locations_changed(tour, driver)
+
+
+# =========================
+# USER: ADD A STOP TO AN ONGOING TOUR
+# =========================
+@tour_bp.route("/<int:tour_id>/locations", methods=["POST"])
+@jwt_required()
+@limiter.limit("20 per minute")
+def add_tour_location(tour_id):
+    claims = get_jwt()
+    if claims.get("role") != "user":
+        return jsonify({"message": "Unauthorized"}), 403
+
+    raw_id = get_jwt_identity()
+    try:
+        user_id = int(raw_id)
+    except (TypeError, ValueError):
+        return jsonify({"message": "Invalid user identity"}), 401
+
+    tour = TourPlan.query.get(tour_id)
+    if not tour:
+        return jsonify({"message": "Tour not found"}), 404
+    if tour.user_id != user_id:
+        return jsonify({"message": "Unauthorized"}), 403
+    # Scoped to ongoing trips only — this is for a traveler adding a stop
+    # while the driver is actively en route, not for editing a plan that
+    # hasn't started yet (that's done by cancelling and rebooking).
+    if tour.status != "ongoing":
+        return jsonify({"message": "Stops can only be changed while the tour is in progress"}), 400
+
+    data = request.get_json() or {}
+    latitude = data.get("latitude")
+    longitude = data.get("longitude")
+    if latitude is None or longitude is None:
+        return jsonify({"message": "latitude and longitude are required"}), 400
+
+    max_index = db.session.query(db.func.max(Location.order_index)).filter_by(tour_id=tour_id).scalar()
+    new_location = Location(
+        tour_id=tour_id,
+        place_name=data.get("place_name"),
+        latitude=latitude,
+        longitude=longitude,
+        order_index=(max_index if max_index is not None else -1) + 1,
+    )
+    db.session.add(new_location)
+    db.session.commit()
+
+    _recompute_tour_pricing(tour)
+    db.session.commit()
+    _notify_driver_of_location_change(tour)
+    db.session.commit()
+
+    return jsonify(_serialize_tour_locations_response(tour)), 200
+
+
+# =========================
+# USER: REMOVE A STOP FROM AN ONGOING TOUR
+# =========================
+@tour_bp.route("/<int:tour_id>/locations/<int:location_id>", methods=["DELETE"])
+@jwt_required()
+@limiter.limit("20 per minute")
+def remove_tour_location(tour_id, location_id):
+    claims = get_jwt()
+    if claims.get("role") != "user":
+        return jsonify({"message": "Unauthorized"}), 403
+
+    raw_id = get_jwt_identity()
+    try:
+        user_id = int(raw_id)
+    except (TypeError, ValueError):
+        return jsonify({"message": "Invalid user identity"}), 401
+
+    tour = TourPlan.query.get(tour_id)
+    if not tour:
+        return jsonify({"message": "Tour not found"}), 404
+    if tour.user_id != user_id:
+        return jsonify({"message": "Unauthorized"}), 403
+    if tour.status != "ongoing":
+        return jsonify({"message": "Stops can only be changed while the tour is in progress"}), 400
+
+    location = Location.query.filter_by(id=location_id, tour_id=tour_id).first()
+    if not location:
+        return jsonify({"message": "Stop not found"}), 404
+    # The pickup (first stop) is where the trip already started — it isn't
+    # meaningful or safe to let a traveler retroactively remove it mid-trip.
+    if location.order_index == 0:
+        return jsonify({"message": "The pickup location cannot be removed"}), 400
+
+    remaining_count = Location.query.filter_by(tour_id=tour_id).count()
+    if remaining_count <= 2:
+        return jsonify({"message": "A tour needs at least one destination"}), 400
+
+    db.session.delete(location)
+    db.session.commit()
+
+    # Re-sequence order_index so it stays contiguous (0..N-1) after the gap
+    # left by the deleted stop.
+    remaining = Location.query.filter_by(tour_id=tour_id).order_by(Location.order_index.asc()).all()
+    for idx, loc in enumerate(remaining):
+        loc.order_index = idx
+    db.session.commit()
+
+    _recompute_tour_pricing(tour)
+    db.session.commit()
+    _notify_driver_of_location_change(tour)
+    db.session.commit()
+
+    return jsonify(_serialize_tour_locations_response(tour)), 200
 
 
 # =========================
@@ -471,7 +681,18 @@ def get_user_tours():
         
         # Query only the tours that belong to this user
         tours = TourPlan.query.filter_by(user_id=user_id).all()
-        
+
+        # Bulk-checked once up front (not per-tour) so the dashboard can tell
+        # which completed tours still need a rating — used to resurface the
+        # feedback prompt on login if the traveler missed it the first time.
+        from app.models import Feedback
+        completed_tour_ids = [t.id for t in tours if t.status == "completed"]
+        rated_tour_ids = {
+            f.tour_id for f in Feedback.query.filter(
+                Feedback.tour_id.in_(completed_tour_ids), Feedback.user_id == user_id
+            ).all()
+        } if completed_tour_ids else set()
+
         # Format the data for the frontend
         results = []
         for tour in tours:
@@ -491,6 +712,24 @@ def get_user_tours():
             # Get first location (pickup point)
             first_loc = Location.query.filter_by(tour_id=tour.id).order_by(Location.order_index).first()
 
+            # While still open (no Booking yet), attach every pending offer so
+            # the traveler's dashboard can list/compare them without a
+            # separate round-trip per tour.
+            offers = []
+            if not booking:
+                from app.models import TourOffer
+                for o in TourOffer.query.filter_by(tour_id=tour.id, status="pending").order_by(TourOffer.created_at.asc()).all():
+                    odrv = Driver.query.get(o.driver_id)
+                    if not odrv:
+                        continue
+                    offers.append({
+                        "offer_id": o.id,
+                        "driver": driver_public_summary(odrv),
+                        "price": o.price,
+                        "offer_type": o.offer_type,
+                        "created_at": o.created_at.isoformat() if o.created_at else None,
+                    })
+
             results.append({
                 "id": tour.id,
                 "total_distance_km": tour.total_distance_km,
@@ -507,6 +746,8 @@ def get_user_tours():
                 "vehicle_number": driver.vehicle_number if (booking and booking.driver_id and driver) else None,
                 "pickup_lat": first_loc.latitude if first_loc else None,
                 "pickup_lng": first_loc.longitude if first_loc else None,
+                "offers": offers,
+                "feedback_submitted": tour.id in rated_tour_ids,
             })
 
         return jsonify(results), 200

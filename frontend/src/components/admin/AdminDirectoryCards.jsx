@@ -1,4 +1,5 @@
 import { driverUploadUrl } from '../../services/api.js'
+import RatingStars from '../RatingStars.jsx'
 
 function Avatar({ name, accent = 'sky', imageUrl }) {
   const accents = {
@@ -153,6 +154,7 @@ export function AdminDriverCard({ driver, onEdit, onView, onApprove, onDeactivat
               <div className="min-w-0">
                 <h3 className="text-base font-black text-slate-900 truncate">{driver.name}</h3>
                 <p className="text-xs font-semibold text-slate-500 truncate mt-0.5">{driver.email}</p>
+                <RatingStars rating={driver.rating} totalRatings={driver.total_ratings} className="mt-1.5" />
               </div>
               {variant === 'pending' ? (
                 <span className="shrink-0 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-100 px-3 py-1 text-[10px] font-black uppercase tracking-wider">Pending</span>

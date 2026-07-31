@@ -10,6 +10,7 @@ from .driver import Driver
 from .vehicle import Vehicle
 from .tour import TourPlan, Location
 from .booking import Booking
+from .tour_offer import TourOffer
 from .notification import Notification
 from .feedback import Feedback
 from .finance import (
@@ -29,6 +30,7 @@ __all__ = [
     "TourPlan",
     "Location",
     "Booking",
+    "TourOffer",
     "Notification",
     "Feedback",
     "PlatformSetting",

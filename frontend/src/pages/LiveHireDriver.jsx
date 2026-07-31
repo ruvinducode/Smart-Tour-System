@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvent } from 'react-leaflet'
+import { MapContainer, Marker, Popup, Polyline, useMap, useMapEvent } from 'react-leaflet'
 import L from 'leaflet'
+import { cachedTileLayer } from '../utils/cachedTileLayer.js'
 import 'leaflet-rotate'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
@@ -27,11 +28,15 @@ import {
   completeTour,
   driverCancelTour,
   markTourEnRoute,
-  getRoute
+  getRoute,
+  getDriverIncomingTourRequests,
+  approveDriverTourRequest,
+  sendDriverNegotiatedPrice
 } from '../services/api.js'
 import { isTourScheduleLocked, formatTourSchedule } from '../utils/tourSchedule.js'
 import CancellationModal from '../components/CancellationModal.jsx'
 import ConfirmationModal from '../components/ConfirmationModal.jsx'
+import IncomingTourRequestModal from '../components/driver/IncomingTourRequestModal.jsx'
 
 const customStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:wght@700;900&display=swap');
@@ -167,6 +172,20 @@ function DriverTracker({ currentLoc, targetLoc, autoFollow, navMode, resetViewTr
 // way around (~358deg) instead of the real 2deg turn. Animating the applied
 // bearing ourselves, always along the shortest signed delta, guarantees a
 // continuous 360-degree wrap with no full-spin glitches at due north.
+// Tiles the driver has already seen (anywhere along the route so far) stay
+// visible even if the network drops mid-drive — see cachedTileLayer.js.
+// Plain react-leaflet <TileLayer> can't do this, so the layer is added
+// imperatively via useMap() instead.
+function OfflineCapableTileLayer({ url, maxZoom }) {
+  const map = useMap();
+  useEffect(() => {
+    const layer = cachedTileLayer(url, { maxZoom });
+    layer.addTo(map);
+    return () => { map.removeLayer(layer); };
+  }, [map, url, maxZoom]);
+  return null;
+}
+
 function MapBearingController({ heading, navMode }) {
   const map = useMap();
   const appliedRef = useRef(0);
@@ -224,6 +243,39 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+// Finds where [lat,lng] projects onto the segment a→b (flat-plane
+// approximation — fine at city-block scale, which is all this needs).
+function closestPointOnSegment(p, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1]
+  const lengthSq = dx * dx + dy * dy
+  if (lengthSq === 0) return a
+  let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / lengthSq
+  t = Math.max(0, Math.min(1, t))
+  return [a[0] + t * dx, a[1] + t * dy]
+}
+
+// Trims a fetched route down to just what's still ahead of the driver, by
+// snapping to the nearest point on the route and dropping everything before
+// it. Pure client-side geometry, so it updates instantly on every GPS fix
+// instead of waiting on the next network route refetch (~6s) — that lag is
+// what made the "erase completed road" effect feel slow.
+function trimRouteToPosition(routePoints, pos) {
+  if (!pos || !routePoints || routePoints.length < 2) return routePoints || []
+  let minDist = Infinity
+  let bestIdx = 0
+  let bestPoint = routePoints[0]
+  for (let i = 0; i < routePoints.length - 1; i++) {
+    const point = closestPointOnSegment(pos, routePoints[i], routePoints[i + 1])
+    const d = haversineKm(pos[0], pos[1], point[0], point[1])
+    if (d < minDist) {
+      minDist = d
+      bestIdx = i
+      bestPoint = point
+    }
+  }
+  return [bestPoint, ...routePoints.slice(bestIdx + 1)]
+}
+
 export default function LiveHireDriver({ tourId, token, onBack }) {
   const [headingAngle, setHeadingAngle] = useState(0);
   const [tour, setTour] = useState(null);
@@ -231,6 +283,7 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
   const [currentLoc, setCurrentLoc] = useState(null);
   const [approachRoute, setApproachRoute] = useState([]);
   const [tourRoute, setTourRoute] = useState([]);
+  const [remainingTourRoute, setRemainingTourRoute] = useState([]);
   const [gpsError, setGpsError] = useState('');
   const [rideStatus, setRideStatus] = useState('Heading to Pickup');
   const [actualDistance, setActualDistance] = useState(0.0);
@@ -247,17 +300,44 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
   const [isMinimized, setIsMinimized] = useState(false);
   const [resetViewTrigger, setResetViewTrigger] = useState(0);
   const [scheduleTick, setScheduleTick] = useState(0);
+  // The header's height isn't constant — it grows when a GPS error message
+  // wraps to two lines, when "Synced HH:MM:SS" appears, or when the "Start
+  // Simulation" button shows up, all independently of viewport width. The
+  // distance panel below it used to assume a fixed header height via a
+  // hardcoded top offset, so whenever the header actually rendered taller
+  // than that guess, it overlapped the panel — intermittently, only under
+  // whatever content/error state happened to make the header grow that day.
+  // Measuring the real height and positioning off of it removes the guess.
+  const headerRef = useRef(null);
+  const [headerHeight, setHeaderHeight] = useState(88);
   const latestLocRef = useRef(null);
   const latestHeadingRef = useRef(0);
   const smoothedHeadingRef = useRef(0);
   const headingBaselineRef = useRef(null);
   const lastRouteFetchRef = useRef(0);
+  const lastTourRouteFetchRef = useRef(0);
   const [animatedLoc, setAnimatedLoc] = useState(null);
   const markerAnimRef = useRef({ raf: null });
   const tourRouteOuterRef = useRef(null);
   const tourRouteInnerRef = useRef(null);
   const approachRouteOuterRef = useRef(null);
   const approachRouteInnerRef = useRef(null);
+
+  // New-request interruption popup, mirrored from the dashboard's own
+  // version — needed here too because a driver who's actively mid-trip is
+  // on THIS screen, not the dashboard, so the "near completion" case (an
+  // ongoing tour within ~1km of its final stop) would otherwise never
+  // actually be visible to them.
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [activeIncomingTour, setActiveIncomingTour] = useState(null);
+  const [incomingActionBusy, setIncomingActionBusy] = useState(false);
+  const [incomingActionMessage, setIncomingActionMessage] = useState('');
+  const [dismissedIncomingIds, setDismissedIncomingIds] = useState(() => new Set());
+  // See DriverDashboardPage.jsx for why this exists — negotiating flips the
+  // tour's status, dropping it out of the next incoming-requests poll, which
+  // would otherwise auto-close this popup before the driver sees the
+  // pending-offer confirmation.
+  const [awaitingOfferConfirmationIds, setAwaitingOfferConfirmationIds] = useState(() => new Set());
 
   // Memoize driver icon. In nav mode the map itself rotates to keep the
   // direction of travel pointing up, so the arrow glyph stays static
@@ -278,6 +358,18 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
   useEffect(() => {
     const interval = setInterval(() => setScheduleTick((t) => t + 1), 30000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Track the header's real rendered height so content below it never gets
+  // covered, no matter what causes the header to grow.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return undefined;
+    const measure = () => setHeaderHeight(el.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
   const isScheduleLocked = useMemo(
@@ -304,6 +396,34 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
       }
     }
     loadTour()
+  }, [tourId, token])
+
+  // Tour details (and specifically the stop list) were previously fetched
+  // once at mount only — a traveler adding/removing a stop mid-trip would
+  // never actually reach this screen's map. Poll periodically so an edited
+  // route shows up live, and surface it as a toast since it's a real change
+  // to what the driver is expected to do, not just a silent refresh.
+  useEffect(() => {
+    const locationIdsRef = { current: null }
+    const poll = async () => {
+      try {
+        const data = await getTourDetails(tourId, token)
+        const locs = Array.isArray(data?.locations) ? data.locations : []
+        const ids = locs.map((l) => l.id).join(',')
+        if (locationIdsRef.current !== null && locationIdsRef.current !== ids) {
+          setLocations(locs)
+          setIncomingActionMessage('Traveler updated the trip stops — route refreshed')
+          setTimeout(() => setIncomingActionMessage(''), 4000)
+        }
+        locationIdsRef.current = ids
+        if (data?.actual_distance_km !== undefined) setActualDistance(data.actual_distance_km)
+      } catch {
+        // Silent — this is a background refresh, the main GPS/status flow
+        // already surfaces connectivity issues.
+      }
+    }
+    const id = setInterval(poll, 15000)
+    return () => clearInterval(id)
   }, [tourId, token])
 
   useEffect(() => {
@@ -436,6 +556,74 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
     return () => clearInterval(interval)
   }, [tourId, token])
 
+  // Poll for popup-eligible new requests. The backend already gates this on
+  // the driver not being busy (or, if on this very ongoing tour, being
+  // within ~1km of the final stop), so no extra client-side filtering is
+  // needed here beyond the session-only dismiss list.
+  useEffect(() => {
+    let cancelled = false
+    const poll = () => {
+      getDriverIncomingTourRequests(token)
+        .then((data) => { if (!cancelled) setIncomingRequests(Array.isArray(data) ? data : []) })
+        .catch(() => {})
+    }
+    poll()
+    const id = setInterval(poll, 5000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [token])
+
+  useEffect(() => {
+    setActiveIncomingTour((prevActive) => {
+      if (prevActive && !incomingRequests.some((t) => t.id === prevActive.id)) {
+        if (awaitingOfferConfirmationIds.has(prevActive.id)) return prevActive
+        return null
+      }
+      if (prevActive) return prevActive
+      return incomingRequests.find((t) => !dismissedIncomingIds.has(t.id)) || null
+    })
+  }, [incomingRequests, dismissedIncomingIds, awaitingOfferConfirmationIds])
+
+  const handleIncomingAccept = async (incomingTourId) => {
+    setIncomingActionBusy(true)
+    try {
+      const data = await approveDriverTourRequest(incomingTourId, token)
+      setIncomingActionMessage(data.message || 'Tour accepted — find it in your Upcoming list once this trip ends.')
+      setDismissedIncomingIds((prev) => new Set(prev).add(incomingTourId))
+      setActiveIncomingTour(null)
+    } catch (err) {
+      setIncomingActionMessage(err.message || 'Could not accept tour')
+      setActiveIncomingTour(null)
+    } finally {
+      setIncomingActionBusy(false)
+      setTimeout(() => setIncomingActionMessage(''), 4000)
+    }
+  }
+
+  const handleIncomingNegotiate = async (incomingTourId, price) => {
+    setIncomingActionBusy(true)
+    try {
+      const data = await sendDriverNegotiatedPrice(incomingTourId, Number(price), token)
+      // Popup stays open to show the pending-offer confirmation instead of
+      // closing on a toast the driver might miss.
+      setAwaitingOfferConfirmationIds((prev) => new Set(prev).add(incomingTourId))
+      return data
+    } catch (err) {
+      throw err
+    } finally {
+      setIncomingActionBusy(false)
+    }
+  }
+
+  const handleIncomingDismiss = (incomingTourId) => {
+    setDismissedIncomingIds((prev) => new Set(prev).add(incomingTourId))
+    setAwaitingOfferConfirmationIds((prev) => {
+      const next = new Set(prev)
+      next.delete(incomingTourId)
+      return next
+    })
+    setActiveIncomingTour(null)
+  }
+
   const handleSimulate = () => {
     setIsSimulating(true)
     setGpsError('')
@@ -468,7 +656,11 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
       .then(route => {
         if (route.geometry?.length) {
           setApproachRoute(route.geometry)
-          if (rideStatus === 'Heading to Pickup') {
+          // Kept live through "Arrived at Pickup" too (not just "Heading to
+          // Pickup") — the Start Tour button gates on real-time proximity to
+          // the pickup point, not just a one-time check at the moment the
+          // driver tapped Arrived.
+          if (rideStatus === 'Heading to Pickup' || rideStatus === 'Arrived at Pickup') {
             setDistanceToPickup(route.distance_km);
           }
         }
@@ -476,7 +668,7 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
         // Routing service unavailable (e.g. rate-limited) — show a straight
         // line so the driver always sees some path rather than a blank map.
         setApproachRoute([currentLoc, [target.latitude, target.longitude]])
-        if (rideStatus === 'Heading to Pickup') {
+        if (rideStatus === 'Heading to Pickup' || rideStatus === 'Arrived at Pickup') {
           setDistanceToPickup(haversineKm(currentLoc[0], currentLoc[1], target.latitude, target.longitude))
         }
       })
@@ -494,8 +686,43 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
       })
   }, [locations])
 
-  const memoizedTourRoute = useMemo(() => tourRoute, [tourRoute]);
-  const memoizedApproachRoute = useMemo(() => approachRoute, [approachRoute]);
+  // Once the driver is actually driving the tour, recompute the remaining
+  // path from their live position every ~6s — the same technique already
+  // used for the pickup-approach route above. Without this, the static
+  // full-route fetch above never changes again, so the line kept showing
+  // the entire original path with no sense of what's already been driven.
+  useEffect(() => {
+    if (!currentLoc || rideStatus !== 'Tour in Progress' || locations.length < 2) {
+      setRemainingTourRoute([])
+      return
+    }
+    const now = Date.now()
+    if (now - lastTourRouteFetchRef.current < 6000 && remainingTourRoute.length >= 2) return
+    lastTourRouteFetchRef.current = now
+    const remainingStops = locations.slice(1) // pickup is already behind us
+    const waypoints = [[currentLoc[1], currentLoc[0]], ...remainingStops.map(l => [l.longitude, l.latitude])]
+    getRoute(waypoints)
+      .then(route => {
+        if (route.geometry?.length) setRemainingTourRoute(route.geometry)
+      }).catch(() => {
+        setRemainingTourRoute([currentLoc, ...remainingStops.map(l => [l.latitude, l.longitude])])
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLoc, rideStatus, locations])
+
+  // Trimmed against the smoothly-animated marker position (not the raw,
+  // ~500ms-stepped GPS fix) so the "erased" trailing edge moves in the same
+  // continuous motion as the marker itself, instead of jumping in visible
+  // steps every time a new GPS fix arrives.
+  const liveTrimPos = animatedLoc || currentLoc;
+  const memoizedTourRoute = useMemo(() => {
+    const base = rideStatus === 'Tour in Progress' ? remainingTourRoute : tourRoute;
+    return rideStatus === 'Tour in Progress' ? trimRouteToPosition(base, liveTrimPos) : base;
+  }, [rideStatus, remainingTourRoute, tourRoute, liveTrimPos]);
+  const memoizedApproachRoute = useMemo(
+    () => trimRouteToPosition(approachRoute, liveTrimPos),
+    [approachRoute, liveTrimPos],
+  );
 
   const hasDistanceAlert = 
     (rideStatus === 'Heading to Pickup' && distanceToPickup) || 
@@ -509,7 +736,7 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
 
   return (
     <div className="flex h-screen flex-col bg-[#fffbeb] text-slate-900 overflow-hidden">
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/85 backdrop-blur-xl px-4 sm:px-8 py-3 sm:py-5 border-b border-amber-100 flex items-center justify-between shadow-sm">
+      <header ref={headerRef} className="fixed top-0 left-0 right-0 z-50 bg-white/85 backdrop-blur-xl px-4 sm:px-8 py-3 sm:py-5 border-b border-amber-100 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3 sm:gap-6">
           <motion.button 
             whileHover={{ scale: 1.1 }}
@@ -552,7 +779,7 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
         </div>
       </header>
 
-      <div className="flex-1 relative z-10 pt-24">
+      <div className="flex-1 relative z-10" style={{ paddingTop: headerHeight }}>
         <AnimatePresence>
           {!currentLoc && !gpsError && (
             <motion.div 
@@ -570,7 +797,7 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
         </AnimatePresence>
 
         <MapContainer center={pickupLocation} zoom={18} zoomControl={false} className="h-full w-full" rotate={true} touchRotate={true} touchZoom={true} rotateControl={false}>
-          <TileLayer
+          <OfflineCapableTileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             maxZoom={20}
           />
@@ -640,7 +867,8 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
           <motion.div
             initial={{ y: -50, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="absolute top-20 sm:top-24 left-4 right-[76px] sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-[1000] sm:w-auto sm:min-w-[280px] sm:max-w-[90%] bg-white/95 backdrop-blur-xl rounded-[2rem] p-3 px-5 shadow-2xl border border-emerald-900/10 flex items-center justify-between gap-6"
+            style={{ top: headerHeight + 16 }}
+            className="absolute left-4 right-[76px] sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-[1000] sm:w-auto sm:min-w-[280px] sm:max-w-[90%] bg-white/95 backdrop-blur-xl rounded-[2rem] p-3 px-5 shadow-2xl border border-emerald-900/10 flex items-center justify-between gap-6"
           >
             <div className="flex flex-col">
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{alertLabel}</span>
@@ -656,7 +884,7 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
           </motion.div>
         )}
 
-        <div className="absolute top-[100px] sm:top-28 right-4 sm:right-8 z-[1000] flex flex-col gap-3 sm:gap-4">
+        <div style={{ top: headerHeight + 16 }} className="absolute right-4 sm:right-8 z-[1000] flex flex-col gap-3 sm:gap-4">
           <motion.button 
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
@@ -729,32 +957,56 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
               )}
 
               {!isScheduleLocked && (
+              <>
               <div className="flex gap-2 mb-2">
                 {[
-                  { label: 'Start', icon: Navigation, status: 'Ready to Start', color: 'bg-emerald-900', action: markTourEnRoute, next: 'Heading to Pickup' },
-                  { label: 'Arrived', icon: MapPin, status: 'Heading to Pickup', color: 'bg-amber-600', action: markTourArrived, next: 'Arrived at Pickup' },
-                  { label: 'Tour', icon: Play, status: 'Arrived at Pickup', color: 'bg-emerald-700', action: startTour, next: 'Tour in Progress' }
-                ].map((btn, i) => (
-                  <motion.button 
+                  { label: 'Start', icon: Navigation, status: 'Ready to Start', color: 'bg-emerald-900', action: markTourEnRoute, next: 'Heading to Pickup', proximityOk: true },
+                  // Requires the driver to actually be near the pickup point —
+                  // previously this only checked ride status, so a driver
+                  // could tap "Arrived" from anywhere, well before really
+                  // reaching the pickup location.
+                  { label: 'Arrived', icon: MapPin, status: 'Heading to Pickup', color: 'bg-amber-600', action: markTourArrived, next: 'Arrived at Pickup', proximityOk: distanceToPickup != null && distanceToPickup <= 1.0 },
+                  // Same real-location requirement as Arrived — a driver who
+                  // tapped Arrived from just inside 1km, then drove off
+                  // before actually reaching the pickup, shouldn't be able
+                  // to start the tour until they're really there.
+                  { label: 'Tour', icon: Play, status: 'Arrived at Pickup', color: 'bg-emerald-700', action: startTour, next: 'Tour in Progress', proximityOk: distanceToPickup != null && distanceToPickup <= 1.0 }
+                ].map((btn, i) => {
+                  const statusMatches = rideStatus === btn.status
+                  const enabled = statusMatches && btn.proximityOk
+                  return (
+                  <motion.button
                     key={i}
-                    whileHover={rideStatus === btn.status ? { scale: 1.02 } : {}}
-                    whileTap={rideStatus === btn.status ? { scale: 0.98 } : {}}
-                    disabled={rideStatus !== btn.status}
+                    whileHover={enabled ? { scale: 1.02 } : {}}
+                    whileTap={enabled ? { scale: 0.98 } : {}}
+                    disabled={!enabled}
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedActionBtn(btn);
                     }}
                     className={`flex-1 flex flex-row items-center justify-center py-2.5 rounded-lg gap-1.5 transition-all border ${
-                      rideStatus === btn.status 
-                        ? `${btn.color} text-white shadow-md border-transparent` 
+                      enabled
+                        ? `${btn.color} text-white shadow-md border-transparent`
                         : 'bg-slate-50 border-slate-200 text-slate-400'
                     }`}
                   >
                     <btn.icon size={14} />
                     <span className="text-[10px] font-bold uppercase tracking-wider">{btn.label}</span>
                   </motion.button>
-                ))}
+                  )
+                })}
               </div>
+              {rideStatus === 'Heading to Pickup' && distanceToPickup != null && distanceToPickup > 1.0 && (
+                <p className="text-[10px] font-medium text-amber-700 -mt-1 mb-2 text-center">
+                  Get within 1km of the pickup point to mark arrival ({distanceToPickup.toFixed(1)} km away)
+                </p>
+              )}
+              {rideStatus === 'Arrived at Pickup' && distanceToPickup != null && distanceToPickup > 1.0 && (
+                <p className="text-[10px] font-medium text-amber-700 -mt-1 mb-2 text-center">
+                  Reach the pickup point to start the tour ({distanceToPickup.toFixed(1)} km away)
+                </p>
+              )}
+              </>
               )}
 
               <div className="flex items-center justify-around bg-slate-50 border border-slate-100 rounded-lg p-2 mb-2 shadow-inner">
@@ -770,9 +1022,9 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
               </div>
 
               <div className="flex items-center gap-2 mb-1">
-                <motion.button 
-                  whileHover={rideStatus === 'Tour in Progress' && distanceToDestination <= 0.5 ? { scale: 1.02 } : {}}
-                  whileTap={rideStatus === 'Tour in Progress' && distanceToDestination <= 0.5 ? { scale: 0.98 } : {}}
+                <motion.button
+                  whileHover={rideStatus === 'Tour in Progress' && distanceToDestination <= 1.0 ? { scale: 1.02 } : {}}
+                  whileTap={rideStatus === 'Tour in Progress' && distanceToDestination <= 1.0 ? { scale: 0.98 } : {}}
                   onClick={async (e) => {
                     e.stopPropagation();
                     if (!window.confirm("Finish tour?")) return
@@ -782,10 +1034,10 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
                       onBack()
                     } catch (err) { alert(err.message) }
                   }}
-                  disabled={rideStatus !== 'Tour in Progress' || distanceToDestination === null || distanceToDestination > 0.5}
+                  disabled={rideStatus !== 'Tour in Progress' || distanceToDestination === null || distanceToDestination > 1.0}
                   className={`flex-[3] py-2.5 rounded-lg font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 text-[10px] ${
-                    rideStatus === 'Tour in Progress' && distanceToDestination !== null && distanceToDestination <= 0.5
-                      ? 'bg-amber-500 text-emerald-950 shadow-md shadow-amber-500/20' 
+                    rideStatus === 'Tour in Progress' && distanceToDestination !== null && distanceToDestination <= 1.0
+                      ? 'bg-amber-500 text-emerald-950 shadow-md shadow-amber-500/20'
                       : 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed'
                   }`}
                 >
@@ -851,6 +1103,27 @@ export default function LiveHireDriver({ tourId, token, onBack }) {
         }}
         loading={cancelling}
       />
+
+      <IncomingTourRequestModal
+        tour={activeIncomingTour}
+        busy={incomingActionBusy}
+        onAccept={handleIncomingAccept}
+        onNegotiate={handleIncomingNegotiate}
+        onDismiss={handleIncomingDismiss}
+      />
+
+      <AnimatePresence>
+        {incomingActionMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[2100] bg-slate-900 text-white text-sm font-bold px-5 py-3 rounded-2xl shadow-2xl"
+          >
+            {incomingActionMessage}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

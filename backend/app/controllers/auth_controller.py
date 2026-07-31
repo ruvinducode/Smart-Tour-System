@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from app import db, limiter
 from app.decorators import password_policy_error
 from app.models import User, Driver, Notification
-from app.validators import clean_str, registration_error
+from app.validators import clean_str, profile_update_error, registration_error
 from app.services.notification_service import notify_user_registered
 
 auth_bp = Blueprint("auth_bp", __name__)
@@ -99,6 +99,74 @@ def register():
     notify_user_registered(new_user)
 
     return jsonify({"message": "User registered successfully"}), 201
+
+
+# =========================
+# SELF-SERVICE PROFILE (current user)
+# =========================
+def _current_user_or_error():
+    """Resolve the logged-in traveler from the JWT, or a (response, status) error pair."""
+    claims = get_jwt()
+    if claims.get("role") != "user":
+        return None, (jsonify({"message": "Unauthorized"}), 403)
+
+    raw_id = get_jwt_identity()
+    try:
+        user_id = int(raw_id)
+    except (TypeError, ValueError):
+        return None, (jsonify({"message": "Invalid user identity"}), 401)
+
+    user = User.query.get(user_id)
+    if not user:
+        return None, (jsonify({"message": "User not found"}), 404)
+
+    return user, None
+
+
+def _profile_json(user):
+    return {
+        "id": user.id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "phone": user.phone,
+        "country": user.country,
+    }
+
+
+@auth_bp.route("/profile", methods=["GET"])
+@jwt_required()
+def get_my_profile():
+    user, error = _current_user_or_error()
+    if error:
+        return error
+    return jsonify(_profile_json(user)), 200
+
+
+@auth_bp.route("/profile", methods=["PUT"])
+@jwt_required()
+def update_my_profile():
+    user, error = _current_user_or_error()
+    if error:
+        return error
+
+    data = request.get_json() or {}
+    full_name = clean_str(data.get("full_name"))
+    phone = clean_str(data.get("phone"))
+    country = clean_str(data.get("country"))
+
+    field_error = profile_update_error(full_name, phone, country)
+    if field_error:
+        return jsonify({"message": field_error}), 400
+
+    user.full_name = full_name
+    user.phone = phone
+    user.country = country
+    db.session.commit()
+
+    return jsonify({
+        "message": "Profile updated successfully",
+        "user": _profile_json(user),
+    }), 200
 
 
 # =========================

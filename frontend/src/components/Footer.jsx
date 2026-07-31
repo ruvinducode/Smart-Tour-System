@@ -35,7 +35,7 @@ const Footer = ({ minimal = false, variant, portal }) => {
             </span>
             <span className="hidden sm:inline text-slate-300">·</span>
             <span>
-              Developed by <span className="font-semibold text-slate-600">IR Mate Pvt</span>
+              Developed by <span className="font-semibold text-slate-600">IR Fusions Pvt.</span>
             </span>
             <span className="hidden sm:inline text-slate-300">·</span>
             <span className="font-medium">&copy; {currentYear}</span>
@@ -131,11 +131,11 @@ const Footer = ({ minimal = false, variant, portal }) => {
               Powered by <span className="text-white">Air B&C</span>
             </p>
             <p className="text-[11px] font-black text-slate-500 uppercase tracking-[0.3em]">
-              Developed by <span className="text-orange-500">IR Mate Pvt</span>
+              Developed by <span className="text-orange-500">IR Fusions Pvt.</span>
             </p>
           </div>
           <div className="text-center md:text-right">
-             <p className="text-slate-500 text-xs font-bold">&copy; {currentYear} IR Mate Pvt. All rights reserved.</p>
+             <p className="text-slate-500 text-xs font-bold">&copy; {currentYear} IR Fusions Pvt. All rights reserved.</p>
              <p className="text-[10px] text-slate-600 mt-2 font-medium">Licensed under Sri Lanka Tourism Development Authority (SLTDA)</p>
           </div>
         </div>

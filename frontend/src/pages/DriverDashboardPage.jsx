@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   approveDriverTourRequest,
   getDriverTourRequests,
+  getDriverIncomingTourRequests,
   sendDriverNegotiatedPrice,
   getDriverProfile,
   updateDriverProfile,
@@ -14,6 +15,7 @@ import {
   getDriverFeedbacks,
 } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
+import IncomingTourRequestModal from '../components/driver/IncomingTourRequestModal.jsx'
 import ConfirmationModal from '../components/ConfirmationModal.jsx'
 import DashboardChart from '../components/DashboardChart.jsx'
 import DashboardPieChart from '../components/DashboardPieChart.jsx'
@@ -30,28 +32,38 @@ import {
   formatCurrency,
 } from '../utils/dashboardAnalytics.js'
 import appLogo from '../../images/logo.jpeg'
+import { DriverLanguageProvider, useDriverLang } from '../i18n/DriverLanguageContext.jsx'
 
 const NAV_ITEMS = [
-  { id: 'all',         label: 'Dashboard',   icon: 'bi bi-grid-fill' },
-  { id: 'upcoming',    label: 'Upcoming',    icon: 'bi bi-calendar-event-fill', countKey: 'upcoming' },
-  { id: 'approved',    label: 'Approved',    icon: 'bi bi-check-circle-fill', countKey: 'approved' },
-  { id: 'price_sent',  label: 'Negotiating', icon: 'bi bi-arrow-left-right', countKey: 'negotiating' },
-  { id: 'payments',    label: 'Payments',    icon: 'bi bi-wallet2' },
-  { id: 'feedbacks',   label: 'My Feedbacks',icon: 'bi bi-star-fill' },
-  { id: 'profile',     label: 'My Profile',  icon: 'bi bi-person-circle' },
+  { id: 'all',         labelKey: 'nav.dashboard',   icon: 'bi bi-grid-fill' },
+  { id: 'upcoming',    labelKey: 'nav.upcoming',    icon: 'bi bi-calendar-event-fill', countKey: 'upcoming' },
+  { id: 'approved',    labelKey: 'nav.approved',    icon: 'bi bi-check-circle-fill', countKey: 'approved' },
+  { id: 'price_sent',  labelKey: 'nav.negotiating', icon: 'bi bi-arrow-left-right', countKey: 'negotiating' },
+  { id: 'payments',    labelKey: 'nav.payments',    icon: 'bi bi-wallet2' },
+  { id: 'feedbacks',   labelKey: 'nav.feedbacks',   icon: 'bi bi-star-fill' },
+  { id: 'profile',     labelKey: 'nav.profile',     icon: 'bi bi-person-circle' },
 ]
 
-const TAB_TITLES = {
-  all: 'Driver Dashboard',
-  upcoming: 'Upcoming Tours',
-  approved: 'Approved Tours',
-  price_sent: 'Negotiating Requests',
-  payments: 'Payments',
-  feedbacks: 'My Feedbacks',
-  profile: 'My Profile',
+const TAB_TITLE_KEYS = {
+  all: 'tabTitle.all',
+  upcoming: 'tabTitle.upcoming',
+  approved: 'tabTitle.approved',
+  price_sent: 'tabTitle.price_sent',
+  payments: 'tabTitle.payments',
+  feedbacks: 'tabTitle.feedbacks',
+  profile: 'tabTitle.profile',
 }
 
-export default function DriverDashboardPage({ token, userName, onLogout }) {
+export default function DriverDashboardPage(props) {
+  return (
+    <DriverLanguageProvider>
+      <DriverDashboardPageInner {...props} />
+    </DriverLanguageProvider>
+  )
+}
+
+function DriverDashboardPageInner({ token, userName, onLogout }) {
+  const { t, lang, setLang } = useDriverLang()
   const [tourRequests, setTourRequests] = useState([])
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState('')
@@ -67,6 +79,11 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
   const [profileData, setProfileData] = useState(null)
   const [editMode, setEditMode] = useState(false)
   const [updatingProfile, setUpdatingProfile] = useState(false)
+  // A dedicated fixed-position popup for the profile save result, separate
+  // from the inline `info`/`error` banner above the tab content — that banner
+  // can scroll out of view on a long form, which is exactly the "success
+  // popup doesn't show" complaint this was meant to fix.
+  const [profileToast, setProfileToast] = useState(null)
 
   // Confirmation Modal State
   const [confirmState, setConfirmState] = useState({
@@ -79,10 +96,30 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
   })
 
   const [activeRideTourId, setActiveRideTourId] = useState(null)
+  // Tours already auto-launched into the live-tracking screen once they
+  // became confirmed, so the driver isn't forced back in if they navigate
+  // away — see the effect below that watches for the confirm transition.
+  const launchedRideTourIdsRef = useRef(new Set())
   const [notifications, setNotifications] = useState([])
   const [showNotifications, setShowNotifications] = useState(false)
   const [feedbacks, setFeedbacks] = useState([])
   const [feedbackSummary, setFeedbackSummary] = useState(null)
+
+  // New-request interruption popup — separate from the "Upcoming" tab list;
+  // see getDriverIncomingTourRequests for the eligibility rules (vehicle
+  // match, driver not busy or nearly done with their current trip).
+  const [incomingRequests, setIncomingRequests] = useState([])
+  const [activeIncomingTour, setActiveIncomingTour] = useState(null)
+  const [incomingActionBusy, setIncomingActionBusy] = useState(false)
+  // Session-only "not now" list — a dismissed request can still be acted on
+  // later from the Upcoming tab, it just won't re-interrupt this session.
+  const [dismissedIncomingIds, setDismissedIncomingIds] = useState(() => new Set())
+  // Tours whose popup is showing the "offer sent, pending" confirmation —
+  // negotiating flips the tour's status, which drops it out of the next
+  // incoming-requests poll; without this, the auto-clear effect below would
+  // treat that as "someone else claimed it" and close the popup before the
+  // driver ever sees the confirmation.
+  const [awaitingOfferConfirmationIds, setAwaitingOfferConfirmationIds] = useState(() => new Set())
 
   const handleMarkNotifRead = async (id) => {
     try {
@@ -125,10 +162,11 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
     setError('')
     if (!silent) setLoading(true)
     try {
-      const [tourData, notifData, feedbackData] = await Promise.all([
+      const [tourData, notifData, feedbackData, incomingData] = await Promise.all([
         getDriverTourRequests(token),
         getDriverNotifications(token),
-        getDriverFeedbacks(token).catch(() => null)
+        getDriverFeedbacks(token).catch(() => null),
+        getDriverIncomingTourRequests(token).catch(() => []),
       ])
       setTourRequests(Array.isArray(tourData) ? tourData : [])
       setNotifications(Array.isArray(notifData) ? notifData : [])
@@ -136,12 +174,78 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
         setFeedbacks(Array.isArray(feedbackData.feedbacks) ? feedbackData.feedbacks : [])
         setFeedbackSummary(feedbackData.summary || null)
       }
+      setIncomingRequests(Array.isArray(incomingData) ? incomingData : [])
     } catch (err) {
-      if (!silent) setError(err.message || 'Could not load dashboard data')
+      if (!silent) setError(err.message || t('toast.couldNotLoadDashboard'))
     } finally {
       if (!silent) setLoading(false)
     }
   }, [token])
+
+  // Show one incoming request at a time. If the one currently shown drops
+  // out of the eligible list (someone else claimed it, or the driver became
+  // busy), close it automatically rather than leaving a stale popup up.
+  useEffect(() => {
+    setActiveIncomingTour((prevActive) => {
+      if (prevActive && !incomingRequests.some((t) => t.id === prevActive.id)) {
+        if (awaitingOfferConfirmationIds.has(prevActive.id)) return prevActive
+        return null
+      }
+      if (prevActive) return prevActive
+      return incomingRequests.find((t) => !dismissedIncomingIds.has(t.id)) || null
+    })
+  }, [incomingRequests, dismissedIncomingIds, awaitingOfferConfirmationIds])
+
+  const handleIncomingAccept = async (tourId) => {
+    setIncomingActionBusy(true)
+    setError(''); setInfo('')
+    try {
+      const data = await approveDriverTourRequest(tourId, token)
+      // Accepting only sends an offer at the listed price now — another
+      // driver may also respond, so the traveler still has to confirm it.
+      // Jumping straight into the live-tracking screen here (as this used
+      // to) would drop the driver into an unconfirmed tour; the screen only
+      // makes sense once loadTourRequests below picks up the real
+      // confirmation, which the effect further down auto-launches from.
+      setInfo(data.message || t('toast.tourApproved'))
+      setDismissedIncomingIds((prev) => new Set(prev).add(tourId))
+      setActiveIncomingTour(null)
+      await loadTourRequests()
+    } catch (err) {
+      setError(err.message || t('toast.couldNotApprove'))
+      setActiveIncomingTour(null)
+    } finally {
+      setIncomingActionBusy(false)
+    }
+  }
+
+  const handleIncomingNegotiate = async (tourId, price) => {
+    setIncomingActionBusy(true)
+    setError(''); setInfo('')
+    try {
+      const data = await sendDriverNegotiatedPrice(tourId, Number(price), token)
+      // Popup stays open to show the pending-offer confirmation (mirrors the
+      // "Negotiating" tab's card) instead of closing on a toast the driver
+      // might miss — see awaitingOfferConfirmationIds above.
+      setAwaitingOfferConfirmationIds((prev) => new Set(prev).add(tourId))
+      await loadTourRequests()
+      return data
+    } catch (err) {
+      throw err
+    } finally {
+      setIncomingActionBusy(false)
+    }
+  }
+
+  const handleIncomingDismiss = (tourId) => {
+    setDismissedIncomingIds((prev) => new Set(prev).add(tourId))
+    setAwaitingOfferConfirmationIds((prev) => {
+      const next = new Set(prev)
+      next.delete(tourId)
+      return next
+    })
+    setActiveIncomingTour(null)
+  }
 
   useEffect(() => { 
     loadTourRequests()
@@ -153,42 +257,76 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
     return () => clearInterval(id)
   }, [loadTourRequests])
 
-  const handleUpdateProfile = async (e) => {
-    e.preventDefault()
-    setUpdatingProfile(true)
-    setError(''); setInfo('')
-    
-    const formData = new FormData(e.target)
-    
-    try {
-      await updateDriverProfile(formData, token)
-      setInfo('Profile updated successfully!')
-      setEditMode(false)
-      fetchProfile()
-    } catch (err) {
-      setError(err.message || 'Failed to update profile')
-    } finally {
-      setUpdatingProfile(false)
+  // Auto-launch the live-tracking screen the moment a tour this driver
+  // offered on actually becomes confirmed — regardless of whether it got
+  // there via direct-accept or a negotiated price, since both now go
+  // through the same "traveler picks an offer" step rather than confirming
+  // instantly. Without this, a negotiated tour's confirmation was only ever
+  // visible as a quiet tab change, with nothing prompting the driver to
+  // actually start driving — unlike the old direct-accept flow, which used
+  // to (incorrectly, pre-confirmation) jump there right away.
+  useEffect(() => {
+    if (activeRideTourId) return
+    const readyTour = tourRequests.find((t) =>
+      t.status === 'confirmed' &&
+      t.my_offer?.status === 'accepted' &&
+      !launchedRideTourIdsRef.current.has(t.id)
+    )
+    if (readyTour) {
+      launchedRideTourIdsRef.current.add(readyTour.id)
+      setActiveRideTourId(readyTour.id)
     }
-  }
+  }, [tourRequests, activeRideTourId])
 
-  const handleApprove = async (tourId) => {
+  const handleUpdateProfile = (e) => {
+    e.preventDefault()
+    // Captured now, while the form is still mounted — the confirmation
+    // dialog defers the actual save until the user taps "Confirm".
+    const formData = new FormData(e.target)
+
     setConfirmState({
       isOpen: true,
-      title: 'Accept This Trip?',
-      message: 'Are you sure you want to accept this tour request? You will be expected to provide transport services for this route.',
+      title: t('confirm.saveProfileTitle'),
+      message: t('confirm.saveProfileMessage'),
+      type: 'info',
+      onConfirm: async () => {
+        setConfirmState(prev => ({ ...prev, isLoading: true }))
+        setUpdatingProfile(true)
+        try {
+          await updateDriverProfile(formData, token)
+          setEditMode(false)
+          await fetchProfile()
+          setProfileToast({ message: t('toast.profileUpdated'), type: 'success' })
+        } catch (err) {
+          setProfileToast({ message: err.message || t('toast.profileUpdateFailed'), type: 'error' })
+        } finally {
+          setUpdatingProfile(false)
+          setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }))
+        }
+      }
+    })
+  }
+
+  const handleApprove = async (tourId, wasRejectedNegotiation = false) => {
+    setConfirmState({
+      isOpen: true,
+      title: t('confirm.acceptTripTitle'),
+      message: wasRejectedNegotiation
+        ? t('confirm.acceptTripDeclined')
+        : t('confirm.acceptTripMessage'),
       type: 'success',
       onConfirm: async () => {
         setConfirmState(prev => ({ ...prev, isLoading: true }))
         setError(''); setInfo('')
         try {
           const data = await approveDriverTourRequest(tourId, token)
-          setInfo(data.message || 'Tour approved')
-          setActiveRideTourId(tourId)
+          // Same reasoning as handleIncomingAccept — this now only sends an
+          // offer, not a confirmed booking, so no premature navigation here.
+          setInfo(data.message || t('toast.tourApproved'))
           await loadTourRequests()
           setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }))
-        } catch (err) { 
-          setError(err.message || 'Could not approve tour')
+        } catch (err) {
+          setError(err.message || t('toast.couldNotApprove'))
           setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }))
         }
       }
@@ -197,23 +335,23 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
 
   const handleSendPrice = async (tourId) => {
     const price = priceInputs[tourId]
-    if (!price) { setError('Please enter a price first'); return }
+    if (!price) { setError(t('toast.enterPriceFirst')); return }
 
     setConfirmState({
       isOpen: true,
-      title: 'Send Counter-Offer?',
-      message: `Are you sure you want to send a counter-offer of Rs. ${Number(price).toLocaleString()}? The user will need to accept this price.`,
+      title: t('confirm.sendOfferTitle'),
+      message: t('confirm.sendOfferMessage', { price: Number(price).toLocaleString() }),
       type: 'info',
       onConfirm: async () => {
         setConfirmState(prev => ({ ...prev, isLoading: true }))
         setError(''); setInfo('')
         try {
           const data = await sendDriverNegotiatedPrice(tourId, Number(price), token)
-          setInfo(data.message || 'Price sent to user')
+          setInfo(data.message || t('toast.priceSent'))
           await loadTourRequests()
           setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }))
-        } catch (err) { 
-          setError(err.message || 'Could not send price')
+        } catch (err) {
+          setError(err.message || t('toast.couldNotSendPrice'))
           setConfirmState(prev => ({ ...prev, isOpen: false, isLoading: false }))
         }
       }
@@ -285,7 +423,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
             <div className="h-14 w-14 flex-shrink-0 rounded-xl overflow-hidden border border-slate-700 shadow-lg shadow-orange-500/10">
               <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
             </div>
-            {sidebarOpen && <span className="text-lg font-bold text-white tracking-tight">Air B&C</span>}
+            {sidebarOpen && <span className="text-lg font-bold text-white tracking-tight">{t('brand.name')}</span>}
           </div>
           <nav className="mt-6 px-3 space-y-2">
             {NAV_ITEMS.map(item => (
@@ -297,7 +435,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                 }`}
               >
                 <i className={`${item.icon} text-lg flex-shrink-0`}></i>
-                {sidebarOpen && <span className="flex-1 text-left">{item.label}</span>}
+                {sidebarOpen && <span className="flex-1 text-left">{t(item.labelKey)}</span>}
                 {sidebarOpen && item.countKey && tabCounts[item.countKey] > 0 && (
                   <span className={`ml-auto min-w-[1.25rem] h-5 px-1.5 flex items-center justify-center rounded-full text-[10px] font-black ${
                     activeTab === item.id ? 'bg-white/20 text-white' : 'bg-orange-500/20 text-orange-400'
@@ -310,13 +448,36 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
           </nav>
         </div>
         <div className="px-3 pb-8 space-y-2">
+          {sidebarOpen ? (
+            <div className="flex rounded-xl bg-slate-800 p-1 mb-1">
+              {[{ code: 'en', key: 'lang.english' }, { code: 'si', key: 'lang.sinhala' }].map((opt) => (
+                <button
+                  key={opt.code}
+                  onClick={() => setLang(opt.code)}
+                  className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold transition-all ${
+                    lang === opt.code ? 'bg-orange-500 text-white shadow' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {t(opt.key)}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <button
+              onClick={() => setLang(lang === 'en' ? 'si' : 'en')}
+              className="w-full flex items-center justify-center rounded-xl px-4 py-3 text-sm font-black text-slate-400 hover:bg-slate-800 hover:text-white transition"
+              title={t('header.language')}
+            >
+              <i className="bi bi-translate text-lg"></i>
+            </button>
+          )}
           <button onClick={() => setSidebarOpen(o => !o)} className="w-full flex items-center gap-4 rounded-xl px-4 py-3 text-sm font-semibold text-slate-400 hover:bg-slate-800 hover:text-white transition">
             <i className={`bi bi-arrow-bar-${sidebarOpen ? 'left' : 'right'} text-lg`}></i>
-            {sidebarOpen && <span>Collapse Menu</span>}
+            {sidebarOpen && <span>{t('nav.collapseMenu')}</span>}
           </button>
           <button onClick={onLogout} className="w-full flex items-center gap-4 rounded-xl px-4 py-3 text-sm font-semibold text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition">
             <i className="bi bi-box-arrow-left text-lg"></i>
-            {sidebarOpen && <span>Sign Out</span>}
+            {sidebarOpen && <span>{t('nav.signOut')}</span>}
           </button>
         </div>
       </aside>
@@ -330,7 +491,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
             <div className="h-14 w-14 flex-shrink-0 rounded-xl overflow-hidden border border-slate-700 shadow-lg shadow-orange-500/10">
               <img src={appLogo} alt="Logo" className="w-full h-full object-cover" />
             </div>
-            <span className="text-lg font-bold text-white tracking-tight">Air B&C</span>
+            <span className="text-lg font-bold text-white tracking-tight">{t('brand.name')}</span>
           </div>
           <nav className="mt-6 px-3 space-y-2">
             {NAV_ITEMS.map(item => (
@@ -342,7 +503,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                 }`}
               >
                 <i className={`${item.icon} text-lg flex-shrink-0`}></i>
-                <span className="flex-1 text-left">{item.label}</span>
+                <span className="flex-1 text-left">{t(item.labelKey)}</span>
                 {item.countKey && tabCounts[item.countKey] > 0 && (
                   <span className="min-w-[1.25rem] h-5 px-1.5 flex items-center justify-center rounded-full bg-orange-500/30 text-[10px] font-black text-orange-200">
                     {tabCounts[item.countKey]}
@@ -353,9 +514,22 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
           </nav>
         </div>
         <div className="px-3 pb-8 space-y-2">
+          <div className="flex rounded-xl bg-slate-800 p-1 mb-1">
+            {[{ code: 'en', key: 'lang.english' }, { code: 'si', key: 'lang.sinhala' }].map((opt) => (
+              <button
+                key={opt.code}
+                onClick={() => setLang(opt.code)}
+                className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold transition-all ${
+                  lang === opt.code ? 'bg-orange-500 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {t(opt.key)}
+              </button>
+            ))}
+          </div>
           <button onClick={onLogout} className="w-full flex items-center gap-4 rounded-xl px-4 py-3 text-sm font-semibold text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition">
             <i className="bi bi-box-arrow-left text-lg"></i>
-            <span>Sign Out</span>
+            <span>{t('nav.signOut')}</span>
           </button>
         </div>
       </aside>
@@ -371,13 +545,13 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
               <i className="bi bi-list text-xl"></i>
             </button>
             <h1 className="text-base sm:text-xl font-bold text-slate-800">
-              {TAB_TITLES[activeTab] || 'Driver Dashboard'}
+              {t(TAB_TITLE_KEYS[activeTab] || 'tabTitle.all')}
             </h1>
           </div>
           <div className="flex items-center gap-6">
             <button onClick={() => loadTourRequests()} disabled={loading} className="flex items-center gap-2 text-slate-600 hover:text-orange-500 text-sm font-bold transition-colors">
               <i className={`bi bi-arrow-clockwise ${loading ? 'animate-spin' : ''}`}></i>
-              {loading ? 'Refreshing...' : 'Refresh'}
+              {loading ? t('header.refreshing') : t('header.refresh')}
             </button>
 
             {/* Notification Bell */}
@@ -404,14 +578,14 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                     {/* Dropdown Header */}
                     <div className="px-6 py-4 bg-slate-50 border-b border-slate-100">
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest">Notifications</h4>
+                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest">{t('header.notifications')}</h4>
                         <div className="flex items-center gap-1.5">
                           {unreadCount > 0 && (
                             <button
                               onClick={handleMarkAllNotifRead}
                               className="text-[10px] font-bold text-[#1a2e6f] bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition"
                             >
-                              Mark All Read
+                              {t('header.markAllRead')}
                             </button>
                           )}
                           {notifications.length > 0 && (
@@ -419,13 +593,13 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                               onClick={handleClearAllNotifs}
                               className="text-[10px] font-bold text-rose-500 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition"
                             >
-                              Clear All
+                              {t('header.clearAll')}
                             </button>
                           )}
                         </div>
                       </div>
                       <p className="text-[10px] text-slate-400 font-semibold">
-                        {unreadCount > 0 ? <span className="text-orange-500">{unreadCount} unread</span> : 'All read'} · {notifications.length} total
+                        {unreadCount > 0 ? <span className="text-orange-500">{unreadCount} {t('header.unread')}</span> : t('header.allRead')} · {notifications.length} {t('header.total')}
                       </p>
                     </div>
 
@@ -434,7 +608,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                       {notifications.length === 0 ? (
                         <div className="p-10 text-center">
                           <i className="bi bi-bell-slash text-3xl text-slate-200 mb-3 block"></i>
-                          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">No notifications</p>
+                          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">{t('header.noNotifications')}</p>
                         </div>
                       ) : (
                         notifications.map(n => {
@@ -506,8 +680,8 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
 
             <div className="flex items-center gap-3 border-l border-slate-200 pl-6">
               <div className="text-right">
-                <p className="text-sm font-bold text-slate-800 leading-none">{userName || 'Driver'}</p>
-                <p className="text-xs text-slate-400 mt-1 font-medium">Professional Driver</p>
+                <p className="text-sm font-bold text-slate-800 leading-none">{userName || t('header.driver')}</p>
+                <p className="text-xs text-slate-400 mt-1 font-medium">{t('header.professionalDriver')}</p>
               </div>
               <div className="h-10 w-10 rounded-full overflow-hidden bg-slate-100 flex items-center justify-center text-slate-600 font-bold border border-slate-200 shadow-sm">
                 {profileData?.profile_photo ? (
@@ -531,16 +705,16 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                 <div className="absolute -bottom-10 -right-10 h-40 w-40 rounded-full bg-orange-500/20 blur-3xl" />
                 <div className="relative grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
                   <div className="lg:col-span-1">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-300/80 mb-2">Total Earnings</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-300/80 mb-2">{t('overview.totalEarnings')}</p>
                     <p className="text-4xl sm:text-5xl font-black tracking-tight">{formatCurrency(analytics.totalEarnings)}</p>
-                    <p className="text-sm text-slate-300 mt-2 font-medium">From {analytics.completedCount} completed tour{analytics.completedCount !== 1 ? 's' : ''}</p>
+                    <p className="text-sm text-slate-300 mt-2 font-medium">{t('overview.fromCompletedTours', { count: analytics.completedCount, plural: analytics.completedCount !== 1 ? 's' : '' })}</p>
                   </div>
                   <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {[
-                      { label: 'Pending', value: formatCurrency(analytics.pendingEarnings), sub: 'In pipeline' },
-                      { label: 'Avg / Trip', value: formatCurrency(analytics.avgPerTrip), sub: 'Completed' },
-                      { label: 'Completion', value: `${analytics.completionRate}%`, sub: 'Success rate' },
-                      { label: 'Distance', value: `${analytics.totalKm.toFixed(0)} km`, sub: 'Total driven' },
+                      { label: t('overview.pending'), value: formatCurrency(analytics.pendingEarnings), sub: t('overview.inPipeline') },
+                      { label: t('overview.avgPerTrip'), value: formatCurrency(analytics.avgPerTrip), sub: t('overview.completedLabel') },
+                      { label: t('overview.completion'), value: `${analytics.completionRate}%`, sub: t('overview.successRate') },
+                      { label: t('overview.distance'), value: `${analytics.totalKm.toFixed(0)} km`, sub: t('overview.totalDriven') },
                     ].map((item) => (
                       <div key={item.label} className="rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10 px-4 py-3">
                         <p className="text-[9px] font-black uppercase tracking-widest text-orange-200/70">{item.label}</p>
@@ -552,23 +726,30 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                <DashboardStatCard label="Total Requests" value={analytics.total} icon="bi-clipboard-data" accent="blue" sub="All assigned tours" />
-                <DashboardStatCard label="Active Tours" value={analytics.activeCount} icon="bi-car-front-fill" accent="emerald" sub="In progress or confirmed" />
-                <DashboardStatCard label="Negotiating" value={analytics.negotiatingCount} icon="bi-chat-dots-fill" accent="orange" sub="Awaiting user response" />
-                <DashboardStatCard label="Completed" value={analytics.completedCount} icon="bi-trophy-fill" accent="violet" sub={`${formatCurrency(analytics.totalEarnings)} earned`} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
+                <DashboardStatCard label={t('overview.totalRequests')} value={analytics.total} icon="bi-clipboard-data" accent="blue" sub={t('overview.allAssignedTours')} />
+                <DashboardStatCard label={t('overview.activeTours')} value={analytics.activeCount} icon="bi-car-front-fill" accent="emerald" sub={t('overview.inProgressOrConfirmed')} />
+                <DashboardStatCard label={t('overview.negotiating')} value={analytics.negotiatingCount} icon="bi-chat-dots-fill" accent="orange" sub={t('overview.awaitingUserResponse')} />
+                <DashboardStatCard label={t('overview.completedCard')} value={analytics.completedCount} icon="bi-trophy-fill" accent="violet" sub={t('overview.earned', { amount: formatCurrency(analytics.totalEarnings) })} />
+                <DashboardStatCard
+                  label={t('overview.rating')}
+                  value={feedbackSummary?.total_feedbacks ? `${(feedbackSummary.average_rating || 0).toFixed(1)} ★` : t('overview.newDriver')}
+                  icon="bi-star-fill"
+                  accent="rose"
+                  sub={feedbackSummary?.total_feedbacks ? t('overview.fromReviews', { count: feedbackSummary.total_feedbacks }) : t('overview.noReviewsYet')}
+                />
               </div>
 
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                 <div className="xl:col-span-2">
-                  <DashboardChart data={weeklyChart} title="Earnings & Trips (Last 7 Days)" barKey="trips" lineKey="earnings" />
+                  <DashboardChart data={weeklyChart} title={t('overview.earningsTripsChart')} barKey="trips" lineKey="earnings" />
                 </div>
                 <div>
                   {statusChart.length > 0 ? (
-                    <DashboardPieChart data={statusChart} title="Tour Status Mix" />
+                    <DashboardPieChart data={statusChart} title={t('overview.tourStatusMix')} />
                   ) : (
                     <div className="bg-white rounded-3xl border border-slate-100 p-8 h-full flex items-center justify-center text-slate-400 text-sm font-bold">
-                      No tour data yet
+                      {t('overview.noTourDataYet')}
                     </div>
                   )}
                 </div>
@@ -576,12 +757,12 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-4">
-                  <h2 className="text-xl font-black text-slate-900">Recent Tour Requests</h2>
+                  <h2 className="text-xl font-black text-slate-900">{t('overview.recentTourRequests')}</h2>
                   <div className="flex flex-wrap gap-2">
                     {[
-                      { id: 'upcoming', label: 'Upcoming', count: tabCounts.upcoming },
-                      { id: 'approved', label: 'Approved', count: tabCounts.approved },
-                      { id: 'price_sent', label: 'Negotiating', count: tabCounts.negotiating },
+                      { id: 'upcoming', label: t('nav.upcoming'), count: tabCounts.upcoming },
+                      { id: 'approved', label: t('nav.approved'), count: tabCounts.approved },
+                      { id: 'price_sent', label: t('nav.negotiating'), count: tabCounts.negotiating },
                     ].map((link) => (
                       <button
                         key={link.id}
@@ -635,9 +816,9 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom_left,rgba(249,115,22,0.25),transparent_55%)]" />
                 <div className="relative grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200/80 mb-2">My Ratings</p>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-200/80 mb-2">{t('feedbacks.myRatings')}</p>
                     <p className="text-4xl sm:text-5xl font-black">{feedbackSummary?.average_rating || 0} ★</p>
-                    <p className="text-sm text-blue-100/70 mt-2">From {feedbackSummary?.total_feedbacks || 0} reviews</p>
+                    <p className="text-sm text-blue-100/70 mt-2">{t('feedbacks.fromReviews', { count: feedbackSummary?.total_feedbacks || 0 })}</p>
                   </div>
                   <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-5 gap-2">
                     {[5, 4, 3, 2, 1].map((stars) => (
@@ -651,11 +832,11 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
               </div>
 
               <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-sm p-6">
-                <h3 className="text-lg font-black text-slate-800 mb-4">Recent Reviews</h3>
+                <h3 className="text-lg font-black text-slate-800 mb-4">{t('feedbacks.recentReviews')}</h3>
                 {feedbacks.length === 0 ? (
                   <div className="text-center py-10">
                     <i className="bi bi-star text-4xl text-slate-200 mb-3 block"></i>
-                    <p className="text-slate-500 font-medium">You don't have any feedback yet.</p>
+                    <p className="text-slate-500 font-medium">{t('feedbacks.noneYet')}</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -672,7 +853,7 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
                             ))}
                           </div>
                         </div>
-                        <p className="text-slate-600 text-sm mt-2">{fb.comment || <span className="italic text-slate-400">No comment</span>}</p>
+                        <p className="text-slate-600 text-sm mt-2">{fb.comment || <span className="italic text-slate-400">{t('feedbacks.noComment')}</span>}</p>
                       </div>
                     ))}
                   </div>
@@ -697,6 +878,40 @@ export default function DriverDashboardPage({ token, userName, onLogout }) {
 
       <TourDetailsModal tourId={selectedTourId} token={token} isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)} userRole="driver" />
       <ConfirmationModal isOpen={confirmState.isOpen} title={confirmState.title} message={confirmState.message} type={confirmState.type} onConfirm={confirmState.onConfirm} onClose={() => setConfirmState(prev => ({ ...prev, isOpen: false }))} isLoading={confirmState.isLoading} />
+      <IncomingTourRequestModal
+        tour={activeIncomingTour}
+        busy={incomingActionBusy}
+        onAccept={handleIncomingAccept}
+        onNegotiate={handleIncomingNegotiate}
+        onDismiss={handleIncomingDismiss}
+      />
+      {profileToast && (
+        <ProfileToast toast={profileToast} onClose={() => setProfileToast(null)} />
+      )}
+    </div>
+  )
+}
+
+function ProfileToast({ toast, onClose }) {
+  useEffect(() => {
+    const id = setTimeout(onClose, 4000)
+    return () => clearTimeout(id)
+  }, [toast, onClose])
+
+  const isSuccess = toast.type === 'success'
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`fixed bottom-6 right-6 z-[200] flex items-center gap-3 rounded-2xl border px-5 py-4 shadow-2xl font-bold text-sm ${
+        isSuccess ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'
+      }`}
+    >
+      <i className={`bi ${isSuccess ? 'bi-check-circle-fill text-emerald-500' : 'bi-exclamation-triangle-fill text-rose-500'} text-lg`} />
+      <span>{toast.message}</span>
+      <button type="button" onClick={onClose} className="opacity-50 hover:opacity-100 transition-opacity ml-2">
+        <i className="bi bi-x-lg text-xs" />
+      </button>
     </div>
   )
 }

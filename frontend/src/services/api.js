@@ -93,6 +93,29 @@ export async function registerUser(payload) {
   return data
 }
 
+export async function getMyProfile(token) {
+  const res = await fetch(apiUrl('/profile'), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function updateMyProfile(payload, token) {
+  const res = await fetch(apiUrl('/profile'), {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
 export async function loginUser(payload) {
   const res = await fetch(apiUrl('/login'), {
     method: 'POST',
@@ -253,6 +276,17 @@ export async function getDriverTourRequests(token) {
   return data
 }
 
+export async function getDriverIncomingTourRequests(token) {
+  const res = await fetch(apiUrl('/driver/incoming-tour-requests'), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  const data = await res.json().catch(() => ([]))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
 export async function approveDriverTourRequest(tourId, token) {
   const res = await fetch(apiUrl(`/driver/tour-requests/${tourId}/approve`), {
     method: 'PUT',
@@ -312,8 +346,8 @@ export async function getTourDetails(tourId, token) {
   return data
 }
 
-export async function acceptDriverPrice(tourId, token) {
-  const res = await fetch(apiUrl(`/tour/${tourId}/accept-price`), {
+export async function acceptOffer(tourId, offerId, token) {
+  const res = await fetch(apiUrl(`/tour/${tourId}/offers/${offerId}/accept`), {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -324,8 +358,8 @@ export async function acceptDriverPrice(tourId, token) {
   return data
 }
 
-export async function rejectDriverPrice(tourId, token) {
-  const res = await fetch(apiUrl(`/tour/${tourId}/reject-price`), {
+export async function rejectOffer(tourId, offerId, token) {
+  const res = await fetch(apiUrl(`/tour/${tourId}/offers/${offerId}/reject`), {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -336,14 +370,14 @@ export async function rejectDriverPrice(tourId, token) {
   return data
 }
 
-export async function replyToDriver(tourId, message, token) {
+export async function replyToDriver(tourId, driverId, message, token) {
   const res = await fetch(apiUrl(`/tour/${tourId}/reply`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, driver_id: driverId }),
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
@@ -767,6 +801,15 @@ export async function getDriverFeedbacks(token) {
   return data
 }
 
+export async function getDriverFeedbacksAdmin(driverId, token) {
+  const res = await fetch(apiUrl(`/admin/driver/${driverId}/feedbacks`), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
 // =========================
 // ROUTING
 // =========================
@@ -778,6 +821,27 @@ export async function getRoute(coordinates) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ coordinates }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function addTourLocation(tourId, location, token) {
+  const res = await fetch(apiUrl(`/tour/${tourId}/locations`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(location),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)
+  return data
+}
+
+export async function removeTourLocation(tourId, locationId, token) {
+  const res = await fetch(apiUrl(`/tour/${tourId}/locations/${locationId}`), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`)

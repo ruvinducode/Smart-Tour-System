@@ -41,34 +41,71 @@ function digitCount(value) {
   return (value.match(/\d/g) || []).length
 }
 
+function fullNameError(full_name, { required = true } = {}) {
+  const name = (full_name || '').trim()
+  if (!name) return required ? 'Full name is required' : null
+  if (name.length < 2) return 'Please enter your full name'
+  if (name.length > 120) return 'Full name is too long'
+  return null
+}
+
+function phoneError(phone, { required = true } = {}) {
+  const tel = (phone || '').trim()
+  if (!tel) return required ? 'Phone number is required' : null
+  if (!PHONE_RE.test(tel)) return 'Enter a valid phone number'
+  const digits = digitCount(tel)
+  if (digits < 7 || digits > 15) return 'Enter a valid phone number'
+  return null
+}
+
+// `strict` requires the value to be one of the known COUNTRIES (used at
+// registration, where the value always comes from the picker). Profile edits
+// skip that check — an existing account may predate the picker's list.
+function countryError(country, { required = true, strict = true } = {}) {
+  const land = (country || '').trim()
+  if (!land) return required ? 'Please select your country' : null
+  if (strict && !COUNTRIES.includes(land)) return 'Select a country from the list'
+  if (land.length > 100) return 'Country name is too long'
+  return null
+}
+
 // Returns { field: message } for every invalid field; empty object means valid.
 export function validateUserRegistration({ full_name, email, phone, country, password }) {
   const errors = {}
 
-  const name = (full_name || '').trim()
-  if (!name) errors.full_name = 'Full name is required'
-  else if (name.length < 2) errors.full_name = 'Please enter your full name'
-  else if (name.length > 120) errors.full_name = 'Full name is too long'
+  const nameErr = fullNameError(full_name)
+  if (nameErr) errors.full_name = nameErr
 
   const mail = (email || '').trim()
   if (!mail) errors.email = 'Email address is required'
   else if (!EMAIL_RE.test(mail)) errors.email = 'Enter a valid email address'
   else if (mail.length > 254) errors.email = 'Email address is too long'
 
-  const tel = (phone || '').trim()
-  if (!tel) errors.phone = 'Phone number is required'
-  else if (!PHONE_RE.test(tel)) errors.phone = 'Enter a valid phone number'
-  else {
-    const digits = digitCount(tel)
-    if (digits < 7 || digits > 15) errors.phone = 'Enter a valid phone number'
-  }
+  const telErr = phoneError(phone)
+  if (telErr) errors.phone = telErr
 
-  const land = (country || '').trim()
-  if (!land) errors.country = 'Please select your country'
-  else if (!COUNTRIES.includes(land)) errors.country = 'Select a country from the list'
+  const countryErr = countryError(country)
+  if (countryErr) errors.country = countryErr
 
   const pwError = passwordPolicyError(password || '')
   if (pwError) errors.password = pwError
+
+  return errors
+}
+
+// Self-service profile edits: full name required, phone/country optional
+// (matches backend/app/validators.py::profile_update_error exactly).
+export function validateProfileUpdate({ full_name, phone, country }) {
+  const errors = {}
+
+  const nameErr = fullNameError(full_name)
+  if (nameErr) errors.full_name = nameErr
+
+  const telErr = phoneError(phone, { required: false })
+  if (telErr) errors.phone = telErr
+
+  const countryErr = countryError(country, { required: false, strict: false })
+  if (countryErr) errors.country = countryErr
 
   return errors
 }
@@ -82,5 +119,13 @@ export function normaliseUserRegistration(reg) {
     phone: reg.phone.trim(),
     country: reg.country.trim(),
     password: reg.password,
+  }
+}
+
+export function normaliseProfileUpdate(profile) {
+  return {
+    full_name: (profile.full_name || '').trim(),
+    phone: (profile.phone || '').trim(),
+    country: (profile.country || '').trim(),
   }
 }

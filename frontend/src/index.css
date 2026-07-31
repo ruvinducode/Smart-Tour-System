@@ -183,6 +183,15 @@ body {
   animation: float 4s ease-in-out 1.5s infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .animate-float,
+  .animate-float-delay-1,
+  .animate-float-delay-2,
+  .animate-float-delay-3 {
+    animation: none;
+  }
+}
+
 /* Pulse ring effect for hero CTA */
 @keyframes pulseRing {
   0% {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import L from 'leaflet'
 import {
@@ -387,6 +387,7 @@ function getHaversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 import { VEHICLE_OPTIONS } from '../utils/vehicleOptions.js'
+import VehicleCarousel from '../components/VehicleCarousel.jsx'
 
 const SRI_LANKA_CENTER = [7.85, 80.65]
 const DEFAULT_ZOOM = 8
@@ -971,8 +972,56 @@ function ImageCarousel() {
   )
 }
 
+// Scrolls a step section to the top of the viewport (just below the sticky
+// header) whenever `step` changes. Skips the very first render so the hero
+// isn't yanked away on initial page load, and skips entirely for users who
+// prefer reduced motion (falls back to an instant jump instead of smooth).
+function useScrollStepIntoView(step, sectionRef, headerRef) {
+  const hasMounted = useRef(false)
+
+  useEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true
+      return undefined
+    }
+    const node = sectionRef.current
+    if (!node) return undefined
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    // Double rAF: the new step's content (map, vehicle cards, review summary)
+    // needs a layout pass before we measure its position, otherwise the
+    // scroll target is computed against the outgoing step's height.
+    let innerRaf
+    const outerRaf = requestAnimationFrame(() => {
+      innerRaf = requestAnimationFrame(() => {
+        const headerHeight = headerRef.current?.getBoundingClientRect().height ?? 0
+        const targetTop = node.getBoundingClientRect().top + window.scrollY - headerHeight - 24
+        window.scrollTo({ top: Math.max(targetTop, 0), behavior: prefersReducedMotion ? 'auto' : 'smooth' })
+      })
+    })
+    return () => {
+      cancelAnimationFrame(outerRaf)
+      if (innerRaf) cancelAnimationFrame(innerRaf)
+    }
+  }, [step, sectionRef, headerRef])
+}
+
 export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip, onBookingConfirmed, initialDestination }) {
   useLeafletDefaultIcon()
+
+  const headerRef = useRef(null)
+  const stepSectionRef = useRef(null)
+
+  // Take manual control of scroll position while this flow is mounted, so a
+  // browser back/forward navigation can't silently restore the scroll offset
+  // from whatever page/step the user was previously looking at.
+  useEffect(() => {
+    if (!('scrollRestoration' in window.history)) return undefined
+    const previous = window.history.scrollRestoration
+    window.history.scrollRestoration = 'manual'
+    return () => { window.history.scrollRestoration = previous }
+  }, [])
 
   const listId = useId()
   const vehicleGroupId = useId()
@@ -993,6 +1042,35 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [currentStep, setCurrentStep] = useState(1) // 1: Locations, 2: Vehicle, 3: Review
+  useScrollStepIntoView(currentStep, stepSectionRef, headerRef)
+
+  // Connector line under the step badges is measured from the real rendered
+  // DOM, not computed from percentages — the badge spacing is easy to tweak
+  // (gap, padding) and hand-maintained percentage math silently drifts out
+  // of alignment with the actual badge centers whenever that spacing changes.
+  const stepRowRef = useRef(null)
+  const stepBadgeRefs = useRef([])
+  const [stepLine, setStepLine] = useState({ left: 0, width: 0 })
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const row = stepRowRef.current
+      const first = stepBadgeRefs.current[0]
+      const last = stepBadgeRefs.current[2]
+      if (!row || !first || !last) return
+      const rowBox = row.getBoundingClientRect()
+      const firstBox = first.getBoundingClientRect()
+      const lastBox = last.getBoundingClientRect()
+      const firstCenter = firstBox.left + firstBox.width / 2 - rowBox.left
+      const lastCenter = lastBox.left + lastBox.width / 2 - rowBox.left
+      setStepLine({ left: firstCenter, width: lastCenter - firstCenter })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    if (stepRowRef.current) observer.observe(stepRowRef.current)
+    window.addEventListener('resize', measure)
+    return () => { observer.disconnect(); window.removeEventListener('resize', measure) }
+  }, [])
   const [estimatedPrice, setEstimatedPrice] = useState(null)
   const [estimateLoading, setEstimateLoading] = useState(false)
   const [estimateError, setEstimateError] = useState('')
@@ -1021,44 +1099,85 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
       setMessage('Geolocation is not supported by your browser.')
       return
     }
-    setGpsLoading(true)
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords
+    // Some mobile browser contexts (e.g. an installed home-screen app, or a
+    // permissions policy quirk) can throw synchronously instead of calling
+    // the error callback — without this, that would silently abort with no
+    // visible feedback at all, which is exactly what "button reacts, then
+    // nothing happens" looks like.
+    try {
+      setGpsLoading(true)
 
-        // Reject obviously out-of-country fixes before spending a network call.
-        if (!isWithinSriLanka(lat, lng)) {
-          setGpsLoading(false)
+    const onFix = async (pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords
+
+      // Reject obviously out-of-country fixes before spending a network call.
+      if (!isWithinSriLanka(lat, lng)) {
+        setGpsLoading(false)
+        setShowOutsideSriLankaModal(true)
+        return
+      }
+
+      try {
+        const name = await getLocationName(lat, lng)
+        const loc = { id: 'live-start', lat, lng, name, isStart: true }
+        setLiveLocation(loc)
+        // Insert as first location (start point)
+        setLocations((prev) => {
+          const rest = prev.filter((l) => l.id !== 'live-start')
+          return [loc, ...rest]
+        })
+        setMessage('')
+      } catch (err) {
+        if (/sri lanka/i.test(err.message || '')) {
           setShowOutsideSriLankaModal(true)
+        } else {
+          setMessage(err.message || 'Could not resolve live location.')
+        }
+      } finally {
+        setGpsLoading(false)
+      }
+    }
+
+    const onFinalError = (err) => {
+      setGpsLoading(false)
+      // GPS chips (especially on mobile) often can't get a high-accuracy fix
+      // within a few seconds, particularly indoors — that's a timeout, not a
+      // denied permission, and telling the user to "allow location access"
+      // when they already did is exactly why this looked broken on phones.
+      if (err.code === err.PERMISSION_DENIED) {
+        setMessage('Location access denied. Please allow location access and try again.')
+      } else if (err.code === err.TIMEOUT) {
+        setMessage('Could not get a GPS fix in time. Try again outdoors or with a clearer sky view.')
+      } else {
+        setMessage('Could not detect your location. Please check your device\'s location settings and try again.')
+      }
+    }
+
+    // First attempt: high-accuracy GPS fix. Mobile GPS chips can take well
+    // over 10s for a cold fix, so this gets a real chance to succeed before
+    // falling back — but we don't wait forever, since a fallback exists.
+    navigator.geolocation.getCurrentPosition(
+      onFix,
+      (err) => {
+        if (err.code !== err.TIMEOUT) {
+          onFinalError(err)
           return
         }
-
-        try {
-          const name = await getLocationName(lat, lng)
-          const loc = { id: 'live-start', lat, lng, name, isStart: true }
-          setLiveLocation(loc)
-          // Insert as first location (start point)
-          setLocations((prev) => {
-            const rest = prev.filter((l) => l.id !== 'live-start')
-            return [loc, ...rest]
-          })
-          setMessage('')
-        } catch (err) {
-          if (/sri lanka/i.test(err.message || '')) {
-            setShowOutsideSriLankaModal(true)
-          } else {
-            setMessage(err.message || 'Could not resolve live location.')
-          }
-        } finally {
-          setGpsLoading(false)
-        }
+        // Fallback: network/cell-tower based location — resolves almost
+        // instantly on mobile even when a precise GPS fix is slow, and a
+        // recently cached fix (maximumAge) is good enough for trip planning.
+        navigator.geolocation.getCurrentPosition(onFix, onFinalError, {
+          enableHighAccuracy: false,
+          timeout: 15000,
+          maximumAge: 60000,
+        })
       },
-      (err) => {
-        setGpsLoading(false)
-        setMessage('Location access denied. Please allow location access and try again.')
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     )
+    } catch (err) {
+      setGpsLoading(false)
+      setMessage(`Location detection failed to start: ${err?.message || 'unknown error'}`)
+    }
   }, [])
 
   // Start-point search logic
@@ -1470,33 +1589,6 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
     </div>
   ), [locations, routeCoords, legDistances, addLocation, removeLocation, setMapRef]);
 
-  const vehicleOptionsMemo = useMemo(() => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-      {VEHICLE_OPTIONS.map((v) => {
-        const selected = selectedVehicle === v.id
-        return (
-          <button
-            key={v.id} onClick={() => setSelectedVehicle(v.id)}
-            className={`group relative flex flex-col bg-white rounded-[2.5rem] overflow-hidden text-left transition-all duration-500 border-4 ${
-              selected ? 'border-orange-500 shadow-[0_20px_50px_-15px_rgba(249,115,22,0.3)]' : 'border-transparent hover:border-slate-200 shadow-xl shadow-slate-900/5'
-            }`}
-          >
-            <div className="h-48 overflow-hidden bg-slate-50 flex items-center justify-center p-6">
-               <img src={v.image} alt={v.title} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-700" loading="lazy" />
-            </div>
-            <div className="p-8">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xl font-extrabold text-slate-900">{v.title}</h3>
-                {selected && <div className="w-6 h-6 rounded-full bg-orange-500 text-white flex items-center justify-center text-xs">✓</div>}
-              </div>
-              <p className="text-sm text-slate-500 leading-relaxed font-medium line-clamp-2">{v.description}</p>
-            </div>
-            {selected && <div className="absolute top-4 left-4 px-3 py-1 bg-orange-500 text-white text-[9px] font-black uppercase tracking-widest rounded-full">Active Selection</div>}
-          </button>
-        )
-      })}
-    </div>
-  ), [selectedVehicle]);
 
   return (
     <div className="min-h-screen bg-[#fffbeb] text-slate-800 flex flex-col font-['Plus_Jakarta_Sans'] overflow-x-hidden">
@@ -1541,7 +1633,7 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
       </section>
 
       {/* ── FLOATING NAVBAR ── */}
-      <header className="sticky top-4 z-[2000] mx-auto max-w-5xl px-4">
+      <header ref={headerRef} className="sticky top-4 z-[2000] mx-auto max-w-5xl px-4">
         <div className="glass rounded-3xl p-3 flex items-center justify-between shadow-2xl shadow-slate-900/10">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl overflow-hidden shadow-lg border-2 border-white">
@@ -1576,42 +1668,77 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
       </header>
 
       {/* ── STEPS PROGRESS ── */}
-      <div className="max-w-4xl mx-auto px-6 py-12">
-        <div className="relative flex justify-between items-center">
-          {/* Connector Line */}
-          <div className="absolute top-1/2 left-0 w-full h-[2px] bg-slate-200 -translate-y-1/2 z-0"></div>
-          <div 
-            className="absolute top-1/2 left-0 h-[2.5px] bg-orange-500 -translate-y-1/2 z-0 transition-all duration-700 ease-in-out"
-            style={{ width: currentStep === 1 ? '0%' : currentStep === 2 ? '50%' : '100%' }}
-          ></div>
+      <div ref={stepSectionRef} className="max-w-3xl mx-auto px-6 py-10 sm:py-12">
+        <div className="relative rounded-[2rem] bg-white/70 backdrop-blur-sm border border-slate-100 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.15)] px-4 sm:px-10 py-7">
+          <div ref={stepRowRef} className="relative flex justify-center items-start gap-10 sm:gap-20">
+            {/* Connector line's position/width is measured from the actual
+                badge DOM elements (see useLayoutEffect above) rather than
+                assumed from a fixed layout, so it always lands exactly under
+                the first/last badge centers regardless of the gap between them. */}
+            <div className="absolute top-6 h-[3px] rounded-full bg-slate-100 z-0" style={{ left: stepLine.left, width: stepLine.width }}></div>
+            <div
+              className="absolute top-6 h-[3px] rounded-full bg-gradient-to-r from-orange-400 to-amber-500 z-0 transition-all duration-700 ease-in-out"
+              style={{
+                left: stepLine.left,
+                width: currentStep === 1 ? 0 : stepLine.width * (currentStep === 2 ? 0.5 : 1),
+              }}
+            ></div>
 
-          {[
-            { id: 1, label: 'Plan Route', sub: 'Map your stops' },
-            { id: 2, label: 'Select Fleet', sub: 'Choose vehicle' },
-            { id: 3, label: 'Confirm', sub: 'Ready to go' }
-          ].map((s) => (
-            <div key={s.id} className="relative z-10 flex flex-col items-center">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 ${
-                currentStep >= s.id 
-                  ? 'bg-orange-500 text-white shadow-xl shadow-orange-500/30' 
-                  : 'bg-white text-slate-300 border-2 border-slate-100 shadow-sm'
-              }`}>
-                {currentStep > s.id ? <i className="bi bi-check-lg text-xl"></i> : <span className="text-sm font-black">{s.id}</span>}
-              </div>
-              <div className="mt-3 text-center">
-                <p className={`text-xs font-black uppercase tracking-widest ${currentStep >= s.id ? 'text-slate-900' : 'text-slate-400'}`}>
-                  {s.label}
-                </p>
-                <p className="text-[10px] text-slate-400 font-bold hidden sm:block">{s.sub}</p>
-              </div>
-            </div>
-          ))}
+            {[
+              { id: 1, label: 'Plan route', sub: 'Map your stops', icon: 'bi-signpost-2-fill' },
+              { id: 2, label: 'Select fleet', sub: 'Choose vehicle', icon: 'bi-truck-front-fill' },
+              { id: 3, label: 'Confirm', sub: 'Ready to go', icon: 'bi-flag-fill' }
+            ].map((s, idx) => {
+              const isDone = currentStep > s.id
+              const isActive = currentStep === s.id
+              return (
+                <div key={s.id} className="relative z-10 flex flex-col items-center">
+                  <div
+                    ref={(el) => { stepBadgeRefs.current[idx] = el }}
+                    className={`relative w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 ${
+                    isDone
+                      ? 'bg-gradient-to-br from-orange-400 to-amber-500 text-white shadow-lg shadow-orange-500/25'
+                      : isActive
+                        ? 'bg-gradient-to-br from-orange-400 to-amber-500 text-white shadow-xl shadow-orange-500/35 scale-110'
+                        : 'bg-white text-slate-300 border-2 border-slate-100'
+                  }`}>
+                    {isActive && (
+                      <span className="absolute inset-0 rounded-2xl bg-orange-400 opacity-40 animate-ping"></span>
+                    )}
+                    <i className={`bi ${isDone ? 'bi-check-lg' : s.icon} relative text-lg`}></i>
+                  </div>
+                  <div className="mt-3 text-center max-w-[110px] sm:max-w-none">
+                    <p className={`text-[13px] sm:text-sm font-semibold leading-tight whitespace-nowrap ${currentStep >= s.id ? 'text-slate-900' : 'text-slate-400'}`}>
+                      {s.label}
+                    </p>
+                    <p className="text-[11px] text-slate-400 font-medium mt-0.5 hidden sm:block whitespace-nowrap">{s.sub}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
 
       {/* ── MAIN CONTENT AREA ── */}
       <main className="relative z-10 pb-24">
-        
+
+        {/* Status Feedback — shared across every step. `message` is set by
+            handlers on all three steps (GPS detection, search errors,
+            booking validation, etc.), so this can't live inside just one
+            step's conditional block or it silently fails to display
+            whenever that handler runs on a different step (e.g. GPS errors
+            from the Step 1 "Detect My Location" button used to be invisible,
+            since this box previously only rendered inside Step 3). */}
+        {message && !bookingConfirmed && (
+          <div className="max-w-[1600px] mx-auto px-4 lg:px-8 pt-4 sm:pt-6">
+            <div className="mb-6 sm:mb-8 p-5 sm:p-6 bg-rose-50 border border-rose-100 rounded-[1.5rem] sm:rounded-[2rem] text-rose-600 flex items-start sm:items-center gap-3 sm:gap-4 animate-fade-in-up">
+              <i className="bi bi-exclamation-triangle-fill text-xl sm:text-2xl shrink-0 mt-0.5 sm:mt-0"></i>
+              <p className="text-sm font-black">{message}</p>
+            </div>
+          </div>
+        )}
+
         {/* ──────────── STEP 1: ROUTE PLANNING ──────────── */}
         {currentStep === 1 && (
           <div className="max-w-[1600px] mx-auto px-4 lg:px-8">
@@ -1863,7 +1990,11 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                   <p className="text-slate-500 font-medium">Pick a vehicle that fits your group size and comfort preferences.</p>
                 </div>
 
-                {vehicleOptionsMemo}
+                <VehicleCarousel
+                  options={VEHICLE_OPTIONS}
+                  selected={selectedVehicle}
+                  onSelect={setSelectedVehicle}
+                />
               </div>
 
               {/* Summary Side Card */}
@@ -1939,39 +2070,56 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
 
         {/* ──────────── STEP 3: FINAL REVIEW ──────────── */}
         {currentStep === 3 && (
-          <div className="max-w-5xl mx-auto px-6">
-            <div className="text-center mb-12">
-              <h2 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight mb-4">Final Confirmation</h2>
-              <p className="text-slate-500 font-medium max-w-lg mx-auto leading-relaxed">Review your tour carefully. Once confirmed, we'll start searching for the best driver for your route.</p>
+          <div className="max-w-4xl mx-auto px-4 sm:px-6">
+            <div className="text-center mb-8 sm:mb-10">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 text-white flex items-center justify-center shadow-xl shadow-orange-500/30 mx-auto mb-5">
+                <i className="bi bi-clipboard2-check-fill text-2xl sm:text-3xl"></i>
+              </div>
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-900 tracking-tight mb-3 sm:mb-4">Final Confirmation</h2>
+              <p className="text-sm sm:text-base text-slate-500 font-medium max-w-lg mx-auto leading-relaxed px-2">Review your tour carefully. Once confirmed, we'll start searching for the best driver for your route.</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-              
-              {/* Card: Tour Route - Expanded */}
-              <div className="lg:col-span-2">
-                <div className="glass rounded-[3rem] p-10 shadow-2xl shadow-slate-900/10 h-full">
-                  <div className="flex items-center gap-4 mb-8">
-                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-400 to-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30">
-                      <i className="bi bi-geo-alt-fill text-2xl"></i>
+            {/* Unified Summary Card */}
+            <div className="glass rounded-[1.75rem] sm:rounded-[2.5rem] lg:rounded-[3rem] shadow-2xl shadow-slate-900/10 overflow-hidden mb-6 sm:mb-8">
+              <div className="grid grid-cols-1 lg:grid-cols-5">
+
+                {/* Left: Tour Route */}
+                <div className="lg:col-span-3 p-6 sm:p-8 lg:p-10">
+                  <div className="flex items-center justify-between gap-4 mb-6 sm:mb-8">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 shrink-0 rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-lg shadow-slate-900/20">
+                        <i className="bi bi-signpost-split-fill text-base sm:text-xl"></i>
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-base sm:text-xl font-extrabold text-slate-900">Your Route</h3>
+                        <p className="text-xs sm:text-sm text-slate-400 font-semibold mt-0.5 truncate">{locations.length} stops • {estimatedPrice?.total_distance_km ?? totalRouteKm} km total</p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-2xl font-extrabold text-slate-900">Tour Route</h3>
-                      <p className="text-sm text-slate-500 font-medium mt-1">{locations.length} stops • {estimatedPrice?.total_distance_km ?? totalRouteKm} km</p>
-                    </div>
+                    <button
+                      onClick={() => setCurrentStep(1)}
+                      className="shrink-0 text-[10px] sm:text-xs font-black uppercase tracking-widest text-orange-500 hover:text-orange-600 transition-all flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 px-3 py-2 rounded-full"
+                    >
+                      <i className="bi bi-pencil-fill"></i>
+                      <span>Edit</span>
+                    </button>
                   </div>
-                  <div className="space-y-3 relative">
-                    <div className="absolute left-6 top-12 bottom-0 w-0.5 bg-gradient-to-b from-blue-300 to-slate-200"></div>
+                  <div className="space-y-0 relative max-h-[380px] sm:max-h-none overflow-y-auto sm:overflow-visible pr-1 -mr-1 sm:pr-0 sm:mr-0">
                     {locations.map((loc, i) => (
-                      <div key={loc.id} className="relative pl-20">
-                        <div className="absolute left-0 top-1.5 w-14 h-14 rounded-full flex items-center justify-center text-lg font-black shadow-lg border-4 border-white" style={{background: loc.isStart ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: 'white'}}>
-                          {i+1}
+                      <div key={loc.id} className="relative pl-12 sm:pl-14 pb-5 last:pb-0">
+                        {i < locations.length - 1 && (
+                          <div className="absolute left-[15px] sm:left-[17px] top-9 bottom-0 w-0.5 border-l-2 border-dashed border-slate-200"></div>
+                        )}
+                        <div className="absolute left-0 top-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-xs sm:text-sm font-black shadow-md ring-4 ring-white" style={{background: loc.isStart ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : i === locations.length - 1 ? 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)' : 'linear-gradient(135deg, #0f172a 0%, #334155 100%)', color: 'white'}}>
+                          {loc.isStart ? <i className="bi bi-geo-alt-fill text-xs"></i> : i === locations.length - 1 ? <i className="bi bi-flag-fill text-xs"></i> : i+1}
                         </div>
-                        <div className="bg-gradient-to-r from-slate-50 to-white rounded-2xl p-5 border border-slate-100 hover:border-blue-300 hover:shadow-md transition-all">
-                          <p className="font-bold text-slate-900 text-base">{loc.name}</p>
+                        <div>
+                          <p className="font-bold text-slate-900 text-sm sm:text-base break-words leading-snug">{loc.name}</p>
+                          <p className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-400 mt-0.5">
+                            {loc.isStart ? 'Starting Point' : i === locations.length - 1 ? 'Final Destination' : `Stop ${i}`}
+                          </p>
                           {i < locations.length - 1 && legDistances[i] !== undefined && (
-                            <p className="text-xs text-slate-500 mt-2 font-semibold">
-                              <i className="bi bi-arrow-down text-orange-500 mr-1"></i>
-                              <span className="text-orange-600 font-black">{legDistances[i]} km</span>
+                            <p className="text-xs text-orange-600 font-black mt-1.5 flex items-center gap-1">
+                              <i className="bi bi-arrow-down-short"></i>{legDistances[i]} km to next stop
                             </p>
                           )}
                         </div>
@@ -1979,108 +2127,75 @@ export default function Home({ onLogout, userName, onBackToHome, onGoToPlanTrip,
                     ))}
                   </div>
                 </div>
-              </div>
 
-              {/* Right Column: Estimate & Details */}
-              <div className="space-y-6">
-                {/* Card: Final Estimate */}
-                <div className="glass-dark rounded-[3rem] p-8 shadow-2xl shadow-slate-900/30 text-white h-fit">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30">
-                      <i className="bi bi-wallet2 text-xl"></i>
-                    </div>
-                    <h3 className="text-2xl font-extrabold tracking-tight">Total Price</h3>
-                  </div>
-                  
-                  <div className="bg-white/5 rounded-2xl p-6 mb-6 backdrop-blur-sm border border-white/10">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-widest text-orange-300 mb-2">Estimated Price (LKR)</p>
-                      <p className="text-5xl font-black text-orange-400">
-                        {estimateLoading ? '…' : `Rs. ${Number(estimatedPrice?.estimated_price || 0).toLocaleString()}`}
-                      </p>
-                    </div>
-                  </div>
+                {/* Right: Trip Summary */}
+                <div className="lg:col-span-2 bg-gradient-to-br from-slate-900 to-slate-800 text-white p-6 sm:p-8 lg:p-10 flex flex-col">
+                  <p className="text-xs font-black uppercase tracking-widest text-orange-400 mb-2">Estimated Total (LKR)</p>
+                  <p className="text-3xl sm:text-4xl font-black mb-6 sm:mb-8 break-words">
+                    {estimateLoading ? '…' : `Rs. ${Number(estimatedPrice?.estimated_price || 0).toLocaleString()}`}
+                  </p>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-white/10 rounded-xl p-4 border border-white/20 text-center hover:bg-white/15 transition-all">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white/50 mb-2">Distance</p>
-                      <p className="text-2xl font-black">{estimatedPrice?.total_distance_km ?? totalRouteKm}<span className="text-sm text-white/60 ml-1">km</span></p>
+                  <div className="space-y-3 sm:space-y-4">
+                    <div className="flex items-center justify-between py-3 border-b border-white/10">
+                      <span className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-white/60"><i className="bi bi-car-front-fill text-orange-400"></i>Vehicle</span>
+                      <span className="text-xs sm:text-sm font-extrabold truncate ml-3">{selectedVehicle}</span>
                     </div>
-                    <div className="bg-white/10 rounded-xl p-4 border border-white/20 text-center hover:bg-white/15 transition-all">
-                      <p className="text-[11px] font-black uppercase tracking-widest text-white/50 mb-2">Duration</p>
-                      <p className="text-2xl font-black">{estimatedPrice?.total_days ?? tripDurationDays ?? '—'}<span className="text-sm text-white/60 ml-1">days</span></p>
+                    <div className="flex items-center justify-between py-3 border-b border-white/10">
+                      <span className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-white/60"><i className="bi bi-signpost-2-fill text-orange-400"></i>Distance</span>
+                      <span className="text-xs sm:text-sm font-extrabold">{estimatedPrice?.total_distance_km ?? totalRouteKm} km</span>
                     </div>
-                  </div>
-
-                  {/* Vehicle Info Elegant */}
-                  <div className="mt-6 pt-6 border-t border-white/20">
-                    <div className="bg-gradient-to-r from-orange-500/20 to-amber-500/20 rounded-2xl p-5 border border-orange-400/30 backdrop-blur-sm">
-                      <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/40">
-                          <i className="bi bi-car-front-fill text-white text-lg"></i>
-                        </div>
-                        <div>
-                          <p className="text-xs font-black uppercase tracking-widest text-orange-300/70 mb-0.5">Selected Vehicle</p>
-                          <p className="text-base font-extrabold text-white">{selectedVehicle}</p>
-                        </div>
+                    <div className="flex items-center justify-between py-3 border-b border-white/10">
+                      <span className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-white/60"><i className="bi bi-hourglass-split text-orange-400"></i>Duration</span>
+                      <span className="text-xs sm:text-sm font-extrabold">{estimatedPrice?.total_days ?? tripDurationDays ?? '—'} days</span>
+                    </div>
+                    <div className="flex items-center justify-between py-3">
+                      <span className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-white/60"><i className="bi bi-calendar-range-fill text-orange-400"></i>Dates</span>
+                      <span className="text-xs sm:text-sm font-extrabold text-right">{startDate} → {endDate}</span>
+                    </div>
+                    {bookingType === 'schedule' && (
+                      <div className="flex items-center justify-between py-3 border-t border-white/10">
+                        <span className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-white/60"><i className="bi bi-clock-fill text-orange-400"></i>Start Time</span>
+                        <span className="text-xs sm:text-sm font-extrabold">{startTime}</span>
                       </div>
-                    </div>
+                    )}
+                  </div>
+
+                  <div className="mt-auto pt-6 sm:pt-8 flex items-start gap-2.5 text-white/40 text-[11px] font-semibold leading-relaxed">
+                    <i className="bi bi-shield-check mt-0.5"></i>
+                    <span>Prices are estimates. A driver will be matched right after you confirm.</span>
                   </div>
                 </div>
 
-                {/* Travel dates */}
-                <div className="glass rounded-[2rem] p-6 shadow-xl shadow-slate-900/5">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-lg bg-blue-500/20 text-blue-600 flex items-center justify-center">
-                      <i className="bi bi-calendar-range-fill"></i>
-                    </div>
-                    <h4 className="font-extrabold text-slate-900">Travel Dates</h4>
-                  </div>
-                  <p className="text-sm text-slate-700 font-semibold">{startDate} → {endDate}</p>
-                  {bookingType === 'schedule' && (
-                    <p className="text-sm text-slate-700 font-semibold mt-1">Start time: {startTime}</p>
-                  )}
-                </div>
               </div>
             </div>
 
-            {/* Status Feedback */}
-            {message && !bookingConfirmed && (
-               <div className="mb-8 p-6 bg-rose-50 border border-rose-100 rounded-[2rem] text-rose-600 flex items-center gap-4 animate-fade-in-up">
-                 <i className="bi bi-exclamation-triangle-fill text-2xl"></i>
-                 <p className="text-sm font-black">{message}</p>
-               </div>
-            )}
-
             {/* Final Action */}
-            <div className="flex flex-col items-center gap-6 w-full max-w-xl mx-auto">
+            <div className="w-full max-w-xl mx-auto pb-4">
               {!bookingConfirmed ? (
-                <div className="flex gap-4 w-full">
+                <div className="flex flex-col items-center gap-5 sm:gap-6">
                   <button
                     onClick={() => handleBookTour({ bookingType: 'now' })}
                     disabled={loading}
-                    className="flex-1 px-8 py-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[2rem] font-black text-lg shadow-xl shadow-emerald-500/30 transition-all hover:scale-[1.02] active:scale-95 flex flex-col items-center justify-center gap-2"
+                    className="w-full px-6 sm:px-8 py-5 sm:py-6 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-[1.5rem] sm:rounded-[2rem] font-black text-base sm:text-lg shadow-xl shadow-emerald-500/30 transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-60 disabled:pointer-events-none flex items-center justify-center gap-3"
                   >
-                    <i className="bi bi-lightning-charge-fill text-2xl"></i>
-                    <span>Book Now</span>
+                    <i className="bi bi-lightning-charge-fill text-xl sm:text-2xl"></i>
+                    <span>{loading ? 'Booking…' : 'Confirm & Book Now'}</span>
+                  </button>
+                  <button onClick={() => setCurrentStep(2)} className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] hover:text-slate-900 transition-all">
+                    ← Back to Fleet Selection
                   </button>
                 </div>
               ) : (
-                <div className="text-center animate-fade-in-up">
-                  <div className="w-24 h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center text-5xl mx-auto mb-6 shadow-2xl shadow-emerald-500/30">
+                <div className="text-center animate-fade-in-up w-full">
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center text-4xl sm:text-5xl mx-auto mb-5 sm:mb-6 shadow-2xl shadow-emerald-500/30">
                     <i className="bi bi-check-lg"></i>
                   </div>
-                  <h3 className="text-3xl font-black text-slate-900 mb-8">Tour Created Successfully!</h3>
-                  <div className="flex gap-4">
-                     <button onClick={() => { setLocations([]); setSelectedVehicle(''); setCurrentStep(1); setBookingConfirmed(false); setMessage(''); }} className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-slate-900/20">Plan Another</button>
-                     <button onClick={onBackToHome} className="px-8 py-4 bg-white text-slate-900 border border-slate-100 rounded-2xl font-black text-sm transition-all shadow-lg hover:bg-slate-50">Back to Home</button>
+                  <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mb-6 sm:mb-8">Tour Created Successfully!</h3>
+                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full">
+                     <button onClick={() => { setLocations([]); setSelectedVehicle(''); setCurrentStep(1); setBookingConfirmed(false); setMessage(''); }} className="w-full sm:w-auto sm:flex-1 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-sm transition-all shadow-xl shadow-slate-900/20 hover:bg-slate-800 active:scale-95">Plan Another</button>
+                     <button onClick={onBackToHome} className="w-full sm:w-auto sm:flex-1 px-8 py-4 bg-white text-slate-900 border border-slate-100 rounded-2xl font-black text-sm transition-all shadow-lg hover:bg-slate-50 active:scale-95">Back to Home</button>
                   </div>
                 </div>
-              )}
-              {!bookingConfirmed && (
-                <button onClick={() => setCurrentStep(2)} className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] hover:text-slate-900 transition-all">
-                  ← Back to Fleet Selection
-                </button>
               )}
             </div>
           </div>

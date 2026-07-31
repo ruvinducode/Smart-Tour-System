@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { getTourDetails, acceptDriverPrice, rejectDriverPrice, replyToDriver, getRoute } from '../services/api.js'
+import { getTourDetails, acceptOffer, rejectOffer, replyToDriver, getRoute } from '../services/api.js'
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet'
 import L from 'leaflet'
 
@@ -104,10 +104,10 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
     setIsMapFullscreen(false)
   }, [isOpen, tourId])
 
-  const handleAccept = async () => {
+  const handleAccept = async (offerId) => {
     setActionLoading(true)
     try {
-      await acceptDriverPrice(tourId, token)
+      await acceptOffer(tourId, offerId, token)
       const data = await getTourDetails(tourId, token)
       setTour(data || {})
     } catch (err) {
@@ -117,10 +117,10 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
     }
   }
 
-  const handleReject = async () => {
+  const handleReject = async (offerId) => {
     setActionLoading(true)
     try {
-      await rejectDriverPrice(tourId, token)
+      await rejectOffer(tourId, offerId, token)
       const data = await getTourDetails(tourId, token)
       setTour(data || {})
     } catch (err) {
@@ -130,11 +130,11 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
     }
   }
 
-  const handleReply = async () => {
+  const handleReply = async (driverId) => {
     if (!replyMessage.trim()) return
     setActionLoading(true)
     try {
-      await replyToDriver(tourId, replyMessage, token)
+      await replyToDriver(tourId, driverId, replyMessage, token)
       setReplyMessage('')
       setShowReplyInput(false)
       alert('Reply sent successfully!')
@@ -500,14 +500,26 @@ export default function TourDetailsModal({ tourId, token, isOpen, onClose, userR
                 </div>
               </div>
 
-              {/* Action for Driver/User */}
-              {userRole === 'user' && tour?.status === 'price_sent_by_driver' && (
+              {/* Action for Driver/User — multiple drivers can each have a
+                  live offer on an open tour, so every pending offer is
+                  listed here for the traveler to accept/reject individually. */}
+              {userRole === 'user' && tour?.status === 'price_sent_by_driver' && (tour?.offers?.length > 0) && (
                 <div className="pt-4 space-y-3 border-t border-slate-100">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Negotiation Active</p>
-                  <div className="flex gap-2">
-                    <button onClick={handleAccept} className="flex-1 bg-emerald-500 text-white font-black py-3 rounded-2xl hover:bg-emerald-600 transition shadow-lg shadow-emerald-500/20">Accept</button>
-                    <button onClick={handleReject} className="flex-1 bg-rose-500 text-white font-black py-3 rounded-2xl hover:bg-rose-600 transition shadow-lg shadow-rose-500/20">Reject</button>
-                  </div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    {tour.offers.length > 1 ? `${tour.offers.length} Drivers Responded` : 'Negotiation Active'}
+                  </p>
+                  {tour.offers.map((offer) => (
+                    <div key={offer.offer_id} className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-black text-slate-800">{offer.driver?.name || 'Driver'}</span>
+                        <span className="text-sm font-black text-slate-900">Rs. {(offer.price || 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleAccept(offer.offer_id)} disabled={actionLoading} className="flex-1 bg-emerald-500 text-white font-black py-2.5 rounded-xl hover:bg-emerald-600 transition shadow-lg shadow-emerald-500/20 text-sm">Accept</button>
+                        <button onClick={() => handleReject(offer.offer_id)} disabled={actionLoading} className="flex-1 bg-rose-500 text-white font-black py-2.5 rounded-xl hover:bg-rose-600 transition shadow-lg shadow-rose-500/20 text-sm">Reject</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 

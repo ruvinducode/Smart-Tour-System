@@ -58,6 +58,10 @@ function getRoleFromToken(token) {
 
 export default function App() {
   const [activePage, setActivePage] = useState('home')
+  // Which tab UserDashboardPage should land on the next time it mounts. Every
+  // nav entry point sets this explicitly (never left stale) so, e.g., a plain
+  // "My Bookings" click after a profile-icon click can't inherit 'settings'.
+  const [dashboardInitialTab, setDashboardInitialTab] = useState('overview')
   const [publicPage, setPublicPage] = useState('landing')
   const [authPreset, setAuthPreset] = useState({ accountType: 'user', mode: 'login' })
   const [showLoginPassword, setShowLoginPassword] = useState(false)
@@ -154,7 +158,14 @@ export default function App() {
   const handleStartTour = useCallback(() => setActivePage('plan-trip'), [])
   const handleBackToHome = useCallback(() => setActivePage('home'), [])
   const handleOpenPlanTrip = useCallback(() => setActivePage('plan-trip'), [])
-  const handleViewDashboard = useCallback(() => setActivePage('dashboard'), [])
+  const handleViewDashboard = useCallback(() => {
+    setDashboardInitialTab('overview')
+    setActivePage('dashboard')
+  }, [])
+  const handleViewProfile = useCallback(() => {
+    setDashboardInitialTab('settings')
+    setActivePage('dashboard')
+  }, [])
   const handlePlanTripWithDest = useCallback((dest) => {
     setSelectedDestForTrip(dest)
     setActivePage('plan-trip')
@@ -313,6 +324,7 @@ export default function App() {
             userName={userName}
             onLogout={handleLogout}
             onGoToPlanner={handleOpenPlanTrip}
+            initialTab={dashboardInitialTab}
           />
         )
       }
@@ -324,6 +336,7 @@ export default function App() {
             onGoToPlanTrip={handleOpenPlanTrip}
             onPlanTripWithDest={handlePlanTripWithDest}
             onViewDashboard={handleViewDashboard}
+            onViewProfile={handleViewProfile}
             userName={userName}
             token={token}
             onLogout={handleLogout}

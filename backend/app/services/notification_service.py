@@ -36,6 +36,20 @@ def notify_driver(driver: Driver, subject: str, message: str, tour_id: int | Non
     return note
 
 
+def notify_driver_locations_changed(tour: TourPlan, driver: Driver) -> Notification:
+    """Sent when a traveler adds/removes a stop on a tour that's already
+    ongoing — the driver's live map polls tour details periodically and will
+    pick up the new stop list on its own, but they should also get an
+    explicit heads-up that the route just changed under them mid-trip."""
+    return notify_driver(
+        driver,
+        "Trip Stops Updated",
+        f"The traveler has updated the stops for Tour #{tour.id}. "
+        "Check your map for the new route.",
+        tour.id,
+    )
+
+
 def notify_user_email(email: str | None, subject: str, message: str, tour_id: int | None = None) -> None:
     if not email:
         return
@@ -214,6 +228,11 @@ def notify_tour_assigned(tour: TourPlan, user: User | None, driver: Driver) -> N
     Sent once a driver claims a tour request (Booking.driver_id set) — tells
     the customer who their driver is, and confirms the assignment to the
     driver. Each recipient's email failing must not affect the other.
+
+    Also logs an in-app Notification for both sides — previously this only
+    sent email, so the driver whose price was actually accepted had no way
+    to see it on their dashboard bell, only the losing drivers did (via
+    notify_driver_offer_not_selected, which logs both in-app and email).
     """
     if user and user.email:
         send_email(
@@ -227,6 +246,12 @@ def notify_tour_assigned(tour: TourPlan, user: User | None, driver: Driver) -> N
                 theme="blue",
             ),
         )
+        notify_user_email(
+            user.email,
+            f"Driver Assigned — Tour #{tour.id}",
+            f"{driver.full_name} has accepted your tour request #{tour.id} and will be in touch shortly.",
+            tour.id,
+        )
 
     driver_email = _driver_recipient_email(driver)
     if driver_email:
@@ -239,6 +264,36 @@ def notify_tour_assigned(tour: TourPlan, user: User | None, driver: Driver) -> N
                 f"<p>You're now assigned to tour #{tour.id}. Check your dashboard "
                 "for pickup details.</p>",
                 theme="blue",
+            ),
+        )
+    notify_driver(
+        driver,
+        "Your Price Was Accepted",
+        f"Your offer was accepted for tour #{tour.id}. Check your dashboard for pickup details.",
+        tour.id,
+    )
+
+
+def notify_driver_offer_not_selected(tour: TourPlan, driver: Driver) -> None:
+    """Sent to every driver whose offer got auto-superseded once the
+    traveler picks a different driver's offer on the same tour."""
+    notify_driver(
+        driver,
+        "Offer Not Selected",
+        f"Another driver was selected for tour #{tour.id}. Keep an eye out for new requests.",
+        tour.id,
+    )
+    email = _driver_recipient_email(driver)
+    if email:
+        send_email(
+            email,
+            f"Offer Not Selected — Tour #{tour.id}",
+            _wrap_html(
+                "Offer Not Selected",
+                f"<p>Hi {driver.full_name},</p>"
+                f"<p>The traveler chose another driver for tour #{tour.id}.</p>",
+                theme="red",
+                badge="NOT SELECTED",
             ),
         )
 

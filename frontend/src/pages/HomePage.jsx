@@ -2,20 +2,18 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import { Icon } from 'leaflet'
 import L from 'leaflet'
-import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
+import { motion, AnimatePresence, useScroll, useTransform, useReducedMotion } from 'framer-motion'
 import { useInView } from 'react-intersection-observer'
 import { getUserNotifications } from '../services/api.js'
 import TourDetailsModal from '../components/TourDetailsModal.jsx'
+import RouteDetailsModal from '../components/RouteDetailsModal.jsx'
 import Footer from '../components/Footer.jsx'
+import AnimatedStat from '../components/AnimatedStat.jsx'
+import { DESTINATIONS } from '../data/destinations.js'
 import appLogo from '../../images/logo.jpeg'
 
 // Assets
 import heroImg from '../assets/sri-lanka-hero.png'
-import colomboImg from '../assets/colombo.png'
-import teaImg from '../assets/tea-plantations.png'
-import kandyImg from '../assets/kandy.png'
-import galleImg from '../assets/galle.png'
-import anuradhapuraImg from '../assets/anuradhapura-ruwanwelisaya.png'
 
 const customStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:wght@700;900&display=swap');
@@ -166,15 +164,6 @@ L.Icon.Default.mergeOptions({
 const SRI_LANKA_CENTER = [7.8731, 80.7718]
 const DEFAULT_ZOOM = 7
 const SRI_LANKA_BOUNDS = [[5.7, 79.3], [10.0, 82.1]] // South-West and North-East bounds of Sri Lanka
-
-const TOURIST_DESTINATIONS = [
-  { id: 1, name: 'Colombo', lat: 6.9271, lng: 79.8612, description: 'Contemporary city life, colonial streets.', region: 'West Coast', image: colomboImg },
-  { id: 2, name: 'Kandy', lat: 7.2906, lng: 80.6337, description: 'Sacred temples, highland culture.', region: 'Central Hills', image: kandyImg },
-  { id: 3, name: 'Galle', lat: 6.0535, lng: 80.22, description: 'Fort walls, boutique coastal charm.', region: 'South Coast', image: galleImg },
-  { id: 4, name: 'Sigiriya', lat: 7.9574, lng: 80.757, description: 'Legendary rock citadel.', region: 'Cultural Triangle', image: heroImg },
-  { id: 5, name: 'Anuradhapura', lat: 8.3114, lng: 80.4037, description: 'Grand stupas, sacred ruins.', region: 'North Central', image: anuradhapuraImg },
-  { id: 6, name: 'Nuwara Eliya', lat: 6.9478, lng: 80.7957, description: 'Cool-climate tea valleys.', region: 'Hill Country', image: teaImg },
-]
 
 const TESTIMONIALS = [
   {
@@ -438,10 +427,13 @@ function RevealSection({ children, className = '', variant = fadeUp, ...rest }) 
 
 // ── Typewriter Effect ──
 function TypewriterText({ text, className = '', delay = 0.8 }) {
-  const [displayText, setDisplayText] = useState('')
-  const [showCursor, setShowCursor] = useState(true)
+  const prefersReducedMotion = useReducedMotion()
+  const [displayText, setDisplayText] = useState(prefersReducedMotion ? text : '')
+  const [showCursor, setShowCursor] = useState(!prefersReducedMotion)
 
   useEffect(() => {
+    if (prefersReducedMotion) return undefined
+
     let idx = 0
     const timeout = setTimeout(() => {
       const interval = setInterval(() => {
@@ -452,36 +444,42 @@ function TypewriterText({ text, className = '', delay = 0.8 }) {
           clearInterval(interval)
           setTimeout(() => setShowCursor(false), 2000)
         }
-      }, 60)
+      }, 45)
       return () => clearInterval(interval)
     }, delay * 1000)
     return () => clearTimeout(timeout)
-  }, [text, delay])
+  }, [text, delay, prefersReducedMotion])
 
   return (
     <span className={className}>
       {displayText}
-      {showCursor && <span className="typewriter-cursor" />}
+      {showCursor && <span className="typewriter-cursor" aria-hidden="true" />}
     </span>
   )
 }
 
 // ── Floating Particles ──
-function HeroParticles() {
-  const particles = useMemo(() =>
-    Array.from({ length: 18 }, (_, i) => ({
-      id: i,
-      left: `${Math.random() * 100}%`,
-      size: 2 + Math.random() * 4,
-      duration: 6 + Math.random() * 8,
-      delay: Math.random() * 5,
-      opacity: 0.2 + Math.random() * 0.4,
-    })), []
-  )
+// Positions/timings are deterministic (not Math.random()) so this list is
+// computed once at module load rather than during render — a component
+// render must stay pure, and re-rolling on every render/Strict-Mode
+// double-invoke would make particles jump around pointlessly anyway since
+// they're purely decorative and never need to differ between mounts.
+const HERO_PARTICLES = Array.from({ length: 18 }, (_, i) => {
+  const spread = (i * 53.7) % 100 // scattered, not a uniform grid
+  return {
+    id: i,
+    left: `${spread}%`,
+    size: 2 + ((i * 7) % 5),
+    duration: 6 + ((i * 3.3) % 8),
+    delay: (i * 1.7) % 5,
+    opacity: 0.2 + ((i % 5) * 0.08),
+  }
+})
 
+function HeroParticles() {
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none z-[5]">
-      {particles.map((p) => (
+      {HERO_PARTICLES.map((p) => (
         <div
           key={p.id}
           className="particle"
@@ -500,8 +498,8 @@ function HeroParticles() {
   )
 }
 
-export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard, userName, onLogout, token, onOpenAbout, onPlanTripWithDest }) {
-  const [selectedDestination, setSelectedDestination] = useState(TOURIST_DESTINATIONS[3])
+export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard, onViewProfile, userName, onLogout, token, onOpenAbout, onPlanTripWithDest }) {
+  const [selectedDestination, setSelectedDestination] = useState(DESTINATIONS[3])
   const [searchTerm, setSearchTerm] = useState('')
   const [notifications, setNotifications] = useState([])
   const [showDetailsModal, setShowDetailsModal] = useState(false)
@@ -512,6 +510,7 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
 
   const mapRef = useRef(null)
   const heroRef = useRef(null)
+  const prefersReducedMotion = useReducedMotion()
 
   // Parallax scroll
   const { scrollYProgress } = useScroll({
@@ -543,8 +542,8 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
 
   const filteredDestinations = useMemo(() => {
     const query = searchTerm.trim().toLowerCase()
-    if (!query) return TOURIST_DESTINATIONS
-    return TOURIST_DESTINATIONS.filter((d) => d.name.toLowerCase().includes(query))
+    if (!query) return DESTINATIONS
+    return DESTINATIONS.filter((d) => d.name.toLowerCase().includes(query))
   }, [searchTerm])
 
   const planRouteAction = onGoToPlanTrip || onStartTour
@@ -554,6 +553,22 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
     if (mapRef.current) {
       mapRef.current.setView([dest.lat, dest.lng], 10)
     }
+  }
+
+  // "Explore Routes" on a destination card opens the full details modal —
+  // kept separate from handleDestinationClick above, which only pans/selects
+  // the destination on the map and is used by the map pins and the floating
+  // destination navigator strip, not the card grid.
+  const [destinationDetails, setDestinationDetails] = useState(null)
+  const openDestinationDetails = (dest) => setDestinationDetails(dest)
+
+  // Shared by the map sidebar's "Plan Trip to X" button and the details
+  // modal's CTA — falls back through whichever planning entry point the
+  // parent actually wired up.
+  const planTripTo = (dest) => {
+    if (onPlanTripWithDest) onPlanTripWithDest(dest)
+    else if (onGoToPlanTrip) onGoToPlanTrip()
+    else if (onStartTour) onStartTour()
   }
 
   return (
@@ -645,16 +660,22 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
 
             <div className={`h-7 w-[1px] mx-1 transition-colors duration-300 ${isScrolled ? 'bg-white/20' : 'bg-white/15'}`} />
 
-            {/* User greeting */}
+            {/* User profile — opens Account Settings in the dashboard */}
             {userName && (
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-300 ${isScrolled ? 'bg-white/10' : 'bg-white/10'}`}>
+              <button
+                type="button"
+                onClick={onViewProfile}
+                aria-label="View your profile"
+                title="My Profile"
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all duration-300 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/80 focus-visible:outline-offset-2 ${isScrolled ? 'bg-white/10' : 'bg-white/10'}`}
+              >
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${isScrolled ? 'bg-white/20 text-white' : 'bg-white/20 text-white'}`}>
-                  <i className="bi bi-person-fill" />
+                  <i className="bi bi-person-fill" aria-hidden="true" />
                 </div>
                 <span className={`text-sm font-semibold hidden lg:block ${isScrolled ? 'text-white' : 'text-white/90'}`}>
                   {userName.split(' ')[0]}
                 </span>
-              </div>
+              </button>
             )}
 
             {/* Plan a Trip CTA */}
@@ -716,6 +737,7 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
                 {[
                   { label: 'About', icon: 'bi-info-circle', action: () => { onOpenAbout(); setMobileMenuOpen(false); } },
                   { label: 'My Bookings', icon: 'bi-briefcase-fill', action: () => { onViewDashboard(); setMobileMenuOpen(false); } },
+                  ...(userName ? [{ label: 'My Profile', icon: 'bi-person-fill', action: () => { onViewProfile(); setMobileMenuOpen(false); } }] : []),
                 ].map((item) => (
                   <motion.button
                     key={item.label}
@@ -785,78 +807,85 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
           className="relative z-10 max-w-7xl mx-auto px-6 w-full flex-1 flex items-center pt-28 pb-20 lg:pt-20 lg:pb-12"
         >
           <div className="max-w-3xl">
-            <motion.div
-              initial={{ opacity: 0, y: 40 }}
+            <motion.span
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4, duration: 0.9, ease: [0.25, 0.8, 0.25, 1] }}
+              transition={{ delay: 0.15, duration: 0.6, ease: [0.25, 0.8, 0.25, 1] }}
+              className="inline-flex items-center gap-2 bg-amber-500/20 backdrop-blur-md text-amber-200 px-5 py-2 rounded-full text-xs sm:text-sm font-bold tracking-[0.15em] mb-6 sm:mb-8 border border-amber-500/30 relative z-30"
             >
-              <span className="inline-flex items-center gap-2 bg-amber-500/20 backdrop-blur-md text-amber-200 px-5 py-2 rounded-full text-sm font-bold tracking-wider mb-8 border border-amber-500/30 relative z-30">
-                <i className="bi bi-globe-asia-australia" />
-                DISCOVER THE WONDER OF ASIA
-              </span>
+              <i className="bi bi-globe-asia-australia" aria-hidden="true" />
+              DISCOVER THE WONDER OF ASIA
+            </motion.span>
 
-              <h1 className="text-4xl sm:text-6xl md:text-8xl font-serif text-white leading-tight mb-8">
+            <motion.h1
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 32 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.32, duration: 0.75, ease: [0.25, 0.8, 0.25, 1] }}
+              aria-label="Your Authentic Island Story Starts Here"
+              className="text-[2.6rem] leading-[1.05] sm:text-6xl sm:leading-[1.05] md:text-7xl lg:text-8xl font-serif text-white tracking-tight mb-5 sm:mb-8 [text-wrap:balance] drop-shadow-[0_4px_24px_rgba(0,0,0,0.35)]"
+            >
+              <span aria-hidden="true">
                 Your Authentic <br />
                 <TypewriterText
                   text="Island Story"
                   className="text-amber-400"
-                  delay={1.2}
+                  delay={0.95}
                 />{' '}
                 <br />
                 Starts Here
-              </h1>
+              </span>
+            </motion.h1>
 
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 2.5, duration: 0.8 }}
-                className="text-xl text-emerald-50/80 mb-10 max-w-xl leading-relaxed"
-              >
-                Experience the magic of Sri Lanka with curated journeys, local experts, and seamless planning for the modern traveler.
-              </motion.p>
+            <motion.p
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1.5, duration: 0.65, ease: [0.25, 0.8, 0.25, 1] }}
+              className="text-lg sm:text-xl text-emerald-50/85 font-light mb-8 sm:mb-10 max-w-xl leading-relaxed"
+            >
+              Experience the magic of Sri Lanka with curated journeys, local experts, and seamless planning for the modern traveler.
+            </motion.p>
 
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 3, duration: 0.6 }}
-                className="flex flex-wrap gap-4 items-center"
-              >
-                {/* CTA with Pulse Ring */}
-                <div className="relative">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={planRouteAction}
-                    className="relative btn-shimmer ripple-effect text-emerald-950 px-8 py-4 rounded-2xl font-bold text-lg shadow-2xl flex items-center gap-2 group z-10 pulse-ring"
-                  >
-                    <i className="bi bi-rocket-takeoff text-xl" />
-                    Start Your Journey
-                    <i className="bi bi-chevron-right group-hover:translate-x-1 transition-transform" />
-                  </motion.button>
+            <motion.div
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1.85, duration: 0.55, ease: [0.25, 0.8, 0.25, 1] }}
+              className="flex flex-wrap gap-4 items-center"
+            >
+              {/* CTA with Pulse Ring */}
+              <div className="relative">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={planRouteAction}
+                  className="relative btn-shimmer ripple-effect text-emerald-950 px-8 py-4 rounded-2xl font-bold text-lg shadow-2xl flex items-center gap-2 group z-10 pulse-ring"
+                >
+                  <i className="bi bi-rocket-takeoff text-xl" aria-hidden="true" />
+                  Start Your Journey
+                  <i className="bi bi-chevron-right group-hover:translate-x-1 transition-transform" aria-hidden="true" />
+                </motion.button>
+              </div>
+
+              <div className="flex items-center gap-3 px-4">
+                <div className="flex -space-x-3">
+                  {['person', 'person-fill', 'person', 'person-fill'].map((icon, i) => (
+                    <motion.div
+                      key={i}
+                      initial={prefersReducedMotion ? false : { opacity: 0, scale: 0 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 2.05 + i * 0.08, type: 'spring', stiffness: 300 }}
+                      className="w-10 h-10 rounded-full border-2 border-emerald-900 bg-emerald-800 flex items-center justify-center text-white"
+                    >
+                      <i className={`bi bi-${icon}`} aria-hidden="true" />
+                    </motion.div>
+                  ))}
                 </div>
-
-                <div className="flex items-center gap-3 px-4">
-                  <div className="flex -space-x-3">
-                    {['person', 'person-fill', 'person', 'person-fill'].map((icon, i) => (
-                      <motion.div
-                        key={i}
-                        initial={{ opacity: 0, scale: 0 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: 3.2 + i * 0.1, type: 'spring', stiffness: 300 }}
-                        className="w-10 h-10 rounded-full border-2 border-emerald-900 bg-emerald-800 flex items-center justify-center text-white"
-                      >
-                        <i className={`bi bi-${icon}`} />
-                      </motion.div>
-                    ))}
-                  </div>
-                  <div className="text-white/80 text-sm">
-                    <span className="block font-bold">10k+ Travelers</span>
-                    <span className="flex items-center gap-1 text-amber-400">
-                      <i className="bi bi-star-fill text-xs" /> 4.9/5 Rating
-                    </span>
-                  </div>
+                <div className="text-white/80 text-sm">
+                  <span className="block font-bold">10k+ Travelers</span>
+                  <span className="flex items-center gap-1 text-amber-400">
+                    <i className="bi bi-star-fill text-xs" aria-hidden="true" /> 4.9/5 Rating
+                  </span>
                 </div>
-              </motion.div>
+              </div>
             </motion.div>
           </div>
         </motion.div>
@@ -872,18 +901,24 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
             ].map((stat, idx) => (
               <motion.div
                 key={idx}
-                initial={{ opacity: 0, y: 30 }}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 28 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 1.2 + idx * 0.15, duration: 0.6, ease: [0.25, 0.8, 0.25, 1] }}
-                className={`glass-card p-3 sm:p-6 rounded-2xl sm:rounded-3xl flex items-center gap-2 sm:gap-4 ${
-                  idx % 2 === 0 ? 'animate-float' : `animate-float-delay-${idx}`
+                whileHover={prefersReducedMotion ? undefined : { y: -6 }}
+                transition={{ delay: 2.5 + idx * 0.12, duration: 0.55, ease: [0.25, 0.8, 0.25, 1] }}
+                className={`glass-card p-3 sm:p-6 rounded-2xl sm:rounded-3xl flex items-center gap-2 sm:gap-4 transition-shadow duration-300 hover:shadow-xl hover:shadow-emerald-900/10 ${
+                  prefersReducedMotion ? '' : (idx % 2 === 0 ? 'animate-float' : `animate-float-delay-${idx}`)
                 }`}
               >
-                <div className="bg-emerald-900/10 text-emerald-900 p-2 sm:p-3 rounded-xl sm:rounded-2xl flex-shrink-0">
-                  <i className={`bi ${stat.icon} text-lg sm:text-2xl`} />
+                <div className="bg-gradient-to-br from-emerald-900/10 to-amber-500/10 text-emerald-900 p-2 sm:p-3 rounded-xl sm:rounded-2xl flex-shrink-0 border border-emerald-900/5">
+                  <i className={`bi ${stat.icon} text-lg sm:text-2xl`} aria-hidden="true" />
                 </div>
                 <div>
-                  <span className="block text-lg sm:text-2xl font-extrabold text-emerald-900 leading-none">{stat.value}</span>
+                  <AnimatedStat
+                    value={stat.value}
+                    delay={(2.5 + idx * 0.12) * 1000}
+                    duration={1500 + idx * 150}
+                    className="block text-lg sm:text-2xl font-extrabold text-emerald-900 leading-none tabular-nums"
+                  />
                   <span className="text-slate-500 text-xs sm:text-sm font-medium uppercase tracking-wider">{stat.label}</span>
                 </div>
               </motion.div>
@@ -935,8 +970,12 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
                 variants={scaleIn}
                 exit={{ opacity: 0, scale: 0.9 }}
                 whileHover={{ y: -10 }}
-                className="group cursor-pointer"
-                onClick={() => handleDestinationClick(dest)}
+                role="button"
+                tabIndex={0}
+                onClick={() => openDestinationDetails(dest)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDestinationDetails(dest) } }}
+                aria-label={`View destination details for ${dest.name}`}
+                className="group cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700 focus-visible:outline-offset-4 rounded-[32px]"
               >
                 <div className="relative h-[300px] sm:h-[380px] md:h-[450px] rounded-[32px] overflow-hidden shadow-xl mb-6">
                   <img src={dest.image} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={dest.name} />
@@ -967,13 +1006,13 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
                   <div className="absolute bottom-8 left-8 right-8">
                     <h3 className="text-3xl font-serif text-white mb-2">{dest.name}</h3>
                     <p className="text-emerald-50/70 text-sm line-clamp-2 mb-6 leading-relaxed">
-                      {dest.description}
+                      {dest.detail}
                     </p>
-                    <button className="flex items-center gap-2 text-amber-400 font-bold group/btn">
+                    <span className="flex items-center gap-2 text-amber-400 font-bold group/btn">
                       <i className="bi bi-signpost-2-fill" />
                       Explore Routes
                       <i className="bi bi-chevron-right group-hover/btn:translate-x-1 transition-transform" />
-                    </button>
+                    </span>
                   </div>
                 </div>
               </motion.div>
@@ -1042,7 +1081,7 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
                               <img src={d.image} alt={d.name} style={{ width: '100%', height: '110px', objectFit: 'cover', display: 'block' }} />
                               <div style={{ padding: '10px 12px 12px' }}>
                                 <h4 style={{ fontWeight: 700, fontSize: '14px', color: '#064e3b', margin: '0 0 2px 0' }}>{d.name}</h4>
-                                <p style={{ fontSize: '11px', color: '#64748b', margin: 0 }}>{d.description}</p>
+                                <p style={{ fontSize: '11px', color: '#64748b', margin: 0 }}>{d.detail}</p>
                               </div>
                             </div>
                           </Popup>
@@ -1133,19 +1172,11 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
                             </span>
                           </div>
                         </div>
-                        <p className="text-emerald-50/65 mb-6 text-sm sm:text-base leading-relaxed">{selectedDestination.description}</p>
+                        <p className="text-emerald-50/65 mb-6 text-sm sm:text-base leading-relaxed">{selectedDestination.detail}</p>
                         <motion.button
                           whileHover={{ scale: 1.02, boxShadow: '0 12px 32px rgba(251, 191, 36, 0.25)' }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => {
-                            if (onPlanTripWithDest) {
-                              onPlanTripWithDest(selectedDestination)
-                            } else if (onGoToPlanTrip) {
-                              onGoToPlanTrip()
-                            } else if (onStartTour) {
-                              onStartTour()
-                            }
-                          }}
+                          onClick={() => planTripTo(selectedDestination)}
                           className="w-full bg-white text-emerald-950 py-3.5 sm:py-4 rounded-full font-bold text-sm sm:text-base hover:bg-amber-400 hover:text-emerald-950 transition-all duration-300 shadow-lg flex items-center justify-center gap-2.5 group/btn"
                         >
                           <span className="w-8 h-8 rounded-full bg-emerald-950 text-white flex items-center justify-center group-hover/btn:bg-emerald-900 transition-colors">
@@ -1423,6 +1454,13 @@ export default function HomePage({ onStartTour, onGoToPlanTrip, onViewDashboard,
         isOpen={showDetailsModal}
         onClose={() => setShowDetailsModal(false)}
         userRole="user"
+      />
+
+      <RouteDetailsModal
+        key={destinationDetails?.id}
+        route={destinationDetails}
+        onClose={() => setDestinationDetails(null)}
+        onPlanTrip={() => destinationDetails && planTripTo(destinationDetails)}
       />
     </div>
   )

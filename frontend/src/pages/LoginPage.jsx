@@ -1089,7 +1089,7 @@ export default function LoginPage({
               </p>
             </div>
             <p style={{ margin: 0, fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
-              Developed by <span style={{ color: '#475569' }}>IR Mate Pvt</span>
+              Developed by <span style={{ color: '#475569' }}>IR Fusions Pvt.</span>
             </p>
           </div>
         </div>

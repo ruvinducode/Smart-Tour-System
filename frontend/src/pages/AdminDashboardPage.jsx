@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { VEHICLE_OPTIONS } from '../utils/vehicleOptions.js'
 import { 
   approveDriver, 
   getAdminNotifications, 
@@ -41,6 +42,7 @@ import FinanceAdminPage from './FinanceAdminPage.jsx'
 import DashboardChart from '../components/DashboardChart.jsx'
 import DashboardPieChart from '../components/DashboardPieChart.jsx'
 import DashboardStatCard from '../components/DashboardStatCard.jsx'
+import RatingStars from '../components/RatingStars.jsx'
 import Footer from '../components/Footer.jsx'
 import {
   buildLast7DaysChart,
@@ -55,7 +57,11 @@ const tourStatusStyle = {
   confirmed:            { label: 'Confirmed',    bg: 'bg-emerald-100', text: 'text-emerald-800'},
   driver_approved:      { label: 'Approved',     bg: 'bg-teal-100',    text: 'text-teal-800'   },
   price_sent_by_driver: { label: 'Negotiating',  bg: 'bg-amber-100',   text: 'text-amber-800'  },
+  en_route:             { label: 'En Route',     bg: 'bg-sky-100',     text: 'text-sky-800'    },
+  arrived:              { label: 'Arrived',      bg: 'bg-cyan-100',    text: 'text-cyan-800'   },
+  ongoing:              { label: 'Ongoing',      bg: 'bg-orange-100',  text: 'text-orange-800' },
   rejected:             { label: 'Rejected',     bg: 'bg-rose-100',    text: 'text-rose-700'   },
+  cancelled:            { label: 'Cancelled',    bg: 'bg-slate-200',   text: 'text-slate-600'  },
   completed:            { label: 'Completed',    bg: 'bg-indigo-100',  text: 'text-indigo-800' },
 }
 
@@ -66,6 +72,22 @@ function TourBadge({ status }) {
       {s.label}
     </span>
   )
+}
+
+// Groups every tour status into a small set of admin-facing categories so
+// the Tours section reads as an organized pipeline instead of an unordered
+// dump — order here is also the display order (active work first).
+const TOUR_CATEGORIES = [
+  { id: 'unassigned',  label: 'Unassigned',  icon: 'bi-inbox',            accent: 'blue',    statuses: ['planned'] },
+  { id: 'negotiating', label: 'Negotiating', icon: 'bi-chat-dots-fill',   accent: 'amber',   statuses: ['price_sent_by_driver'] },
+  { id: 'confirmed',   label: 'Confirmed',   icon: 'bi-check-circle-fill', accent: 'teal',   statuses: ['confirmed', 'driver_approved'] },
+  { id: 'in_progress', label: 'In Progress', icon: 'bi-car-front-fill',   accent: 'orange',  statuses: ['en_route', 'arrived', 'ongoing'] },
+  { id: 'completed',   label: 'Completed',   icon: 'bi-trophy-fill',     accent: 'indigo',  statuses: ['completed'] },
+  { id: 'cancelled',   label: 'Cancelled',   icon: 'bi-x-circle-fill',   accent: 'rose',    statuses: ['cancelled', 'rejected'] },
+]
+
+function categorizeTour(tour) {
+  return TOUR_CATEGORIES.find((c) => c.statuses.includes(tour.status)) || null
 }
 
 const NAV_ITEMS = [
@@ -97,6 +119,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
   const [selectedTourId, setSelectedTourId] = useState(null)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedDriver, setSelectedDriver] = useState(null)
+  const [driverModalVariant, setDriverModalVariant] = useState('pending')
   const [showDriverModal, setShowDriverModal] = useState(false)
   
   // Confirmation Modal State
@@ -112,8 +135,10 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [userSearch, setUserSearch] = useState('')
   const [driverSearch, setDriverSearch] = useState('')
+  const [driverVehicleFilter, setDriverVehicleFilter] = useState('all')
   const [pendingSearch, setPendingSearch] = useState('')
   const [tourSearch, setTourSearch] = useState('')
+  const [tourCategory, setTourCategory] = useState('all')
   const [trackingTour, setTrackingTour] = useState(null)
   const [editingUser, setEditingUser] = useState(null)
   const [editingDriver, setEditingDriver] = useState(null)
@@ -330,18 +355,52 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
     () => filterBySearch(users, userSearch, ['name', 'email', 'phone', 'country']),
     [users, userSearch],
   )
-  const filteredDrivers = useMemo(
+  const searchedDrivers = useMemo(
     () => filterBySearch(allDrivers, driverSearch, ['name', 'email', 'phone', 'vehicle', 'vehicle_number', 'nic_number']),
     [allDrivers, driverSearch],
+  )
+  const driverVehicleCounts = useMemo(() => {
+    const counts = {}
+    for (const d of searchedDrivers) {
+      const type = (d.vehicle || '').trim()
+      if (type) counts[type] = (counts[type] || 0) + 1
+    }
+    return counts
+  }, [searchedDrivers])
+  const filteredDrivers = useMemo(
+    () => driverVehicleFilter === 'all'
+      ? searchedDrivers
+      : searchedDrivers.filter((d) => (d.vehicle || '').trim() === driverVehicleFilter),
+    [searchedDrivers, driverVehicleFilter],
   )
   const filteredPending = useMemo(
     () => filterBySearch(pendingDrivers, pendingSearch, ['name', 'email', 'phone', 'vehicle', 'nic_number', 'home_district']),
     [pendingDrivers, pendingSearch],
   )
-  const filteredTours = useMemo(
+  const searchedTours = useMemo(
     () => filterToursBySearch(tourPlans, tourSearch),
     [tourPlans, tourSearch],
   )
+  const tourCategoryCounts = useMemo(() => {
+    const counts = {}
+    for (const tour of searchedTours) {
+      const cat = categorizeTour(tour)
+      if (cat) counts[cat.id] = (counts[cat.id] || 0) + 1
+    }
+    return counts
+  }, [searchedTours])
+  const filteredTours = useMemo(
+    () => tourCategory === 'all' ? searchedTours : searchedTours.filter((t) => categorizeTour(t)?.id === tourCategory),
+    [searchedTours, tourCategory],
+  )
+  // Grouped view (category === 'all'): sections in TOUR_CATEGORIES order,
+  // active work first, skipping empty groups so it stays uncluttered.
+  const groupedTours = useMemo(() => {
+    if (tourCategory !== 'all') return null
+    return TOUR_CATEGORIES
+      .map((cat) => ({ ...cat, tours: searchedTours.filter((t) => t.status && cat.statuses.includes(t.status)) }))
+      .filter((g) => g.tours.length > 0)
+  }, [searchedTours, tourCategory])
 
   const analytics = useMemo(
     () => computeAdminAnalytics(tourPlans, users, allDrivers, pendingDrivers, approvedDrivers),
@@ -692,6 +751,32 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                 onSearchChange={setDriverSearch}
                 placeholder="Search name, vehicle, NIC…"
               />
+
+              {/* Vehicle-type filter pills */}
+              <div className="flex flex-wrap gap-2 mb-6">
+                <button
+                  type="button"
+                  onClick={() => setDriverVehicleFilter('all')}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-black transition ${
+                    driverVehicleFilter === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  All <span className="opacity-70">({searchedDrivers.length})</span>
+                </button>
+                {VEHICLE_OPTIONS.filter((v) => driverVehicleCounts[v.id]).map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => setDriverVehicleFilter(v.id)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-black transition ${
+                      driverVehicleFilter === v.id ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <i className="bi bi-car-front-fill" /> {v.title} <span className="opacity-70">({driverVehicleCounts[v.id]})</span>
+                  </button>
+                ))}
+              </div>
+
               {loading ? (
                 <div className="py-20 text-center">
                   <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-orange-500" />
@@ -706,7 +791,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                       driver={d}
                       variant="all"
                       busy={approvingId === d.id || savingEntity}
-                      onView={(driver) => { setSelectedDriver(driver); setShowDriverModal(true) }}
+                      onView={(driver) => { setSelectedDriver(driver); setDriverModalVariant(driver.is_approved ? 'approved' : 'pending'); setShowDriverModal(true) }}
                       onEdit={setEditingDriver}
                       onApprove={handleApprove}
                       onDeactivate={handleDeactivate}
@@ -745,7 +830,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                       driver={driver}
                       variant="pending"
                       busy={approvingId === driver.id || savingEntity}
-                      onView={(d) => { setSelectedDriver(d); setShowDriverModal(true) }}
+                      onView={(d) => { setSelectedDriver(d); setDriverModalVariant('pending'); setShowDriverModal(true) }}
                       onEdit={setEditingDriver}
                       onApprove={handleApprove}
                       onDeactivate={handleDeactivate}
@@ -781,6 +866,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                           <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✓ Active</span>
                         </div>
                       </div>
+                      <RatingStars rating={driver.rating} totalRatings={driver.total_ratings} className="mb-3" />
                       <div className="space-y-1.5 text-xs text-slate-500 mb-4">
                         <p>📧 {driver.email}</p>
                         <p>📱 {driver.phone}</p>
@@ -788,7 +874,7 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                       </div>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => { setSelectedDriver(driver); setShowDriverModal(true) }}
+                          onClick={() => { setSelectedDriver(driver); setDriverModalVariant('approved'); setShowDriverModal(true) }}
                           className="flex-1 rounded-xl bg-slate-100 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200 transition"
                         >
                           🔍 Details
@@ -821,12 +907,67 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
                 onSearchChange={setTourSearch}
                 placeholder="Search tour #, user, driver, status…"
               />
+
+              {/* Category filter pills — same pipeline order as the grouped
+                  sections below, so switching to a single category never
+                  reorders anything the admin already learned to expect. */}
+              <div className="flex flex-wrap gap-2 mb-6">
+                <button
+                  type="button"
+                  onClick={() => setTourCategory('all')}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-black transition ${
+                    tourCategory === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  All <span className="opacity-70">({searchedTours.length})</span>
+                </button>
+                {TOUR_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setTourCategory(cat.id)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-black transition ${
+                      tourCategory === cat.id ? 'bg-slate-900 text-white' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <i className={`bi ${cat.icon}`} /> {cat.label} <span className="opacity-70">({tourCategoryCounts[cat.id] || 0})</span>
+                  </button>
+                ))}
+              </div>
+
               {loading ? (
                 <div className="py-20 text-center">
                   <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-violet-600" />
                 </div>
               ) : filteredTours.length === 0 ? (
                 <AdminEmptyState icon="bi-map" title="No tours found" message="Try adjusting your search or check back when new bookings arrive." />
+              ) : groupedTours ? (
+                <div className="space-y-10">
+                  {groupedTours.map((group) => (
+                    <div key={group.id}>
+                      <div className="flex items-center gap-2 mb-4">
+                        <i className={`bi ${group.icon} text-slate-400`} />
+                        <h3 className="text-sm font-black text-slate-700 uppercase tracking-wider">{group.label}</h3>
+                        <span className="text-xs font-bold text-slate-400">({group.tours.length})</span>
+                      </div>
+                      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+                        {group.tours.map((tour) => (
+                          <AdminTourCard
+                            key={tour.id}
+                            tour={tour}
+                            busy={approvingId === tour.id || savingEntity}
+                            onViewDetails={(t) => {
+                              setSelectedTourId(t.id)
+                              setShowDetailsModal(true)
+                            }}
+                            onTrack={setTrackingTour}
+                            onDelete={handleDeleteTour}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
                   {filteredTours.map((tour) => (
@@ -1070,6 +1211,8 @@ export default function AdminDashboardPage({ token, userName, onLogout }) {
         onClose={() => setShowDriverModal(false)}
         onApprove={handleApprove}
         approving={approvingId === selectedDriver?.id}
+        token={token}
+        variant={driverModalVariant}
       />
 
       <ConfirmationModal

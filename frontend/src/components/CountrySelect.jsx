@@ -1,6 +1,59 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { COUNTRIES } from '../utils/countries.js'
 
+// Self-contained base look for the input box, independent of any host page's
+// stylesheet. This mirrors LoginPage.jsx's `.lp-input`/`.lp-input-select`
+// pixel-for-pixel so the registration form is unaffected, but CountrySelect
+// no longer depends on LoginPage's module having run first — a page that
+// mounts this component directly (e.g. on a hard reload straight into the
+// dashboard) would otherwise render an unstyled, broken-looking combobox.
+// Host pages override via the `className` prop (Tailwind's `!` utilities win
+// regardless of stylesheet order).
+const BASE_CSS = `
+.cs-input {
+  width: 100%;
+  background-color: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 13px 14px 13px 42px;
+  font-size: 13.5px;
+  color: #1c1917;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.cs-input:focus {
+  border-color: #064e3b;
+  background-color: #fff;
+  box-shadow: 0 0 0 3px rgba(6,78,59,0.1);
+}
+.cs-input::placeholder { color: #94a3b8; }
+.cs-input[aria-invalid="true"] {
+  border-color: #f43f5e;
+  background-color: #fff5f6;
+}
+.cs-input[aria-invalid="true"]:focus {
+  border-color: #e11d48;
+  box-shadow: 0 0 0 3px rgba(225,29,72,0.12);
+}
+.cs-input-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 40px;
+}
+.cs-scroll::-webkit-scrollbar { width: 4px; }
+.cs-scroll::-webkit-scrollbar-thumb { background: rgba(6,78,59,0.15); border-radius: 4px; }
+`
+if (typeof document !== 'undefined' && !document.getElementById('cs-base-css')) {
+  const styleTag = document.createElement('style')
+  styleTag.id = 'cs-base-css'
+  styleTag.textContent = BASE_CSS
+  document.head.appendChild(styleTag)
+}
+
 // Searchable country dropdown. Emits a plain country-name string via
 // onChange, matching exactly what the backend has always accepted for
 // User.country — this is a presentation-layer change only.
@@ -10,6 +63,7 @@ import { COUNTRIES } from '../utils/countries.js'
 // so screen readers announce options during arrow-key navigation.
 export default function CountrySelect({
   id,
+  name,
   value,
   onChange,
   onBlur,
@@ -142,6 +196,7 @@ export default function CountrySelect({
     <div ref={containerRef} style={{ position: 'relative' }}>
       <input
         id={inputId}
+        name={name}
         type="text"
         role="combobox"
         aria-expanded={open}
@@ -151,7 +206,7 @@ export default function CountrySelect({
         aria-invalid={invalid || undefined}
         aria-describedby={describedBy}
         required={required && !value}
-        className={`lp-input lp-input-select ${className}`}
+        className={`cs-input cs-input-select ${className}`}
         placeholder={open && value ? value : placeholder}
         value={open ? query : (value || '')}
         onFocus={handleOpen}
@@ -172,7 +227,7 @@ export default function CountrySelect({
           id={listboxId}
           role="listbox"
           aria-label="Country"
-          className="lp-scroll"
+          className="cs-scroll"
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',

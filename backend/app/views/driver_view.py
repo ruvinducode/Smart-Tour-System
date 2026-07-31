@@ -24,4 +24,6 @@ def driver_public_summary(driver):
         "vehicle_type": driver.vehicle_type,
         "capacity": driver.capacity,
         "vehicle_front_image": driver.vehicle_front_image,
+        "rating": driver.rating,
+        "total_ratings": driver.total_ratings,
     }

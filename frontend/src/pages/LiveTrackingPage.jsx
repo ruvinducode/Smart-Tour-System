@@ -1,9 +1,40 @@
 import { useState, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { getLiveDriverLocation, getTourDetails, driverUploadUrl, cancelTour, submitFeedback, getRoute } from '../services/api.js'
+import { getLiveDriverLocation, getTourDetails, driverUploadUrl, cancelTour, submitFeedback, getRoute, addTourLocation, removeTourLocation } from '../services/api.js'
 import CancellationModal from '../components/CancellationModal.jsx'
 import FeedbackModal from '../components/FeedbackModal.jsx'
+import RatingStars from '../components/RatingStars.jsx'
+
+// Same geocoder/bias/filtering approach used for initial trip planning
+// (Home.jsx) — duplicated here rather than shared, so this page doesn't
+// depend on Home.jsx's internals just for one search box.
+async function searchSriLankaPlaces(query) {
+  const params = new URLSearchParams({
+    q: query,
+    limit: '6',
+    lang: 'en',
+    lat: '7.8731',
+    lon: '80.7718',
+    bbox: '79.3,5.7,82.1,10.0',
+  })
+  const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`)
+  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+  const data = await response.json()
+  const features = Array.isArray(data.features) ? data.features : []
+  const NON_ROUTABLE_TYPES = new Set(['state', 'county', 'country', 'region'])
+  return features
+    .filter((f) => (f.properties?.countrycode || '').toUpperCase() === 'LK')
+    .filter((f) => !NON_ROUTABLE_TYPES.has(f.properties?.type))
+    .map((f) => {
+      const p = f.properties || {}
+      const [lon, lat] = f.geometry?.coordinates || []
+      const nameParts = [p.name, p.street, p.district, p.city || p.county, p.state].filter(Boolean)
+      const display = [...new Set(nameParts)].join(', ') || p.name || 'Unnamed location'
+      return { display_name: display, lat: String(lat), lon: String(lon) }
+    })
+    .filter((r) => Number.isFinite(parseFloat(r.lat)) && Number.isFinite(parseFloat(r.lon)))
+}
 
 // Custom Pin Icons with elegant design
 const userIcon = new L.Icon({
@@ -59,6 +90,16 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [submittingFeedback, setSubmittingFeedback] = useState(false)
+
+  // Trip-stops editing — only meaningful while the tour is actually ongoing
+  // (matches the backend's own guard on the add/remove-stop endpoints).
+  const [showAddStop, setShowAddStop] = useState(false)
+  const [stopQuery, setStopQuery] = useState('')
+  const [stopResults, setStopResults] = useState([])
+  const [stopSearching, setStopSearching] = useState(false)
+  const [stopSaving, setStopSaving] = useState(false)
+  const [stopError, setStopError] = useState('')
+  const stopSearchTimerRef = useRef(null)
 
   const imgUrl = (path) => driverUploadUrl(path)
 
@@ -224,8 +265,60 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
     }
   }
 
+  const handleStopSearchChange = (value) => {
+    setStopQuery(value)
+    if (stopSearchTimerRef.current) clearTimeout(stopSearchTimerRef.current)
+    if (!value.trim()) { setStopResults([]); return }
+    stopSearchTimerRef.current = setTimeout(async () => {
+      setStopSearching(true)
+      try {
+        const results = await searchSriLankaPlaces(value)
+        setStopResults(results)
+      } catch {
+        setStopResults([])
+      } finally {
+        setStopSearching(false)
+      }
+    }, 400)
+  }
+
+  const handleAddStop = async (place) => {
+    setStopSaving(true)
+    setStopError('')
+    try {
+      const updated = await addTourLocation(tourId, {
+        place_name: place.display_name,
+        latitude: parseFloat(place.lat),
+        longitude: parseFloat(place.lon),
+      }, token)
+      setTourDetails((prev) => prev ? { ...prev, locations: updated.locations, total_distance_km: updated.total_distance_km, estimated_price: updated.estimated_price } : prev)
+      setShowAddStop(false)
+      setStopQuery('')
+      setStopResults([])
+    } catch (err) {
+      setStopError(err.message || 'Could not add stop')
+    } finally {
+      setStopSaving(false)
+    }
+  }
+
+  const handleRemoveStop = async (locationId) => {
+    setStopSaving(true)
+    setStopError('')
+    try {
+      const updated = await removeTourLocation(tourId, locationId, token)
+      setTourDetails((prev) => prev ? { ...prev, locations: updated.locations, total_distance_km: updated.total_distance_km, estimated_price: updated.estimated_price } : prev)
+    } catch (err) {
+      setStopError(err.message || 'Could not remove stop')
+    } finally {
+      setStopSaving(false)
+    }
+  }
+
   const userCenter = userLat && userLng ? [userLat, userLng] : [6.9271, 79.8612]
   const driver = tourDetails?.driver
+  const canEditStops = tourDetails?.status === 'ongoing'
+  const stops = Array.isArray(tourDetails?.locations) ? tourDetails.locations : []
 
   return (
     <div className="flex h-screen flex-col bg-white font-['Inter',sans-serif] overflow-hidden text-slate-900">
@@ -290,6 +383,24 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
               )}
             </>
           )}
+
+          {/* Remaining stops (pickup at index 0 is already the "Your Location"
+              marker above) — lets the traveler see exactly what they're
+              editing, not just a list. */}
+          {stops.slice(1).map((stop, idx) => (
+            <Marker
+              key={stop.id}
+              position={[stop.latitude, stop.longitude]}
+              icon={new L.divIcon({
+                className: 'custom-stop-icon',
+                html: `<div style="background-color:#0f172a;width:26px;height:26px;border-radius:50%;border:3px solid white;display:flex;align-items:center;justify-content:center;font-size:10px;color:white;font-weight:900;box-shadow:0 4px 10px rgba(0,0,0,0.15);">${idx + 2}</div>`,
+                iconSize: [26, 26],
+                iconAnchor: [13, 13],
+              })}
+            >
+              <Popup>{stop.place_name}</Popup>
+            </Marker>
+          ))}
         </MapContainer>
 
         {/* ── Top ETA Badge ── */}
@@ -360,10 +471,7 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
                 {/* Name & rating */}
                 <div className="flex-1 min-w-0">
                   <h4 className="text-lg font-black text-slate-900 tracking-tight leading-none mb-1 truncate">{driver?.name || 'Assigned Driver'}</h4>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-amber-400 text-xs tracking-tight">★★★★★</span>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">4.9</span>
-                  </div>
+                  <RatingStars rating={driver?.rating} totalRatings={driver?.total_ratings} />
                 </div>
 
                 {/* Vehicle image circle */}
@@ -415,8 +523,76 @@ export default function LiveTrackingPage({ tourId, token, userLat, userLng, onBa
                 </div>
               </div>
 
+              {/* Trip stops — editable only while the tour is genuinely
+                  ongoing, matching the backend's own guard. */}
+              {canEditStops && stops.length > 0 && (
+                <div className="mb-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-[0.15em]">Trip Stops</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddStop((v) => !v)}
+                      className="text-[10px] font-black text-orange-600 bg-orange-50 px-3 py-1.5 rounded-full hover:bg-orange-100 transition uppercase tracking-widest"
+                    >
+                      <i className="bi bi-plus-lg mr-1" /> Add Stop
+                    </button>
+                  </div>
 
-              <button 
+                  <div className="space-y-2">
+                    {stops.map((stop, idx) => (
+                      <div key={stop.id} className="flex items-center gap-3 bg-slate-50 rounded-xl px-4 py-2.5">
+                        <span className={`h-6 w-6 rounded-md flex items-center justify-center text-[10px] font-black text-white shrink-0 ${idx === 0 ? 'bg-emerald-500' : 'bg-slate-400'}`}>{idx + 1}</span>
+                        <span className="flex-1 min-w-0 text-sm font-bold text-slate-700 truncate">{stop.place_name || `${stop.latitude?.toFixed(3)}, ${stop.longitude?.toFixed(3)}`}</span>
+                        {idx === 0 ? (
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">Pickup</span>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={stopSaving || stops.length <= 2}
+                            onClick={() => handleRemoveStop(stop.id)}
+                            className="h-7 w-7 rounded-lg flex items-center justify-center text-slate-300 hover:bg-rose-50 hover:text-rose-500 transition disabled:opacity-30"
+                          >
+                            <i className="bi bi-trash text-xs" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {showAddStop && (
+                    <div className="mt-3 relative">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={stopQuery}
+                        onChange={(e) => handleStopSearchChange(e.target.value)}
+                        placeholder="Search a place to add…"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold outline-none focus:border-orange-400"
+                      />
+                      {stopSearching && <p className="text-[10px] text-slate-400 mt-1 px-1">Searching…</p>}
+                      {stopResults.length > 0 && (
+                        <ul className="mt-1 max-h-40 overflow-y-auto rounded-xl border border-slate-100 bg-white shadow-lg">
+                          {stopResults.map((r, i) => (
+                            <li key={i}>
+                              <button
+                                type="button"
+                                disabled={stopSaving}
+                                onClick={() => handleAddStop(r)}
+                                className="w-full text-left px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-orange-50 transition disabled:opacity-50"
+                              >
+                                {r.display_name}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {stopError && <p className="text-[10px] font-bold text-rose-500 mt-2">{stopError}</p>}
+                </div>
+              )}
+
+              <button
                 onClick={() => setShowCancelModal(true)}
                 className="w-full py-4 bg-rose-500/10 text-rose-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all active:scale-95 border border-rose-100"
               >

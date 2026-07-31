@@ -2,19 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getMyDriverPayments } from '../../services/api.js'
 import { formatCurrency, getTourEarnings } from '../../utils/dashboardAnalytics.js'
 import DriverSectionHeader from './DriverSectionHeader.jsx'
+import { useDriverLang } from '../../i18n/DriverLanguageContext.jsx'
 
 const STATUS_STYLES = {
-  pending: { label: 'Pending', cls: 'bg-amber-50 text-amber-700 ring-amber-100' },
-  processing: { label: 'Processing', cls: 'bg-blue-50 text-blue-700 ring-blue-100' },
-  paid: { label: 'Paid', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-100' },
-  cancelled: { label: 'Cancelled', cls: 'bg-rose-50 text-rose-600 ring-rose-100' },
+  pending: { labelKey: 'payments.pending', cls: 'bg-amber-50 text-amber-700 ring-amber-100' },
+  processing: { labelKey: 'payments.processing', cls: 'bg-blue-50 text-blue-700 ring-blue-100' },
+  paid: { labelKey: 'payments.paid', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-100' },
+  cancelled: { labelKey: 'payments.cancelled', cls: 'bg-rose-50 text-rose-600 ring-rose-100' },
 }
 
 function PaymentStatusBadge({ status }) {
-  const s = STATUS_STYLES[status] || { label: status, cls: 'bg-slate-100 text-slate-600 ring-slate-200' }
+  const { t } = useDriverLang()
+  const s = STATUS_STYLES[status]
   return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ring-1 ${s.cls}`}>
-      {s.label}
+    <span className={`inline-flex items-center rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider ring-1 ${s ? s.cls : 'bg-slate-100 text-slate-600 ring-slate-200'}`}>
+      {s ? t(s.labelKey) : status}
     </span>
   )
 }
@@ -77,24 +79,26 @@ export default function DriverPaymentsSection({ token, tourRequests, analytics }
     }
   }, [rows])
 
+  const { t } = useDriverLang()
+
   return (
     <div className="space-y-8">
       <DriverSectionHeader
-        title="Payments & Earnings"
-        subtitle="Track your payouts, service fees, and payment status for every completed tour."
+        title={t('payments.title')}
+        subtitle={t('payments.subtitle')}
         icon="bi-wallet2"
         accent="slate"
         count={rows.length}
-        countLabel="records"
+        countLabel={t('payments.records')}
       />
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {[
-          { label: 'Total Earned', value: formatCurrency(summary.totalEarned || analytics.totalEarnings), icon: 'bi-cash-stack', color: 'emerald' },
-          { label: 'Pending Payout', value: formatCurrency(summary.pendingPayout || analytics.pendingEarnings), icon: 'bi-hourglass-split', color: 'amber' },
-          { label: 'Paid Trips', value: summary.paidCount, icon: 'bi-check-circle-fill', color: 'blue' },
-          { label: 'Awaiting Payment', value: summary.pendingCount, icon: 'bi-clock-history', color: 'orange' },
+          { label: t('payments.totalEarned'), value: formatCurrency(summary.totalEarned || analytics.totalEarnings), icon: 'bi-cash-stack', color: 'emerald' },
+          { label: t('payments.pendingPayout'), value: formatCurrency(summary.pendingPayout || analytics.pendingEarnings), icon: 'bi-hourglass-split', color: 'amber' },
+          { label: t('payments.paidTrips'), value: summary.paidCount, icon: 'bi-check-circle-fill', color: 'blue' },
+          { label: t('payments.awaitingPayment'), value: summary.pendingCount, icon: 'bi-clock-history', color: 'orange' },
         ].map((item) => (
           <div key={item.label} className="rounded-[1.5rem] bg-white border border-slate-100 p-5 shadow-sm hover:shadow-md transition-shadow">
             <div className={`h-10 w-10 rounded-xl flex items-center justify-center mb-3 ${
@@ -116,18 +120,18 @@ export default function DriverPaymentsSection({ token, tourRequests, analytics }
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(249,115,22,0.3),transparent_50%)]" />
         <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-6">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-orange-300/80">Driver Wallet</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-orange-300/80">{t('payments.driverWallet')}</p>
             <p className="text-4xl font-black mt-2 tracking-tight">{formatCurrency(summary.totalEarned || analytics.totalEarnings)}</p>
-            <p className="text-sm text-slate-300 mt-2 font-medium">Lifetime payouts from completed tours</p>
+            <p className="text-sm text-slate-300 mt-2 font-medium">{t('payments.lifetimePayouts')}</p>
           </div>
           <div className="flex gap-3">
             <div className="rounded-2xl bg-white/10 backdrop-blur border border-white/15 px-5 py-4 text-center">
               <p className="text-xl font-black">{analytics.completedCount}</p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mt-1">Completed</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mt-1">{t('payments.completed')}</p>
             </div>
             <div className="rounded-2xl bg-white/10 backdrop-blur border border-white/15 px-5 py-4 text-center">
               <p className="text-xl font-black">{formatCurrency(analytics.avgPerTrip)}</p>
-              <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mt-1">Avg / Trip</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mt-1">{t('payments.avgPerTrip')}</p>
             </div>
           </div>
         </div>
@@ -136,34 +140,34 @@ export default function DriverPaymentsSection({ token, tourRequests, analytics }
       {/* Filter + table */}
       <div className="rounded-[2rem] bg-white border border-slate-100 shadow-sm overflow-hidden">
         <div className="px-6 sm:px-8 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h3 className="text-lg font-black text-slate-900">Payment History</h3>
+          <h3 className="text-lg font-black text-slate-900">{t('payments.history')}</h3>
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-orange-400"
           >
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="processing">Processing</option>
-            <option value="paid">Paid</option>
-            <option value="cancelled">Cancelled</option>
+            <option value="">{t('payments.allStatuses')}</option>
+            <option value="pending">{t('payments.pending')}</option>
+            <option value="processing">{t('payments.processing')}</option>
+            <option value="paid">{t('payments.paid')}</option>
+            <option value="cancelled">{t('payments.cancelled')}</option>
           </select>
         </div>
 
         {loading ? (
-          <div className="py-16 text-center text-slate-400 font-bold text-sm">Loading payments…</div>
+          <div className="py-16 text-center text-slate-400 font-bold text-sm">{t('payments.loading')}</div>
         ) : filtered.length === 0 ? (
           <div className="py-16 text-center px-8">
             <i className="bi bi-wallet2 text-4xl text-slate-200 mb-3 block" />
-            <p className="font-black text-slate-600">No payment records yet</p>
-            <p className="text-sm text-slate-400 mt-1">Payments appear after tours are confirmed or completed.</p>
+            <p className="font-black text-slate-600">{t('payments.noneYet')}</p>
+            <p className="text-sm text-slate-400 mt-1">{t('payments.noneYetHint')}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/80">
-                  {['Tour', 'Agreed Price', 'Service Fee', 'Your Payout', 'Status', 'Date'].map((h) => (
+                  {[t('payments.col.tour'), t('payments.col.agreedPrice'), t('payments.col.serviceFee'), t('payments.col.yourPayout'), t('payments.col.status'), t('payments.col.date')].map((h) => (
                     <th key={h} className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-slate-400">{h}</th>
                   ))}
                 </tr>
@@ -173,7 +177,7 @@ export default function DriverPaymentsSection({ token, tourRequests, analytics }
                   <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
                       <p className="text-sm font-black text-slate-900">#{row.tour_id}</p>
-                      {row.booking_id && <p className="text-[10px] text-slate-400 font-semibold">Booking {row.booking_id}</p>}
+                      {row.booking_id && <p className="text-[10px] text-slate-400 font-semibold">{t('payments.booking', { id: row.booking_id })}</p>}
                     </td>
                     <td className="px-6 py-4 text-sm font-bold text-slate-700">{formatCurrency(row.final_agreed_price)}</td>
                     <td className="px-6 py-4 text-sm font-semibold text-rose-500">−{formatCurrency(row.driver_service_fee)}</td>
